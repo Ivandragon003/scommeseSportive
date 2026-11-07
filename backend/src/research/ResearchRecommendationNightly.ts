@@ -4,7 +4,7 @@ import { loadNightlyPolicy, nextNightlyBoundary, NightlyPolicy, NightlySummary, 
 import { ResearchRuntime } from './ResearchRuntime';
 import { ResearchRecommendationRuntime } from './ResearchRecommendationRuntime';
 import type { FixtureAdmissionCheck } from './ResearchRecommendationRuntime';
-import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
+import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fundedExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
 import type { RecommendationCommit, RecommendationJob, RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
 import { TECHNICAL_RECOVERY_PROTOCOL, TECHNICAL_RECOVERY_REASONS, TechnicalRecoveryPlan } from './ResearchRecommendationRecovery';
 import { researchHash } from './ResearchStore';
@@ -16,6 +16,7 @@ type RecommendationDb = DatabaseService;
 type RecommendationPreparer = Pick<ResearchRecommendationRuntime, 'beginCohort' | 'prepare' | 'getQuotaStatus'>;
 export type RecommendationNightlySummary = NightlySummary & {
   protocol: string; policyHash: string; diagnosticRunId: string | null; decisionCount: number;
+  accountingMode: 'FUNDED' | 'PAPER' | 'LEGACY';
   challengerAdoptionErrors?: number; challengerCollectionErrors?: number; deploymentC?: ChallengerExecutionState;
   retryableMatches?: number;
   failedStage?: 'setup_or_preparation' | 'commit';
@@ -30,7 +31,7 @@ type Options = {
   policy?: NightlyPolicy; clock?: () => Date; runId?: string; leaseMs?: number; dataGatesPassed?: boolean;
   diagnosticPreparer?: DiagnosticOptions['preparer']; researchRuntime?: ResearchRuntime; runtime?: RecommendationPreparer;
   technicalRecovery?: TechnicalRecoveryPlan;
-  fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean;
+  fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean; fundedMode?: boolean;
   reviewChallengerAdoption?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean;
 };
 
@@ -79,6 +80,8 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
 
 /** Diagnostic origins remain immutable; execution uses a separately versioned paper or historical wallet policy. */
 export async function runRecommendationNightly(db: RecommendationDb, options: Options = {}): Promise<RecommendationNightlySummary> {
+  if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
+  const selectionMode = options.paperMode === true || options.fundedMode === true;
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()
@@ -88,17 +91,18 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     endedAt: null, windowEndAt, analyzedMatches: 0, registeredBets: 0, skippedMatches: 0, missedMatches: 0,
     errors: 0, apiErrors: 0, settlement: { checked: 0, settled: 0, unresolved: 0 }, quota: null, reasonCounts: {},
     protocol: VIRTUAL_RECOMMENDATION_POLICY.version, policyHash: researchHash(VIRTUAL_RECOMMENDATION_POLICY),
-    diagnosticRunId: null, decisionCount: 0 };
+    diagnosticRunId: null, decisionCount: 0,
+    accountingMode: options.fundedMode ? 'FUNDED' : options.paperMode ? 'PAPER' : 'LEGACY' };
   const reason = (code: string) => { summary.reasonCounts[code] = (summary.reasonCounts[code] ?? 0) + 1; };
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
   let deploymentC = fallbackChallengerState();
-  const executionPolicyFor = options.paperMode ? paperExecutionPolicy : challengerExecutionPolicy;
+  const executionPolicyFor = options.fundedMode ? fundedExecutionPolicy : options.paperMode ? paperExecutionPolicy : challengerExecutionPolicy;
   let executionPolicy: RecommendationPolicyDescriptor = executionPolicyFor(deploymentC);
   let sharedRuntime = options.researchRuntime;
   const diagnosticPreparer = options.diagnosticPreparer ?? {
     prepareNightly: (job: Parameters<ResearchRuntime['prepareNightly']>[0]) => {
-      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: options.paperMode,
+      sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: selectionMode,
         candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment,
         allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
       return sharedRuntime.prepareNightly(job);
@@ -149,7 +153,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (deploymentC.source !== 'fallback') summary.deploymentC = deploymentC;
     sharedRuntime?.pinChallengerDeployment(deploymentC.deployment);
     const diagnostic = await runResearchNightly(db, { policy, clock, runId, leaseMs: options.leaseMs,
-      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode,
+      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode, fundedMode: options.fundedMode,
       fixtureAdmission: options.fixtureAdmission ? (matchId, at) => options.fixtureAdmission!(matchId, at, deploymentC) : undefined });
     summary.diagnosticRunId = diagnostic.runId;
     summary.windowEndAt = diagnostic.windowEndAt;
@@ -177,7 +181,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (registered.hash !== summary.policyHash) throw new Error('recommendation_policy_identity_invalid');
     const now = clock().toISOString();
     let fixtures = (await db.getUpcomingMatches({ nowIso: now, untilIso: summary.windowEndAt,
-      ...(options.paperMode ? { unbounded: true } : { limit: 10000 }) }))
+      ...(selectionMode ? { unbounded: true } : { limit: 10000 }) }))
       .filter((row) => TOP5_COMPETITIONS.includes(row.competition) && row.home_goals == null && row.away_goals == null
         && Date.parse(row.date) > Date.parse(now) && Date.parse(row.date) <= Date.parse(summary.windowEndAt));
     if (options.technicalRecovery) {
@@ -201,10 +205,10 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (claim.busy || claim.skipped.some((item) => item.reason === 'execution_lease_active')) throw new Error('recommendation_execution_busy');
     if (claim.jobs.length) {
       if (!runtime) {
-        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: options.paperMode,
+        sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: selectionMode,
           candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment,
         allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
-        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC, paperMode: options.paperMode,
+        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC, paperMode: options.paperMode, fundedMode: options.fundedMode,
           fixtureAdmission: options.fixtureAdmission, requireExistingCalibration: options.requireExistingCalibration });
       }
       runtime.beginCohort(runId, deploymentC);

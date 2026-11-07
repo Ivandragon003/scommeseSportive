@@ -30,7 +30,6 @@ import AppCalendarInput from '../components/common/AppCalendarInput';
 import { useWalletArchive } from '../features/wallets/useWalletArchive';
 import ArchiveSummary from '../features/wallets/ArchiveSummary';
 import QualityFilters from '../features/wallets/QualityFilters';
-import PaperWalletPage from '../features/wallets/PaperWalletPages';
 
 interface BetsManagerProps {
   activeUser: string;
@@ -377,6 +376,6 @@ export const FundedBetsManager: React.FC<BetsManagerProps> = ({ activeUser }) =>
   return <LegacyBetsManager activeUser={activeUser} readOnly wallet={wallet} />;
 };
 
-const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => <PaperWalletPage kind="bets" legacy={<FundedBetsManager activeUser={activeUser} />} />;
+const BetsManager: React.FC<BetsManagerProps> = ({ activeUser }) => <FundedBetsManager activeUser={activeUser} />;
 
 export default BetsManager;

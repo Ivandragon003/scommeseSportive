@@ -171,7 +171,7 @@ attiva, né un risultato dimostrato dal funzionamento ordinario.
 | Bootstrap cache/riuso CSV | Backup, target, sei tabelle; ricevute e hash CSV originali | Disabilitare raccolta; conservare cache e tentativi, senza DROP o reset dei limiti |
 | Import e medie | Piano, conflitti, precondizioni di riga, manifest, ripetizione idempotente | Fermare import concorrenti; piano inverso autorizzato anche per gli aggregati, oppure restore verificato |
 | Profili A | Backup completo cache con hash; build/config/input esatti; HIT su nuovo servizio | Tenere A spento su MISS/errore; restore cache autorizzato in transazione, senza cambiare parametri o C |
-| Nuove puntate virtuali | Scope, budget, quote reali, esposizione, origini, ledger, deduplicazione | Spegnere recommendation; preservare giocate e liquidazioni, senza cancellare o riprodurre il ledger |
+| Nuove puntate virtuali | Scope, budget API, quote reali, saldo disponibile, confidenza, origini, ledger, deduplicazione | Spegnere recommendation; preservare giocate e liquidazioni, senza cancellare o riprodurre il ledger |
 
 Un nuovo risultato importato o un cambio di build/configurazione può cambiare
 la chiave A: ripetere il preflight sul runtime effettivo prima dell'uso.
@@ -188,13 +188,13 @@ per rendere verde il controllo.
 | Fase e autorizzazione richiesta | Prerequisiti e azione eseguibile | Successo verificabile | Arresto e rollback |
 |---|---|---|---|
 | 1. Commit/push su main, senza deploy | Diff revisionato, file locali conservati, test della build finale; ricontrollare auto-deploy e hook esterni. Pubblicare piccoli commit coerenti e registrare SHA/lock/hash C | Remote main uguale allo SHA approvato, CI verde sul medesimo SHA; nessun effetto operativo esterno | Stop se auto-deploy/hook non verificabili, CI fallita o diff inatteso. Correzione/revert di codice compatibile, senza force-push e senza cancellare lavoro locale |
-| 2. Backup e preparazione DB | Target canonico verificato; preflight/backup/restore locale secondo guida backup, quota/spazio verificati. Consenso distinto al bootstrap additivo delle sei tabelle cache, al riuso CSV con ricevute e alla migrazione 028 paper | Backup complete=true, integrity ok, FK zero; tabelle e trigger 028 già verificati in sandbox, target/schema/trigger ispezionati, seed idempotente e limiti CSV conservati | Nessun import con backup parziale o schema inatteso. Fermare qui; conservare tabelle e contatori, niente DROP/reset/restore remoto automatico |
+| 2. Backup e preparazione DB | Target canonico verificato; preflight/backup/restore locale secondo guida backup, quota/spazio verificati. Consenso distinto al bootstrap additivo delle sei tabelle cache, al riuso CSV con ricevute e alla migrazione 029 finanziata | Backup complete=true, integrity ok, FK zero; tabelle e trigger 029 verificati in sandbox, piano di transizione e backup limitato verificati, target/schema/trigger ispezionati, seed idempotente e limiti CSV conservati | Nessun import con backup parziale o schema inatteso. Fermare qui; conservare tabelle e contatori, niente DROP/reset/restore remoto automatico |
 | 3. Raccolta/import operativo e medie | Build approvata, mapping revisionato, scrittori concorrenti coordinati, backup; piano cache-only seguito dall'esecuzione autorizzata descritta sopra | Manifest sigillato, sottoinsieme verificato, conflitti esclusi, xG/identità/valori osservati conservati; seconda applicazione zero modifiche; medie delle sole squadre aggiornate | Stop su target/piano cambiato, conflitto inatteso, xG sovrascritti o ricalcolo fallito. Piano inverso di righe e aggregati o restore con riconciliazione separatamente autorizzato |
 | 4. Sola cache calibrazione A | Import concluso, stessa build/config/input del runtime, niente import concorrenti; comando calibration-operational sotto con target/flag/backup nuovo | Nuovo servizio: cinque HIT, chiavi/input/hash attesi, nessuna scrittura model_params o artefatto C | Stop su MISS/INVALID/errore o input cambiati. Tenere A fermo; cache parziale non autorizza avvio, ripristino cache solo da backup verificato |
 | 5. Verifica quote e configurazione account | Consenso al solo workflow quota-only/read-only, eventuale correzione separatamente autorizzata di secret/scope dopo attestazione del titolare; niente chiamate quote a pagamento | Chiave effettiva del runner associata all'account e allo scope storico corretti, probe costo zero, residuo/reset/passività verificati; limiti del job espliciti | Stop se secret/account/scope non attestabili o saldo solo storico. Non creare uno scope nuovo per recuperare budget, non azzerare consumi; ripristinare configurazione precedente se incoerente |
-| 6. Una Nightly manuale controllata | Tutti i gate precedenti, feed fresco, preflight A di nuovo HIT, C verificato, autorizzazione alle scritture accessorie e alle richieste quote entro tetto crediti concordato; cron non abilitato implicitamente | SHA corretto, marker A/C e job completi, quote reali/astensioni motivate, budget API rispettato, stake 1 unità e nessun vincolo di capitale, zero duplicati, registro paper coerente e storico preservato | Stop su errori/scope/costi/distribuzioni inattesi; spegnere recommendation mantenendo liquidazioni. Conservare evidenze e ledger; niente cancellazione/replay delle giocate. La successiva cadenza automatica richiede consenso distinto |
+| 6. Una Nightly manuale controllata | Tutti i gate precedenti, feed fresco, preflight A di nuovo HIT, C verificato, autorizzazione alle scritture accessorie e alle richieste quote entro tetto crediti concordato; cron non abilitato implicitamente | SHA corretto, marker A/C e job completi, quote reali/astensioni motivate, budget API rispettato, stake in euro LOW 1% / MEDIUM 3% / HIGH 5% sulla base disponibile iniziale del gruppo, saldo rispettato, zero duplicati, ledger coerente e storico preservato | Stop su errori/scope/costi/distribuzioni inattesi; spegnere recommendation mantenendo liquidazioni. Conservare evidenze e ledger; niente cancellazione/replay delle giocate. La successiva cadenza automatica richiede consenso distinto |
 
-### Pubblicazione e passaggio al registro paper
+### Pubblicazione e passaggio ai portafogli in euro
 
 Il push del codice e l'avvio operativo richiedono autorizzazioni distinte.
 Prima della finestra verificare tutte le run, incluse quelle vecchie ancora
@@ -216,23 +216,55 @@ sullo SHA effettivamente pubblicato, insieme all'assenza di build/deploy esterni
 Non includere DB, copie di backup, report privati, cache, node_modules o dist.
 Non modificare i flag per ottenere una CI verde.
 
-Il nuovo schema 028 non viene applicato dal push. Il normale bootstrap del
+Il nuovo schema 029 non viene applicato dal push. Il normale bootstrap del
 backend esegue le migrazioni pendenti: **non distribuire/avviare la nuova build
 sul DB operativo prima dell'autorizzazione allo schema e del backup verificato**.
-In una transizione senza bootstrap, la manutenzione legacy può continuare
-solo quando paper è interamente non inizializzato (nessuna tabella né policy
-paper); il registro paper rimane esplicitamente indisponibile e la sua Nightly
-richiede lo schema completo. Applicare esplicitamente la sola 028 autorizzata,
-non usare il bootstrap come comando di migrazione generale. La sola 028 è
-compatibile col backend precedente; le nuove decisioni paper richiedono
-il backend aggiornato anche per le letture. Dettagli nella guida Hostless.
+Tenere recommendation spente durante la preparazione. Applicare esplicitamente
+la sola 029 autorizzata, non usare il bootstrap come comando di migrazione
+generale. I portafogli `shadow_A` e `shadow_C`, i saldi e i movimenti precedenti
+restano invariati. Le registrazioni paper selezionate dal piano sono annullate
+logicamente con evidenze immutabili: escluse da conteggi operativi, ROI e
+liquidazioni, senza DELETE o conversione da unità in euro. Le nuove decisioni
+finanziate richiedono backend/frontend aggiornati e controllati prima di
+riabilitare la Nightly. Dettagli nella guida Hostless.
 I CLI operativi con `skipSchemaBootstrap:true` richiedono invece schema già pronto.
 I profili A dipendono dall'hash della build: quelli di una build precedente non
 sono una prova HIT per questa release e non vanno forzati o copiati con chiavi nuove.
 
+Il [comando di transizione](../backend/scripts/transition-funded-wallet.js)
+non carica l'applicazione, non acquisisce quote e non registra nuove puntate.
+Da `backend`, con ambiente privato configurato, fissare esplicitamente giorno
+italiano del kickoff e conteggio atteso delle sole registrazioni paper future,
+non liquidate e non già annullate che si intende rimuovere dall'operatività.
+Il target è lo SHA-256 dell'URL canonico senza spazi ai bordi, senza stampare
+l'URL. Per il piano remoto serve `TURSO_WATCHDOG_READONLY_TOKEN`:
+
+```powershell
+node scripts/transition-funded-wallet.js --plan --target-sha256 $env:NIGHTLY_SOURCE_TARGET_SHA256 --day $env:FUNDED_TRANSITION_DAY --expected-count $env:FUNDED_TRANSITION_EXPECTED_COUNT --out C:\percorso-privato\nuovo-piano-transizione.json
+```
+
+Il piano è SELECT-only e rifiuta incongruenze, lease attive, risultati presenti,
+kickoff trascorsi o conteggio diverso da quello atteso. Riesaminare piano,
+saldi e `planSha256` prima dell'esecuzione distinta con `TURSO_AUTH_TOKEN`:
+
+```powershell
+node scripts/transition-funded-wallet.js --execute --authorize-wallet-transition --target-sha256 $env:NIGHTLY_SOURCE_TARGET_SHA256 --plan-file C:\percorso-privato\nuovo-piano-transizione.json --expected-plan-sha256 $env:FUNDED_TRANSITION_PLAN_SHA256 --backup-file C:\percorso-privato\nuovo-backup-transizione.json
+```
+
+Piano e backup sono file privati nuovi, mai sovrascritti. Il backup è limitato
+alle tabelle e allo scope di portafogli/esecuzioni/origini previsti dal comando,
+con massimo 50.000 righe e 100 MiB; viene riletto e verificato prima del DDL.
+Non sostituisce il backup completo del database. Il comando rilegge stato,
+saldi e hash del piano, applica soltanto 029 e registra le cancellazioni logiche.
+DDL e cancellazioni sono transazioni distinte: un errore successivo può lasciare
+lo schema additivo presente, senza giustificare DROP o replay automatici.
+Verificare saldi e ledger invariati e il gruppo esatto di cancellazioni prima
+del deploy e della nuova Nightly. Quest'ultima deve usare quote fresche e
+nuovi calcoli, non gli stake o i prezzi delle registrazioni paper cancellate.
+
 Rollback del codice mediante commit di revert e CI, senza force-push. Fermare
 nuove registrazioni mantenendo le liquidazioni già autorizzate. Dopo l'avvio
-paper non cancellare le nuove tabelle né convertire i bet nei vecchi wallet;
+finanziato non cancellare le nuove tabelle né riscrivere i movimenti nei wallet;
 una versione vecchia non sa liquidarli. Prima di un ritorno a quella versione
 preservare un runner di liquidazione compatibile o tenere documentati i pending.
 Il ripristino del cron Nightly, watchdog e training è una fase esplicita:
@@ -255,8 +287,10 @@ usare la riserva, sempre con il registro condiviso. Questi limiti non sono
 un saldo live né autorizzano un numero illimitato di richieste. Concordare
 il tetto del primo ciclo, inclusi gli extra-event market abilitati nel job.
 
-La fase 6 usa il workflow completo, non una CLI abbreviata. Il guard vieta
-il dispatch prima delle 03:07 Europe/Rome; da quell'ora la finestra normale
+La fase 6 usa il workflow completo, non una CLI abbreviata. Prima delle 03:07
+Europe/Rome il guard salta normalmente l'avvio manuale; l'opt-in separato
+`allow_early_manual_run=true` e i suoi controlli sono descritti
+[all'inizio della guida](#orario-e-protezione-dai-duplicati). Da quell'ora la finestra normale
 termina alla successiva 03:07, anche nei giorni di 23/25 ore. La finestra
 esplicita di 24 ore resta una scelta operativa distinta. Dopo configurazione
 autorizzata dei due flag e della modalità alternativa:
@@ -315,13 +349,17 @@ Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapt
 6. Con `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` registra i consigli dei
    rispettivi motori: A usa `PredictionService`, i mercati squadra supportati
    con tutte le opportunità qualificate; C usa il proprio percorso gol.
-   La policy `paper-fixed-unit-v1` registra **1 unità virtuale per selezione**,
-   senza saldo, capitale iniziale, esposizione o top N. Più mercati e A/C sulla
+   La policy `funded-confidence-v1` registra importi in euro dal saldo esistente:
+   **LOW 1%, MEDIUM 3%, HIGH 5%** del disponibile iniziale del gruppo nella
+   transazione. Non applica top N, massimi per partita o tetto cumulativo del 5%.
+   Il saldo finanzia importi completi in ordine HIGH, MEDIUM, LOW, poi EV
+   decrescente e chiave; confidenza mancante o SPECULATIVE non ricevono fondi.
+   Più mercati e A/C sulla
    stessa partita sono ammessi; una stessa selezione semantica per famiglia
    non è ripetuta cambiando bookmaker/prezzo/versione. Quote reali, bookmaker,
    freschezza, EV, prudenza, modello, qualità e kickoff sono verificati anche
-   nella transazione. Migrazione additiva 028 richiesta prima dell'avvio,
-   senza conversione dello storico. Il calendario paper non ha limite numerico
+   nella transazione, insieme al saldo. Migrazione additiva 029 richiesta prima
+   dell'avvio, senza ricarica o conversione dello storico. Il calendario non ha limite numerico
    di partite; timeout, scadenze e budget API restano applicati e le astensioni
    tecniche sono esplicite. Con flag recommendation spento resta la diagnostica.
 7. Nel solo modo primario, se i gate obbligatori riescono, esegue la learning review; recupera lo stato
@@ -386,7 +424,8 @@ reale e fresca. Mancanza di quote, matching, cache-only o budget provider
 possono quindi impedire l'inferenza A, non soltanto la giocata. Una
 decisione già registrata, origini diagnostiche mancanti o entrambe le
 famiglie già puntate possono escludere il lavoro prima dell'inferenza.
-Capitale ed esposizione virtuale sono invece verificati dopo il calcolo.
+Il saldo disponibile per finanziare le selezioni viene invece verificato dopo
+il calcolo, all'interno della transazione, senza tetto cumulativo del 5%.
 
 La finestra effettiva del job termina alla successiva Nightly, mentre il
 protocollo prospettico richiede una prima previsione tra T−24h e T−60min.
@@ -608,7 +647,7 @@ Un tentativo della giornata precedente non recupera una diversa giornata.
   già conclusi anche al commit.
 
 Il recupero tecnico con policy figlia supporta soltanto le policy legacy
-`virtual-recommendation-v2/v3`, non `paper-fixed-unit-v1`. Nel ciclo paper
+`virtual-recommendation-v2/v3`, non `paper-fixed-unit-v1` o `funded-confidence-v1`. Nel ciclo finanziato
 ordinario distinguere i job `ERROR` senza input definitivo, ritentabili secondo
 i controlli del registro, dalle decisioni già completate, che restano immutabili.
 `recovery_day` seleziona la giornata italiana del **kickoff**, non quella del
@@ -727,9 +766,9 @@ sono input dei controlli A/C. Le informazioni originali restano conservate nel
 database. La liquidazione dell'archivio tecnico usa invece batch di partite
 prima del download delle predizioni e conserva i dettagli necessari ai mercati
 giocatore; continua oltre le partite non liquidabili. Il limite di manutenzione
-riguarda soltanto quell'archivio e non limita le nuove selezioni paper.
+riguarda soltanto quell'archivio e non limita le nuove selezioni finanziate.
 
-Il salvataggio dei nuovi job paper ordinari raggruppa le letture e gli INSERT
+Il salvataggio dei nuovi job ordinari raggruppa le letture e gli INSERT
 con `Transaction.batch` nella stessa transazione, mantenendo validatori,
 deduplicazione e controlli finali su lease, kickoff e freschezza delle quote.
 Un errore annulla l'intero gruppo. Questo riduce i passaggi HTTP delle

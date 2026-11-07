@@ -7,6 +7,8 @@ const isCount = (value: unknown): value is number => typeof value === 'number' &
 const isOptionalAmount = (value: unknown): boolean => value == null || (typeof value === 'number' && Number.isSafeInteger(value));
 const isOptionalText = (value: unknown): boolean => value == null || typeof value === 'string';
 const isOptionalNumber = (value: unknown): boolean => value == null || (typeof value === 'number' && Number.isFinite(value));
+const hasPaperAccounting = (value: Record<string, unknown>): boolean => value.accountingMode === 'PAPER_FIXED_UNIT'
+  || (typeof value.id === 'string' && value.id.startsWith('paper:'));
 
 function isWalletQuote(value: unknown): boolean {
   return value == null || (isRecord(value)
@@ -15,7 +17,7 @@ function isWalletQuote(value: unknown): boolean {
 }
 
 function isWalletData(value: unknown): value is ResearchComparison {
-  if (!isRecord(value) || !isRecord(value.period) || typeof value.period.label !== 'string'
+  if (!isRecord(value) || hasPaperAccounting(value) || !isRecord(value.period) || typeof value.period.label !== 'string'
     || typeof value.period.key !== 'string' || !['all', '7d', '30d', '60d', '90d', 'custom'].includes(value.period.key)
     || !Array.isArray(value.portfolios) || !isRecord(value.bets) || !Array.isArray(value.bets.rows)
     || !isCount(value.bets.total) || value.bets.total < value.bets.rows.length
@@ -31,7 +33,7 @@ function isWalletData(value: unknown): value is ResearchComparison {
     && ['betCount', 'settledCount', 'openCount', 'wonCount', 'lostCount', 'voidCount', 'halfWonCount', 'halfLostCount']
       .every((field) => row[field] == null || isCount(row[field]))
     && isOptionalNumber(row.roi) && isOptionalNumber(row.maxDrawdown))
-    && value.bets.rows.every((row) => isRecord(row) && typeof row.id === 'string' && row.id.length > 0
+    && value.bets.rows.every((row) => isRecord(row) && !hasPaperAccounting(row) && typeof row.id === 'string' && row.id.length > 0
       && typeof row.portfolioId === 'string' && typeof row.selection === 'string' && typeof row.status === 'string'
       && isCount(row.stakeCents) && typeof row.odds === 'number' && Number.isFinite(row.odds) && row.odds > 1
       && ['matchId', 'matchLabel', 'league', 'market', 'bookmaker', 'kickoffAt', 'createdAt', 'settledAt', 'modelVersion']
@@ -59,8 +61,9 @@ export async function getWalletArchive(query: WalletArchiveQuery, signal?: Abort
     params: { ...query, qualities: query.qualities?.length ? query.qualities.join(',') : undefined }, signal,
   });
   const data = response.data?.data;
-  if (response.data?.success !== true || !data || !isRecord(data.summary) || !isCount(data.total)
-    || !Array.isArray(data.rows) || !Array.isArray(data.byClassification) || !Array.isArray(data.byModel)
+  if (response.data?.success !== true || !isRecord(data) || hasPaperAccounting(data) || !isRecord(data.summary) || !isCount(data.total)
+    || !Array.isArray(data.rows) || data.rows.some(row => !isRecord(row) || hasPaperAccounting(row))
+    || !Array.isArray(data.byClassification) || !Array.isArray(data.byModel)
     || data.summary.total !== data.total) throw new Error('Archivio non disponibile.');
   return data;
 }

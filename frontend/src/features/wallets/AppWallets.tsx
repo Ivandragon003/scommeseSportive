@@ -98,7 +98,7 @@ export function WalletLoadState({ loading, error, refresh }: { loading: boolean;
 export function WalletBalanceCards({ portfolios, model }: { portfolios: ComparisonPortfolio[]; model: WalletModelFilter }) {
   return <div className="app-wallet-balances">{portfolios.filter((row) => model === 'all' || row.family === model).map((row) =>
     <section className="app-wallet-card" key={row.portfolioId} aria-label={`Portafoglio ${row.family}`}>
-      <h2>Portafoglio {row.family}</h2><p>{row.family === 'A' ? 'Modello A · importo consigliato' : 'Modello C · importo per giocata 1%'}</p>
+      <h2>Portafoglio {row.family}</h2><p>Modello {row.family} · importi in euro</p>
       {row.initialized === false ? <p>Portafoglio non disponibile. Nessun saldo viene ricreato da questa pagina.</p> : <dl>
         <div><dt>Disponibile</dt><dd>{walletMoney(row.currentAvailableCents)}</dd></div>
         <div><dt>Impegnato</dt><dd>{walletMoney(row.currentCommittedCents)}</dd></div>

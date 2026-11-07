@@ -119,6 +119,10 @@ test('C paper selection preserves quality evidence even when the legacy payout s
   assert.equal(c.selections[0].quote.bookmaker, 'Other'); assert.equal(c.selections[0].quote.odds, 2.001);
   assert.equal(c.dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
   assert.equal(c.dataQualityBaselineClean, true); assert.deepEqual(c.dataQualityEvidence, { fixtureCheck: 'verified' });
+  const funded = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), fundedMode: true, researchRuntime, appOdds, deploymentC });
+  const fundedC = (await funded.prepare(job)).decisions.find((value) => value.family === 'C');
+  assert.equal(fundedC.action, 'ABSTAIN');
+  assert.equal(fundedC.reason, 'confidence_unavailable');
 });
 
 test('suppressProspective skips recorder while preserving the prediction and default recording', async (t) => {
@@ -206,4 +210,12 @@ test('paper runtime keeps more than 100 qualifying selections and best qualified
     assert.ok(!Object.hasOwn(item.qualificationEvidence, 'kellyFraction'));
   }
   assert.equal(result.decisions.length, 2);
+  const funded = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), fundedMode: true,
+    predictionService: predictor, researchRuntime, appOdds });
+  const fundedResult = await funded.prepare({ id: 'j', leaseToken: 'l', originInputId: 'i', matchId: 'm', kickoffAt: row.date,
+    windowStartAt: '2026-10-30T02:00:00Z', windowEndAt: '2026-10-31T02:00:00Z', runId: 'r', originDecisionIds: { A: 'a', C: 'c' } });
+  const fundedA = fundedResult.decisions.find((d) => d.family === 'A');
+  assert.equal(fundedResult.inputSnapshot.metadata.policy.version, 'funded-confidence-v1');
+  assert.equal(fundedA.selections.length, 120);
+  assert.ok(fundedA.selections.every((selection) => selection.confidence === 'MEDIUM'));
 });

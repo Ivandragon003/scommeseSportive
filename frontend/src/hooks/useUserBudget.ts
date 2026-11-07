@@ -3,10 +3,9 @@ import { getBets, getBudget, syncSharedBets } from '../utils/api';
 import { buildBetKey } from '../components/predictions/predictionWorkbenchUtils';
 import { getAppWallets } from '../utils/walletApi';
 import { ComparisonBet, ComparisonPortfolio } from '../features/research/researchComparisonTypes';
-import { getPaperBets, PaperBet } from '../utils/paperBetsApi';
 
 type WalletFamily = 'A' | 'C';
-type BudgetContext = { mode: 'automatic' | 'paper'; family: WalletFamily } | { mode: 'legacy' };
+type BudgetContext = { mode: 'automatic'; family: WalletFamily } | { mode: 'legacy' };
 
 export const walletMatchKey = (family: WalletFamily, matchId: string): string => `${family}:${matchId}`;
 
@@ -14,28 +13,15 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
   const [budget, setBudget] = useState<any>(null);
   const [portfolios, setPortfolios] = useState<ComparisonPortfolio[]>([]);
   const [walletBets, setWalletBets] = useState<ComparisonBet[]>([]);
-  const [paperBets, setPaperBets] = useState<PaperBet[]>([]);
   const [userBets, setUserBets] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const family = context.mode !== 'legacy' ? context.family : null;
-  const paperMode = context.mode === 'paper';
 
   const loadUserContext = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      if (paperMode && family) {
-        const data = await getPaperBets();
-        setPaperBets(data.bets);
-        setBudget(null);
-        setPortfolios([]);
-        setWalletBets([]);
-        setUserBets(data.bets.filter(bet => bet.family === family).map(bet => ({
-          ...bet, model_family: family, match_id: bet.matchId, market_name: bet.market,
-        })));
-        return;
-      }
       if (family) {
         const data = await getAppWallets({ period: 'all' });
         setPortfolios(data.portfolios);
@@ -51,7 +37,7 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
           total_budget: wallet.currentEquityCents! / 100,
           available_budget: wallet.currentAvailableCents! / 100,
           committed_budget: wallet.currentCommittedCents! / 100,
-          stake_base_budget: wallet.currentEquityCents! / 100,
+          stake_base_budget: wallet.currentAvailableCents! / 100,
         });
         setUserBets(data.bets.rows.filter((bet) => bet.portfolioId === wallet.portfolioId && (!bet.family || bet.family === family))
           .map((bet) => ({ ...bet, model_family: family, match_id: bet.matchId,
@@ -74,19 +60,18 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
       setBudget(null);
       setPortfolios([]);
       setWalletBets([]);
-      setPaperBets([]);
       setUserBets([]);
       setError(failure instanceof Error ? failure.message : 'Portafoglio non disponibile.');
     } finally {
       setLoading(false);
     }
-  }, [activeUser, family, paperMode]);
+  }, [activeUser, family]);
 
   useEffect(() => {
     void loadUserContext();
   }, [loadUserContext]);
 
-  const bankroll = Number((family ? budget?.total_budget : budget?.available_budget) ?? 0);
+  const bankroll = Number(budget?.available_budget ?? 0);
   const placedBetKeySet = useMemo(
     () =>
       new Set(
@@ -103,8 +88,6 @@ export function useUserBudget(activeUser: string, context: BudgetContext = { mod
     budget,
     portfolios,
     walletBets,
-    paperBets,
-    paperMode,
     userBets,
     bankroll,
     placedBetKeySet,

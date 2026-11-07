@@ -4,14 +4,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import Predictions from './Predictions';
 import * as api from '../utils/api';
 import { getAppWallets } from '../utils/walletApi';
-import { getPaperBets } from '../utils/paperBetsApi';
 import { getMatchModelAdvice } from '../utils/matchModelAdviceApi';
 import { getChallengerPreview } from '../utils/challengerPreviewApi';
 
 jest.mock('../utils/api');
 jest.mock('../utils/modelBetActionsApi');
 jest.mock('../utils/walletApi');
-jest.mock('../utils/paperBetsApi');
 jest.mock('../utils/matchModelAdviceApi');
 jest.mock('../utils/challengerPreviewApi');
 const mockedPreview = getChallengerPreview as jest.MockedFunction<typeof getChallengerPreview>;
@@ -113,7 +111,6 @@ const buildPrediction = (overrides: Record<string, any> = {}) => ({
 });
 
 const setupBaseMocks = () => {
-  (getPaperBets as jest.Mock).mockResolvedValue({ bets: [] });
   mockedAdvice.mockResolvedValue({ A: null, C: null, errors: {} });
   mockedPreview.mockImplementation(async (matchId) => ({ kind: 'C_PREVIEW', family: 'C', matchId,
     asOf: '2026-05-23T08:00:00Z', kickoffAt: '2026-05-23T16:00:00Z', expiresAt: null,
@@ -198,8 +195,7 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(mockedApi.getMatchdayMap).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction).not.toHaveBeenCalled();
     expect(mockedAdvice).not.toHaveBeenCalled();
-    expect(getPaperBets).toHaveBeenCalledTimes(1);
-    expect(mockedWallets).not.toHaveBeenCalled();
+    expect(mockedWallets).toHaveBeenCalledTimes(1);
   });
   test('cache-only A analysis starts independently while C preview is pending', async () => {
     setupAnalysis(); const pending = deferred<any>(); const a = deferred<any>();
@@ -227,12 +223,12 @@ describe('Partite: consigli semplici e orchestrazione indipendente', () => {
     expect(mockedApi.placeBet).not.toHaveBeenCalled();
     expect(mockedApi.getPrediction.mock.calls[0][0]).toEqual(expect.objectContaining({ homeTeamId: 'team_inter', awayTeamId: 'team_milan', matchId: 'match_1', competition: 'Serie A', bookmakerOdds: { over25: 2.1 }, oddsSource: 'odds_api' }));
   });
-  test('A presents the canonical selection and real bookmaker without confidence, ranking or recalculating stake', async () => {
+  test('A presents the canonical selection, real bookmaker and an explicit euro action without betting on view', async () => {
     setupAnalysis(); render(<Predictions activeUser="test-user" />); await openFirst();
     await waitFor(() => expect(screen.getByRole('region', { name: 'Consiglio modello A' }).textContent).toContain('Over 2.5 Goal'));
     const a = within(screen.getByRole('region', { name: 'Consiglio modello A' }));
-    expect(a.getByText('Pinnacle')).toBeTruthy(); expect(a.getByText('2.10')).toBeTruthy(); expect(a.getByText('1 u')).toBeTruthy();
-    expect(a.queryByRole('spinbutton')).toBeNull();
+    expect(a.getByText('Pinnacle')).toBeTruthy(); expect(a.getByText('2.10')).toBeTruthy(); expect(a.queryByText('1 u')).toBeNull();
+    expect((a.getByRole('spinbutton', { name: 'Importo modello A' }) as HTMLInputElement).placeholder).toBe('50.00');
     expect(a.queryByText(/Edge|CORE|Probabilità stimata|Kelly|Affidabilità/)).toBeNull();
     expect(a.getByText('HIGH · Alta')).toBeTruthy(); expect(a.getByText('+7.20%')).toBeTruthy();
     expect(mockedApi.getPrediction).toHaveBeenCalledTimes(1); expect(mockedApi.placeBet).not.toHaveBeenCalled();
@@ -405,8 +401,6 @@ test('restores multiple positive-EV A alternatives with confidence and LOW archi
   expect(within(other).getAllByRole('article')).toHaveLength(2);
   expect(within(other).getByText('MEDIUM · Media')).toBeTruthy();
   expect(within(other).getByText('LOW · Bassa')).toBeTruthy();
-  const manualButtons = within(other).getAllByRole('button', { name: 'Gestione manuale precedente' });
-  fireEvent.click(manualButtons[1]);
   expect(await within(other).findByRole('button',{name:'Archivia senza puntare'})).toBeTruthy();
   expect(mockedApi.placeBet).not.toHaveBeenCalled();
 });

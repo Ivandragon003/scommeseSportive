@@ -52,6 +52,8 @@ export async function listPaperBetViews(client: Executor, options: PaperReadOpti
   else if (options.status !== undefined) throw new Error('Invalid paper status');
   if (options.from) { filters.push('julianday(b.placed_at)>=julianday(?)'); args.push(iso(options.from)); }
   if (options.until) { filters.push('julianday(b.placed_at)<julianday(?)'); args.push(iso(options.until)); }
+  const cancellations = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bet_cancellations'");
+  if (cancellations.rows.length) filters.push('NOT EXISTS (SELECT 1 FROM paper_model_bet_cancellations c WHERE c.bet_id=b.id)');
   const result = await client.execute({ sql: `SELECT b.*,s.multiplier,s.return_cents,s.evidence_json,s.settled_at
     FROM paper_model_bets b LEFT JOIN paper_model_settlements s ON s.bet_id=b.id
     ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY b.placed_at,b.id`, args });
@@ -101,6 +103,10 @@ export function paperBetOverview(rows: Row[]): Row {
 }
 
 export async function settlePaperBet(tx: Executor, id: string, multiplier: number, evidence: Row, now = new Date()): Promise<Row> {
+  const cancellationSchema = await tx.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bet_cancellations'");
+  if (cancellationSchema.rows.length && (await tx.execute({ sql: 'SELECT bet_id FROM paper_model_bet_cancellations WHERE bet_id=?', args: [id] })).rows.length) {
+    throw new Error('Cancelled paper bet cannot be settled');
+  }
   const betRaw = (await tx.execute({ sql: 'SELECT * FROM paper_model_bets WHERE id=?', args: [id] })).rows[0];
   if (!betRaw) throw new Error('Paper bet not found');
   const bet = object(betRaw), existingRaw = (await tx.execute({ sql: 'SELECT * FROM paper_model_settlements WHERE bet_id=?', args: [id] })).rows[0];

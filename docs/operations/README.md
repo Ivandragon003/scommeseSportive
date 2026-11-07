@@ -17,12 +17,11 @@ richiedono una verifica dell'ambiente effettivo.
 
 ## Portafogli e storico
 
-Partite, Giocate, Budget e Archivio leggono le nuove selezioni automatiche A/C
-tramite `GET /api/paper-bets`: ogni selezione usa **1 unità virtuale**, senza
-saldo, capitale iniziale, percentuali o limiti di esposizione. A e C restano
-separati. Il registro paper non apre un altro capitale e non sposta fondi.
-Lo storico precedente resta consultabile separatamente tramite `GET /api/wallets`
-e `GET /api/wallets/archive`. Le giocate del
+Partite, Giocate, Budget e Archivio leggono importi in euro e saldi tramite
+`GET /api/wallets` e `GET /api/wallets/archive`. Le selezioni automatiche e le
+puntate manuali usano i portafogli virtuali esistenti `shadow_A` e `shadow_C`,
+sempre separati: nessun capitale viene aperto nuovamente o ricaricato durante
+la transizione. Le giocate del
 registro deterministico precedente hanno identità esplicita di modello A
 (`model_family='A'`, portafoglio `legacy_deterministic_A`); capitale e ledger
 restano distinti da quelli dei portafogli `shadow_A` e `shadow_C`.
@@ -30,7 +29,8 @@ La UI distingue registrazioni manuali, Nightly e opportunità archiviate.
 Aggregati, filtri temporali e dettagli paginati/limitati hanno significati
 diversi: una lista parziale non sostituisce il totale del portafoglio.
 
-La Nightly automatica usa la policy separata `paper-fixed-unit-v1`: considera
+La Nightly automatica usa la policy `funded-confidence-v1`, con
+`stakeMode=CONFIDENCE_PERCENT_AVAILABLE`: considera
 tutte le opportunità dei mercati già supportati che superano i criteri del
 modello, EV e controlli prudenziali esistenti. Non applica top N né massimi
 per esecuzione, giorno, campionato, partita o modello. Più mercati della
@@ -44,32 +44,41 @@ si conserva il migliore prezzo già qualificato. A e C restano separati.
 Le quote dei bookmaker già acquisite sono qualificate prima di scegliere il
 migliore prezzo ammissibile; non si aumenta il numero di chiamate per selezione.
 
-Il profitto è il ritorno meno 1 unità per selezione liquidata; il ROI è
-`100 × profitto / unità delle selezioni liquidate`. Le puntate aperte hanno
-un conteggio separato. Vittorie parziali e perdite parziali usano il ritorno
-effettivo; gli annullamenti restituiscono 1 unità e non sono successi.
-I calcoli in unità usano il moltiplicatore originale del settlement:
-una mezza vincita a quota 2,01 restituisce 1,505 unità. I campi interni in
-centesimi restano per compatibilità e verifica, senza arrotondare il ROI.
-La percentuale di successo esclude gli annullamenti. Le metriche non mescolano
-le unità nuove con i saldi e gli importi dei registri precedenti.
+Ogni gruppo di registrazioni usa il saldo disponibile della famiglia letto
+all'inizio della transazione: **LOW 1%, MEDIUM 3%, HIGH 5%**, arrotondato per
+difetto al centesimo. Gli importi del gruppo hanno la stessa base, senza
+ricalcolare percentuali su un saldo via via ridotto. Il saldo residuo deve
+coprire l'intero importo: non si ridistribuisce proporzionalmente. Se non basta,
+la priorità è HIGH, MEDIUM, LOW, poi EV decrescente e chiave crescente della
+selezione. Confidenza mancante/non valida o SPECULATIVE non ricevono fondi;
+un importo arrotondato a zero non viene registrato. Non esiste un tetto
+cumulativo del 5%: più giocate del gruppo possono impegnare una quota maggiore,
+entro il saldo disponibile. I controlli di ammissibilità del modello restano
+distinti dall'assegnazione dei fondi.
 
-La migrazione **additiva 028** introduce `paper_model_bets` e liquidazioni
-immutabili, senza riscrivere lo storico. Deve essere applicata al DB operativo
-solo dopo backup e autorizzazione distinta. Prima della preparazione,
-`GET /api/paper-bets` risponde 503 `paper_schema_required`, non un falso elenco vuoto.
-La manutenzione dello storico può continuare se entrambe le tabelle paper
-sono assenti e non è mai stata registrata una policy paper. Questo caso è
-esplicito (`NOT_INITIALIZED`); schema parziale, precedente attivazione e
-errori di connessione restano errori. La Nightly paper richiede sempre 028.
-Il percorso automatico non crea movimenti di apertura né consulta saldi.
-Le azioni manuali precedenti mantengono contabilità e vincoli originali,
-accessibili con scelta esplicita. Nessun percorso trasmette puntate a un bookmaker.
+Il profitto è il ritorno in euro meno lo stake della selezione liquidata;
+il ROI è `100 × profitto / stake delle selezioni liquidate`. Le puntate aperte
+hanno conteggio e importo separati. Vittorie/perdite parziali e annullamenti
+usano il moltiplicatore del settlement; il ritorno è arrotondato al centesimo.
+La percentuale di successo esclude gli annullamenti. Le proposte senza stake
+non entrano nel ROI.
+
+La migrazione **additiva 029** introduce `funded_model_bets`,
+`funded_model_settlements` e `paper_model_bet_cancellations`. Bet, liquidazioni
+e cancellazioni sono immutabili. Stake e ritorni usano lo stesso `research_ledger`
+dei portafogli esistenti, con identità distinte `stake:funded:<uuid>` e
+`settle:funded:<uuid>` e `bet_id` nullo; non duplicano i movimenti storici.
+Le vecchie registrazioni paper annullate restano come evidenza, ma sono escluse
+da conteggi operativi, ROI e nuove liquidazioni. Non si converte 1 unità in 1 euro:
+la nuova Nightly acquisisce quote fresche e ricalcola le opportunità.
+Backup, preparazione dello schema e riavvio seguono la
+[procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
+Nessun percorso trasmette puntate a un bookmaker.
 
 Restano obbligatori dati affidabili, quota reale recente, identità, timing
 prepartita, configurazione/versione del modello, idempotenza e budget API.
 I mercati disabilitati e i player props non diventano automaticamente ammessi.
-La modalità paper sopprime la registrazione prospettica opzionale delle sue
+La modalità finanziata sopprime la registrazione prospettica opzionale delle sue
 inferenze aggiuntive: non avvia né modifica il pilot scientifico.
 
 Un punteggio mancante o invalido non equivale a zero: la liquidazione research
@@ -114,7 +123,10 @@ modificare i flag A/C o prospettici per provare questa suite.
 Riferimenti: [AppWalletService](../../backend/src/services/AppWalletService.ts),
 [WalletArchiveService](../../backend/src/services/WalletArchiveService.ts),
 [identità A del registro precedente](../../backend/migrations/027_deterministic_bet_model.sql),
-[policy Nightly](../../backend/src/research/ResearchRecommendationPolicy.ts).
+[policy Nightly](../../backend/src/research/ResearchRecommendationPolicy.ts),
+[assegnazione degli importi](../../backend/src/research/ConfidenceStake.ts),
+[registro finanziato](../../backend/src/research/FundedModelBetLedger.ts),
+[migrazione 029](../../backend/migrations/029_funded_model_bets.sql).
 
 ## Consigli, quote e consumo provider
 
@@ -155,8 +167,10 @@ ricostruisce lato server modello e quota salvata: bookmaker, prezzo e
 selezione devono coincidere con quelli confermati. Non accetta una quota
 inventata dal browser e non acquisisce nuove quote durante la conferma.
 Per registrare una giocata servono quota reale recente (massimo cinque
-minuti), partita futura, mercato liquidabile, saldo ed esposizione validi;
-i controlli vengono ripetuti nella transazione. Un conflitto richiede di
+minuti), partita futura, mercato liquidabile e saldo disponibile sufficiente;
+i controlli vengono ripetuti nella transazione, senza tetto cumulativo del 5%.
+La stessa selezione già finanziata dalla Nightly non può essere duplicata
+manualmente. Un conflitto richiede di
 riaprire il consiglio aggiornato, senza modificare lo storico.
 
 - `POST /api/wallets/bets/manual`: registra la giocata e il movimento sul

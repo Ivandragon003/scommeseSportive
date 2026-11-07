@@ -1,5 +1,5 @@
 import API from './api';
-import { getAppWallets } from './walletApi';
+import { getAppWallets, getWalletArchive } from './walletApi';
 import { ComparisonBet, ResearchComparison } from '../features/research/researchComparisonTypes';
 
 jest.mock('./api', () => ({ __esModule: true, default: { get: jest.fn(), post: jest.fn() } }));
@@ -72,6 +72,9 @@ test.each([null, undefined, {}, { success: false }, { success: true, data: null 
 
 test.each([
   ['missing collections', {}],
+  ['paper accounting envelope', { ...fixture(), accountingMode: 'PAPER_FIXED_UNIT' }],
+  ['paper identifier in euro rows', { ...fixture(), bets: { ...fixture().bets, rows: [{ ...fixture().bets.rows[0], id: 'paper:old' }] } }],
+  ['paper accounting in euro rows', { ...fixture(), bets: { ...fixture().bets, rows: [{ ...fixture().bets.rows[0], accountingMode: 'PAPER_FIXED_UNIT' }] } }],
   ['invalid period', { ...fixture(), period: { ...fixture().period, key: 'invalid' } }],
   ['negative total', { ...fixture(), bets: { ...fixture().bets, total: -1 } }],
   ['fractional total', { ...fixture(), bets: { ...fixture().bets, total: 5.5 } }],
@@ -128,5 +131,14 @@ test('preserves custom labels, date boundaries and query arguments', async () =>
   get.mockResolvedValueOnce({ data: { success: true, data } });
   expect(await getAppWallets(customQuery)).toBe(data);
   expect(get).toHaveBeenLastCalledWith('/wallets', { params: customQuery, signal: undefined });
+  expect(post).not.toHaveBeenCalled();
+});
+
+test('euro archive rejects paper records even if they contain a cents-shaped field', async () => {
+  get.mockResolvedValueOnce({ data: { success: true, data: {
+    summary: { total: 1 }, total: 1, rows: [{ ...fixture().bets.rows[0], id: 'paper:cancelled' }],
+    byClassification: [], byModel: [], offset: 0, limit: 200,
+  } } });
+  await expect(getWalletArchive({ model: 'all' })).rejects.toThrow('Archivio non disponibile.');
   expect(post).not.toHaveBeenCalled();
 });

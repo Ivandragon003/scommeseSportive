@@ -107,8 +107,10 @@ async function unavailableDiagnostic(db: RuntimeDb, job: T15Job, clock: () => Da
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
   preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean;
-  fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean;
+  fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean; fundedMode?: boolean;
   allowChampionRollback?: boolean; collectChallengerForecasts?: boolean } = {}): Promise<NightlySummary> {
+  if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
+  const selectionMode = options.paperMode === true || options.fundedMode === true;
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()
@@ -127,14 +129,14 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   if (existing) { summary.startedAt = existing.startedAt; summary.windowEndAt = existing.windowEndAt; }
   const admissionPolicy = existing ? { quoteMaxAgeMs: existing.quoteMaxAgeMs, minEv: existing.minEv,
     minPrudentialEv: existing.minPrudentialEv } : policy;
-  await db.research.initializePortfolios(options.paperMode ? { fundVirtual: false } : undefined);
+  await db.research.initializePortfolios(selectionMode ? { fundVirtual: false } : undefined);
   const baseline = baselineManifest();
   await db.research.saveModel({ family: 'A', version: baseline.version, artifact: baseline });
   const fixtures = (options.dataGatesPassed === false ? [] : await db.getUpcomingMatches({ nowIso: startedAt, untilIso: summary.windowEndAt,
-    ...(options.paperMode ? { unbounded: true } : { limit: 10000 }) }))
+    ...(selectionMode ? { unbounded: true } : { limit: 10000 }) }))
     .filter((row) => TOP5_COMPETITIONS.includes(row.competition));
   const claim = await db.research.claimNightlyBatch({ startedAt: summary.startedAt, windowEndAt: summary.windowEndAt,
-    runId, leaseMs: options.leaseMs, paperDiagnosticOnly: options.paperMode === true && options.diagnosticOnly === true,
+    runId, leaseMs: options.leaseMs, paperDiagnosticOnly: selectionMode && options.diagnosticOnly === true,
     quoteMaxAgeMs: admissionPolicy.quoteMaxAgeMs, minEv: admissionPolicy.minEv, minPrudentialEv: admissionPolicy.minPrudentialEv,
     fixtures: fixtures.map((row) => ({ matchId: row.match_id, kickoffAt: row.date })) });
   summary.runId = claim.run?.id ?? null;
@@ -189,7 +191,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
         && !decided.has(row.match_id) && Date.parse(row.date) >= Date.parse(missedFrom) && Date.parse(row.date) < Date.parse(startedAt)).length;
       if (summary.missedMatches) reason('missed_nightly_interval');
     }
-    if (jobs.length) preparer ??= new ResearchRuntime(runtimeDb, { clock, nightly: effectivePolicy, paperMode: options.paperMode,
+    if (jobs.length) preparer ??= new ResearchRuntime(runtimeDb, { clock, nightly: effectivePolicy, paperMode: selectionMode,
       allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
     const prepared: PreparedT15Job[] = [];
     for (const job of jobs) {

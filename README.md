@@ -104,14 +104,17 @@ Il dettaglio distingue analisi sportiva, proposte A/C e quote. Il primo calcolo
 sportivo usa dati e quote salvati; aprire la scheda giocate può richiedere quote
 reali al provider, entro i controlli di budget. L'anteprima C usa soltanto la
 cache. Le puntate manuali richiedono conferma e verifica server di selezione,
-quota, saldo ed esposizione; aprire un consiglio non registra una puntata.
+quota e saldo disponibile; aprire un consiglio non registra una puntata.
 
-La Nightly A/C usa un registro paper a 1 unità per selezione valida, senza
-saldo, esposizione o limiti numerici di giocate. Mercati distinti della stessa
-partita e selezioni dei due modelli restano separati; duplicati e budget API
-sono controllati. I precedenti portafogli con ledger e lo storico deterministico
-restano consultabili separatamente, senza convertirne capitali o importi in
-nuove unità. Le proposte archiviate senza puntata non producono ROI.
+La Nightly A/C registra importi in euro nei portafogli virtuali separati A e C,
+usando i saldi esistenti: LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile
+all'inizio del gruppo registrato nella transazione. Considera tutte le selezioni
+qualificate, senza top N, limite per partita o tetto cumulativo del 5%; finanzia
+solo gli importi completi coperti dal saldo, dando priorità a confidenza, EV e
+chiave della selezione. Duplicati e budget API restano controllati. Lo storico
+e le puntate manuali restano conservati; le vecchie registrazioni paper annullate
+non entrano nei totali operativi e non vengono convertite da unità in euro.
+Le proposte senza puntata non producono ROI. Nessuna puntata è inviata ai bookmaker.
 La [guida operativa](docs/operations/README.md) descrive queste distinzioni.
 
 Understat è la fonte calcistica primaria; football-data.co.uk integra i campi

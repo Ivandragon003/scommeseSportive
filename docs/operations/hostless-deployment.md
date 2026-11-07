@@ -37,20 +37,21 @@ Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_E
 
 Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
-Per la transizione paper, la sola migrazione additiva 028 lascia intatti
-schema e dati precedenti. Il backend vecchio può restare attivo durante
-questa preparazione, ma non deve leggere nuove decisioni paper: attivarle
-solo dopo il backend aggiornato. Il nuovo backend con bootstrap spento e
-DB pre-028 conserva la manutenzione legacy quando paper non è mai stato
-inizializzato; l'API paper risponde esplicitamente 503 e la Nightly paper
-resta bloccata. Uno schema parziale o già attivato non viene ignorato.
-Applicare esplicitamente la sola migrazione autorizzata dopo backup e
-verifica del target; il bootstrap ordinario eseguirebbe anche altre
-migrazioni e procedure pendenti. Verificare due tabelle, cinque trigger,
-indici e foreign key, quindi backend, frontend e infine Nightly.
-Un rollback al vecchio backend dopo l'attivazione non è trasparente:
-non riconosce i nuovi bet e può interpretarne male le decisioni. Conservare
-un percorso compatibile per letture e liquidazioni finché esistono pending.
+Per la transizione ai portafogli in euro, tenere le nuove recommendation
+spente e usare la [procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
+La migrazione additiva 029 conserva schema e dati precedenti, aggiunge bet e
+liquidazioni finanziate e cancellazioni logiche delle vecchie selezioni paper.
+Queste ultime restano evidenza: nessun DELETE, ricarica dei saldi o conversione
+di unità in euro. Il piano SELECT-only verifica target, selezioni e portafogli;
+l'esecuzione distinta richiede hash del piano e backup privato nuovo verificato.
+Il backup limitato della transizione non sostituisce il backup completo Turso.
+Non usare il bootstrap ordinario come comando di migrazione: eseguirebbe
+anche procedure pendenti estranee. Verificare schema, trigger, indici, foreign
+key, saldi e ledger conservati, quindi backend, frontend e infine Nightly.
+Le nuove decisioni usano `funded-confidence-v1` soltanto dopo tali verifiche.
+Un rollback al vecchio backend non è trasparente: non riconosce le giocate
+finanziate e i loro movimenti. Conservare un percorso compatibile per letture
+e liquidazioni finché esistono pending; non cancellare le tabelle per tornare indietro.
 
 ## Compatibilità del modello registrato prima del rilascio
 
@@ -181,7 +182,10 @@ manuale: richiede `authorize_database_writes=true` e la variable repository
 Quando esplicitamente autorizzato, lo
 [script](../../backend/scripts/warm-calibration.js) applica lo schema cache
 `014_runtime_calibration_cache.sql` e salva profili; il push non lo esegue.
-Il warmup della Nightly è un'operazione separata già prevista dal suo ciclo.
+La Nightly non richiama il warmup: legge soltanto profili persistiti con chiave
+esatta e si astiene per A su MISS/errore. La preparazione della cache è
+un'operazione esplicita separata; per il comando senza DDL vedere la
+[procedura di calibrazione](../github-actions-nightly-sync.md#calibrazione-arresto-e-rollback).
 
 Anche la raccolta prospettica non ha trigger push/PR. Il prossimo cron può
 però partire se `MODEL_A_PROSPECTIVE_COLLECTION_ENABLED` è già `true` nel

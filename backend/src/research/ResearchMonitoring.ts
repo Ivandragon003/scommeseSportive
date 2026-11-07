@@ -2,6 +2,7 @@ import type { Client } from '@libsql/client';
 import type { DatabaseService } from '../db/DatabaseService';
 import { researchHash } from './ResearchStore';
 import { paperSelectionKey } from './PaperBetSelections';
+import { isFundedPolicy } from './ResearchRecommendationPolicy';
 
 type Row = Record<string, any>;
 export type ResearchIncident = { key: string; title: string; message: string; details?: Row };
@@ -23,28 +24,35 @@ const summaryHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', 
 
 export const NIGHTLY_GRACE_SECONDS = 4 * 60 * 60;
 
-/** Independent SELECT-only audit; paper placements never require an OPEN ledger event. */
-export async function inspectPaperAccounting(client: Pick<Client, 'execute'>): Promise<{
+export const inspectPaperAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, false);
+export const inspectFundedAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, true);
+
+/** Independent SELECT-only audit of immutable automatic placements and their authorization. */
+async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funded: boolean): Promise<{
   schemaPresent: boolean; required: boolean; stable: boolean; checked: boolean;
   errors: number | null; failures: string[]; pendingSettlements: number;
 }> {
-  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','research_execution_policies','research_execution_decisions','research_execution_inputs','research_execution_jobs','research_decisions','matches')");
+  const prefix = funded ? 'funded' : 'paper', betsTable = `${prefix}_model_bets`, settlementsTable = `${prefix}_model_settlements`;
+  const policyVersion = funded ? 'funded-confidence-v1' : 'paper-fixed-unit-v1';
+  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','paper_model_bet_cancellations','funded_model_bets','funded_model_settlements','research_execution_policies','research_execution_decisions','research_execution_inputs','research_execution_jobs','research_decisions','research_ledger','matches')");
   const tables = new Set(inventory.rows.map(row => String(row.name)));
   const policies = tables.has('research_execution_policies')
-    ? await client.execute("SELECT COUNT(*) AS count FROM research_execution_policies WHERE version='paper-fixed-unit-v1'") : null;
-  const required = Number(policies?.rows[0]?.count ?? 0) > 0 || tables.has('paper_model_bets') || tables.has('paper_model_settlements');
-  const schemaPresent = ['paper_model_bets', 'paper_model_settlements'].every(table => tables.has(table));
+    ? await client.execute({ sql: 'SELECT COUNT(*) AS count FROM research_execution_policies WHERE version=?', args: [policyVersion] }) : null;
+  const required = Number(policies?.rows[0]?.count ?? 0) > 0 || tables.has(betsTable) || tables.has(settlementsTable);
+  const schemaPresent = [betsTable, settlementsTable, ...(funded ? ['paper_model_bet_cancellations'] : [])].every(table => tables.has(table));
   if (!schemaPresent) return { schemaPresent, required, stable: true, checked: required, errors: required ? 1 : 0,
-    failures: required ? ['paper_schema_required'] : [], pendingSettlements: 0 };
-  if (!['research_execution_policies', 'research_execution_decisions', 'research_execution_inputs', 'research_execution_jobs', 'research_decisions'].every(table => tables.has(table))) {
-    return { schemaPresent, required: true, stable: true, checked: true, errors: 1, failures: ['paper_authorization_schema_missing'], pendingSettlements: 0 };
+    failures: required ? [`${prefix}_schema_required`] : [], pendingSettlements: 0 };
+  if (!['research_execution_policies', 'research_execution_decisions', 'research_execution_inputs', 'research_execution_jobs', 'research_decisions', ...(funded ? ['research_ledger'] : [])].every(table => tables.has(table))) {
+    return { schemaPresent, required: true, stable: true, checked: true, errors: 1, failures: [`${prefix}_authorization_schema_missing`], pendingSettlements: 0 };
   }
   const fingerprint = () => client.execute(`SELECT
-    (SELECT COUNT(*) FROM paper_model_bets) AS bets,(SELECT MAX(rowid) FROM paper_model_bets) AS last_bet,
-    (SELECT COUNT(*) FROM paper_model_settlements) AS settlements,(SELECT MAX(rowid) FROM paper_model_settlements) AS last_settlement`);
+    (SELECT COUNT(*) FROM ${betsTable}) AS bets,(SELECT MAX(rowid) FROM ${betsTable}) AS last_bet,
+    (SELECT COUNT(*) FROM ${settlementsTable}) AS settlements,(SELECT MAX(rowid) FROM ${settlementsTable}) AS last_settlement
+    ${funded ? ',(SELECT COUNT(*) FROM research_ledger) AS ledger,(SELECT MAX(rowid) FROM research_ledger) AS last_ledger' : ''}
+    ${!funded && tables.has('paper_model_bet_cancellations') ? ',(SELECT COUNT(*) FROM paper_model_bet_cancellations) AS cancellations' : ''}`);
   const before = await fingerprint();
-  const [bets, authorizations, settlements, pending] = await Promise.all([
-    client.execute('SELECT * FROM paper_model_bets'),
+  const [bets, authorizations, settlements, pending, ledger] = await Promise.all([
+    client.execute(`SELECT * FROM ${betsTable}`),
     client.execute(`SELECT d.id AS authorized_id,d.family AS authorized_family,d.model_version AS authorized_version,
       d.action AS authorized_action,d.snapshot_json AS authorized_snapshot,d.origin_decision_id AS authorized_origin,
       d.input_id AS authorized_input,d.portfolio_id AS authorized_portfolio,i.id AS execution_input_id,
@@ -54,11 +62,14 @@ export async function inspectPaperAccounting(client: Pick<Client, 'execute'>): P
       FROM research_execution_decisions d LEFT JOIN research_execution_inputs i ON i.id=d.input_id
       LEFT JOIN research_execution_jobs j ON j.id=i.job_id LEFT JOIN research_execution_policies p ON p.hash=j.policy_hash
       LEFT JOIN research_decisions origin ON origin.id=d.origin_decision_id
-      WHERE EXISTS(SELECT 1 FROM paper_model_bets b WHERE b.execution_decision_id=d.id)`),
-    client.execute('SELECT s.*,b.id AS existing_bet,b.odds AS bet_odds FROM paper_model_settlements s LEFT JOIN paper_model_bets b ON b.id=s.bet_id'),
-    tables.has('matches') ? client.execute(`SELECT COUNT(DISTINCT b.id) AS count FROM paper_model_bets b
-      LEFT JOIN paper_model_settlements s ON s.bet_id=b.id JOIN matches m ON m.match_id=b.match_id
-      WHERE s.bet_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL`) : Promise.resolve({ rows: [] }),
+      WHERE EXISTS(SELECT 1 FROM ${betsTable} b WHERE b.execution_decision_id=d.id)`),
+    client.execute(`SELECT s.*,b.id AS existing_bet,b.odds AS bet_odds,b.stake_cents AS bet_stake FROM ${settlementsTable} s LEFT JOIN ${betsTable} b ON b.id=s.bet_id`),
+    tables.has('matches') ? client.execute(`SELECT COUNT(DISTINCT b.id) AS count FROM ${betsTable} b
+      LEFT JOIN ${settlementsTable} s ON s.bet_id=b.id JOIN matches m ON m.match_id=b.match_id
+      WHERE s.bet_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
+      ${!funded && tables.has('paper_model_bet_cancellations') ? 'AND NOT EXISTS(SELECT 1 FROM paper_model_bet_cancellations c WHERE c.bet_id=b.id)' : ''}`) : Promise.resolve({ rows: [] }),
+    funded ? client.execute(`SELECT * FROM research_ledger WHERE id LIKE 'stake:funded:%' OR id LIKE 'settle:funded:%'
+      OR bet_id IN (SELECT id FROM funded_model_bets)`) : Promise.resolve({ rows: [] }),
   ]);
   const failures: string[] = [], identities = new Set<string>(), settledIds = new Set<string>();
   const parse = (value: unknown): Row | null => {
@@ -79,25 +90,32 @@ export async function inspectPaperAccounting(client: Pick<Client, 'execute'>): P
     const id = String(row.id), snapshot = parse(row.snapshot_json), parent = authorization?.parent, input = authorization?.input, policy = authorization?.policy;
     const quote = snapshot?.quote, key = JSON.stringify([row.family, row.match_id, row.selection_key]);
     if (identities.has(key)) failures.push(`${id}:duplicate_selection`); identities.add(key);
-    if (Number(row.stake_cents) !== 100 || !Number.isSafeInteger(Number(row.stake_cents))) failures.push(`${id}:stake`);
+    const stake = Number(row.stake_cents), percent = Number(row.stake_percent), base = Number(row.base_available_cents);
+    const confidencePercent = { LOW: 1, MEDIUM: 3, HIGH: 5 }[String(row.confidence) as 'LOW' | 'MEDIUM' | 'HIGH'];
+    if (!Number.isSafeInteger(stake) || (funded ? !id.startsWith('funded:') || stake <= 0 || !Number.isSafeInteger(base)
+      || base <= 0 || percent !== confidencePercent || stake !== Math.floor(base * percent / 100) : stake !== 100)) failures.push(`${id}:stake`);
     if (!row.authorized_id || !row.execution_input_id || !row.scientific_origin || row.authorized_action !== 'BET'
       || row.authorized_family !== row.family || row.authorized_version !== row.model_version
       || row.authorized_origin !== row.origin_decision_id || row.authorized_input !== row.input_id
       || row.authorized_match !== row.match_id || row.authorized_policy !== row.policy_hash
       || row.scientific_family !== row.family || row.authorized_portfolio !== `shadow_${row.family}`
       || row.scientific_portfolio !== `shadow_${row.family}` || row.scientific_input !== row.execution_origin
-      || row.policy_version !== 'paper-fixed-unit-v1') failures.push(`${id}:authorization`);
+      || row.policy_version !== policyVersion || funded && row.portfolio_id !== `shadow_${row.family}`) failures.push(`${id}:authorization`);
     const approved: Row = authorization?.approved.get(row.selection_key) as Row;
     const validQuote = quote && quote.source === 'odds_api' && quote.usedSyntheticOdds !== true
       && quote.priceType === 'prematch' && quote.timestampEvidence !== 'observed_snapshot'
       && typeof quote.bookmaker === 'string' && !!quote.bookmaker.trim() && Number.isFinite(quote.odds) && quote.odds > 1;
     if (!snapshot || !parent || !input || !policy || !validQuote || !approved
       || !approved.quote || typeof approved.quote !== 'object'
-      || policy.virtualOnly !== true || policy.fixedStakeUnits !== 1 || policy.stakeModeA !== 'PAPER_FIXED_UNIT' || policy.stakeModeC !== 'PAPER_FIXED_UNIT'
+      || policy.virtualOnly !== true || (funded ? !isFundedPolicy(policy)
+        : policy.fixedStakeUnits !== 1 || policy.stakeModeA !== 'PAPER_FIXED_UNIT' || policy.stakeModeC !== 'PAPER_FIXED_UNIT')
       || Number(row.odds) !== quote.odds || row.market !== snapshot.market || row.selection !== snapshot.selection
       || row.market !== quote.market || row.selection !== quote.selection || row.selection_key !== paperSelectionKey(quote)
-      || snapshot.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.stakeCents !== 100 || snapshot.stakeUnits !== 1
-      || parent.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.effectiveExecutionDecisionId !== row.execution_decision_id
+      || (funded ? snapshot.stakeMode !== 'CONFIDENCE_PERCENT_AVAILABLE' || parent.stakeMode !== 'CONFIDENCE_PERCENT_AVAILABLE'
+        || snapshot.stakeCents !== stake || approved.stakeCents !== stake || snapshot.stakePercent !== percent || approved.stakePercent !== percent
+        || snapshot.baseAvailableCents !== base || approved.baseAvailableCents !== base || snapshot.confidence !== row.confidence
+        || approved.confidence !== row.confidence : snapshot.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.stakeCents !== 100 || snapshot.stakeUnits !== 1
+        || parent.stakeMode !== 'PAPER_FIXED_UNIT') || snapshot.effectiveExecutionDecisionId !== row.execution_decision_id
       || snapshot.originDecisionId !== row.origin_decision_id || snapshot.inputId !== row.input_id || snapshot.matchId !== row.match_id
       || snapshot.family !== row.family || snapshot.modelVersion !== row.model_version || snapshot.policyHash !== row.policy_hash
       || approved.market !== row.market || approved.selection !== row.selection || researchHash(approved.quote) !== researchHash(quote)
@@ -119,8 +137,30 @@ export async function inspectPaperAccounting(client: Pick<Client, 'execute'>): P
     if (settledIds.has(id)) failures.push(`${id}:duplicate_settlement`); settledIds.add(id);
     if (!row.existing_bet) failures.push(`${id}:orphan_settlement`);
     if (!Number.isFinite(multiplier) || ![0, .5, 1, (odds + 1) / 2, odds].some(value => Math.abs(value - multiplier) < 1e-9)
-      || !Number.isSafeInteger(Number(row.return_cents)) || Number(row.return_cents) !== Math.round(100 * multiplier)
+      || !Number.isSafeInteger(Number(row.return_cents)) || Number(row.return_cents) !== Math.round(Number(row.bet_stake) * multiplier)
       || !evidence || !Object.keys(evidence).length || !Number.isFinite(Date.parse(String(row.settled_at)))) failures.push(`${id}:settlement`);
+  }
+  if (funded) {
+    const betById = new Map(bets.rows.map(row => [String(row.id), row]));
+    const settlementById = new Map(settlements.rows.map(row => [String(row.bet_id), row]));
+    const linked = (movement: Row, id: string) => movement.bet_id === id
+      || movement.id === `stake:${id}` || movement.id === `settle:${id}`;
+    for (const bet of bets.rows) {
+      const id = String(bet.id), movements = ledger.rows.filter(row => linked(row, id));
+      const stakes = movements.filter(row => row.event === 'STAKE'), settled = movements.filter(row => row.event === 'SETTLE');
+      const validMovement = (row: Row, event: string, available: number, committed: number) => row.id === `${event.toLowerCase()}:${id}`
+        && row.bet_id == null && row.portfolio_id === bet.portfolio_id && Number(row.available_delta_cents) === available
+        && Number(row.committed_delta_cents) === committed;
+      if (stakes.length !== 1 || !validMovement(stakes[0], 'STAKE', -Number(bet.stake_cents), Number(bet.stake_cents))) failures.push(`${id}:stake_ledger`);
+      const settlement = settlementById.get(id);
+      if (settlement ? settled.length !== 1 || !validMovement(settled[0], 'SETTLE', Number(settlement.return_cents), -Number(bet.stake_cents))
+        : settled.length > 0) failures.push(`${id}:settlement_ledger`);
+      if (movements.some(row => !['STAKE', 'SETTLE'].includes(String(row.event)))) failures.push(`${id}:ledger_event`);
+    }
+    for (const movement of ledger.rows) {
+      const id = String(movement.id).replace(/^(?:stake|settle):/, '');
+      if (!betById.has(id) || !linked(movement, id)) failures.push(`${String(movement.id)}:orphan_ledger`);
+    }
   }
   const after = await fingerprint(), stable = JSON.stringify(before.rows) === JSON.stringify(after.rows);
   return { schemaPresent, required, stable, checked: stable, errors: stable ? failures.length : null,
@@ -177,6 +217,7 @@ export class ResearchMonitoringStore {
   constructor(private readonly client: Client, private readonly ready: () => Promise<void> = async () => {}) {}
 
   async auditPaperAccounting() { await this.ready(); return inspectPaperAccounting(this.client); }
+  async auditFundedAccounting() { await this.ready(); return inspectFundedAccounting(this.client); }
 
   async reconcile(incidents: ResearchIncident[], now: string | Date): Promise<void> {
     await this.ready();
@@ -305,11 +346,12 @@ export function researchCriticalIncidents(input: { now: string; schedulerEnabled
     const committed = own.reduce((sum, row) => sum + Number(row.committedDeltaCents), 0);
     if (available < 0 || committed < 0 || available !== portfolio.availableCents || committed !== portfolio.committedCents
       || available + committed !== portfolio.equityCents || own.filter((row) => row.event === 'OPEN').length !== 1) failures.push(portfolio.id);
-    if (new Set(ownBets.map((bet) => bet.matchId)).size !== ownBets.length) failures.push(`${portfolio.id}:duplicate_match`);
+    const legacyBets = ownBets.filter(bet => !String(bet.id).startsWith('funded:'));
+    if (new Set(legacyBets.map((bet) => bet.matchId)).size !== legacyBets.length) failures.push(`${portfolio.id}:duplicate_match`);
     const openStakes = ownBets.filter((bet) => bet.status === 'PENDING').reduce((sum, bet) => sum + bet.stakeCents, 0);
     if (openStakes !== committed) failures.push(`${portfolio.id}:committed`);
     for (const bet of ownBets) {
-      const linked = (row: Row, event: string) => row.betId === bet.id || String(bet.id).startsWith('manual:')
+      const linked = (row: Row, event: string) => row.betId === bet.id || ['manual:', 'funded:'].some(prefix => String(bet.id).startsWith(prefix))
         && row.betId == null && row.id === `${event.toLowerCase()}:${bet.id}`;
       const stake = own.filter((row) => linked(row, 'STAKE') && row.event === 'STAKE');
       if (stake.length !== 1 || stake[0].availableDeltaCents !== -bet.stakeCents || stake[0].committedDeltaCents !== bet.stakeCents) failures.push(`${portfolio.id}:stake`);
@@ -331,9 +373,9 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
     ? Promise.all(['research_nightly', 'research_settlement', 'research_model_check', 'research_provider']
       .map((name) => db.listRecentSchedulerRunsByName!(name, 10))).then((groups) => groups.flat())
     : db.listRecentSchedulerRuns(50);
-  const [runs, portfolios, bets, ledger, paper] = await Promise.all([
+  const [runs, portfolios, bets, ledger, paper, funded] = await Promise.all([
     namedRuns, db.research.listPortfolios(), db.research.listBets(), db.research.listLedger(),
-    db.researchMonitoring.auditPaperAccounting(),
+    db.researchMonitoring.auditPaperAccounting(), db.researchMonitoring.auditFundedAccounting(),
   ]);
   // The ledger is append-only. A changed second read means the independent
   // accounting reads straddled a commit; defer that integrity check until stable.
@@ -353,6 +395,15 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
   });
   if (!paper.stable) {
     const prior = (await db.researchMonitoring.read()).incidents.filter(incident => ['paper_schema_required', 'paper_accounting_integrity'].includes(incident.key));
+    for (const incident of prior) incidents.push({ key: incident.key, title: incident.title, message: incident.message, details: incident.details });
+  }
+  if (funded.stable && funded.errors) incidents.push({
+    key: funded.failures.includes('funded_schema_required') ? 'funded_schema_required' : 'funded_accounting_integrity',
+    title: 'Integrità delle giocate virtuali da verificare',
+    message: 'Le giocate con stake da confidenza hanno evidenza o movimenti incoerenti.', details: { failures: funded.failures },
+  });
+  if (!funded.stable) {
+    const prior = (await db.researchMonitoring.read()).incidents.filter(incident => ['funded_schema_required', 'funded_accounting_integrity'].includes(incident.key));
     for (const incident of prior) incidents.push({ key: incident.key, title: incident.title, message: incident.message, details: incident.details });
   }
   await db.researchMonitoring.reconcile(incidents, timestamp);

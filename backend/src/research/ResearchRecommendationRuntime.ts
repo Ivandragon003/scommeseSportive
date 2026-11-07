@@ -11,7 +11,7 @@ import { buildChallengerRecommendation, challengerTechnicalReason } from './Chal
 import { researchHash } from './ResearchStore';
 import type { RecommendationJob, RecommendationCommit, RecommendationDecision } from './ResearchRecommendationStore';
 import { recommendationQuoteReason,
-  VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, paperExecutionPolicy } from './ResearchRecommendationPolicy';
+  VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, paperExecutionPolicy, fundedExecutionPolicy } from './ResearchRecommendationPolicy';
 import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
@@ -39,16 +39,19 @@ export class ResearchRecommendationRuntime {
   private readonly appOdds: AppOddsFeed;
   private readonly fixtureAdmission?: FixtureAdmissionCheck;
   private deploymentC: ChallengerExecutionState;
-  private executionPolicy: ReturnType<typeof challengerExecutionPolicy> | ReturnType<typeof paperExecutionPolicy>;
+  private executionPolicy: ReturnType<typeof challengerExecutionPolicy> | ReturnType<typeof paperExecutionPolicy> | ReturnType<typeof fundedExecutionPolicy>;
   private readonly paperMode: boolean;
+  private readonly fundedMode: boolean;
   constructor(private readonly db: DatabaseService, options: { clock?: () => Date; researchRuntime?: ResearchPreparation;
     predictionService?: AppPrediction; odds?: OddsFeed; appOdds?: AppOddsFeed;
     deploymentC?: ChallengerExecutionState; fixtureAdmission?: FixtureAdmissionCheck;
-    requireExistingCalibration?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean; paperMode?: boolean } = {}) {
+    requireExistingCalibration?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean; paperMode?: boolean; fundedMode?: boolean } = {}) {
     this.clock = options.clock ?? (() => new Date());
-    this.paperMode = options.paperMode === true;
+    if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
+    this.fundedMode = options.fundedMode === true;
+    this.paperMode = options.paperMode === true || this.fundedMode;
     this.deploymentC = options.deploymentC ?? fallbackChallengerState();
-    this.executionPolicy = this.paperMode ? paperExecutionPolicy(this.deploymentC) : challengerExecutionPolicy(this.deploymentC);
+    this.executionPolicy = this.fundedMode ? fundedExecutionPolicy(this.deploymentC) : this.paperMode ? paperExecutionPolicy(this.deploymentC) : challengerExecutionPolicy(this.deploymentC);
     this.researchRuntime = options.researchRuntime ?? new ResearchRuntime(db, { clock: this.clock, odds: options.odds,
       nightly: { quoteMaxAgeMs: VIRTUAL_RECOMMENDATION_POLICY.quoteMaxAgeMs, minEv: .04, minPrudentialEv: .01 },
       paperMode: this.paperMode,
@@ -63,7 +66,7 @@ export class ResearchRecommendationRuntime {
   beginCohort(runId: string, deploymentC?: ChallengerExecutionState): void {
     if (deploymentC) {
       this.deploymentC = deploymentC;
-      this.executionPolicy = this.paperMode ? paperExecutionPolicy(deploymentC) : challengerExecutionPolicy(deploymentC);
+      this.executionPolicy = this.fundedMode ? fundedExecutionPolicy(deploymentC) : this.paperMode ? paperExecutionPolicy(deploymentC) : challengerExecutionPolicy(deploymentC);
       this.researchRuntime.pinChallengerDeployment?.(deploymentC.deployment);
     }
     this.researchRuntime.beginNightlyCohort(runId);
@@ -300,13 +303,15 @@ export class ResearchRecommendationRuntime {
       }
       for (const [family, candidates] of [['A', appCandidates], ['C', challengerCandidates]] as const) {
         const index = decisions.findIndex((decision) => decision.family === family);
-        const selections = bestPaperSelections(candidates);
+        const selections = bestPaperSelections(this.fundedMode
+          ? candidates.filter((candidate) => ['LOW', 'MEDIUM', 'HIGH'].includes(candidate.confidence ?? '')) : candidates);
         if (selections.length) decisions[index] = { ...decisions[index], ...selections[0], action: 'BET', reason: undefined,
           ...(family === 'C' && packetC?.dataQuality ? { dataQualityPolicyHash: packetC.dataQuality.policyHash,
             dataQualityBaselineClean: true, dataQualityEvidence: packetC.dataQuality.evidence } : {}),
           recommended: true, validated: true, selections };
         else decisions[index] = abstain(family, decisions[index].modelVersion,
-          decisions[index].reason ?? (family === 'A' ? 'app_no_recommendation' : 'challenger_no_recommendation'));
+          (this.fundedMode && candidates.length ? 'confidence_unavailable' : decisions[index].reason)
+            ?? (family === 'A' ? 'app_no_recommendation' : 'challenger_no_recommendation'));
       }
     }
     const modelDescriptorA = modelA ? { source: modelA.source, version: modelA.version,

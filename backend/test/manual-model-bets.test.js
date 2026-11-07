@@ -54,12 +54,19 @@ test('manual A/C debit independent portfolios, merge into wallet reads and settl
   assert.equal(await research.hasManualBet(client, 'shadow_A', 'fixture'), true);
 });
 
-test('price/bookmaker/selection/family/exposure mismatch cannot create a debit', async (t) => {
+test('price/bookmaker/selection/family or insufficient balance cannot create a debit', async (t) => {
   const { research, service, input } = await setup(t);
-  for (const changes of [{ family: 'B' }, { selection: 'awayWin' }, { bookmakerOdds: 3 }, { bookmakerName: 'Other' }, { stakeCents: 5001 }, { stakeCents: 100001 }]) {
+  for (const changes of [{ family: 'B' }, { selection: 'awayWin' }, { bookmakerOdds: 3 }, { bookmakerName: 'Other' }, { stakeCents: 100001 }]) {
     await assert.rejects(() => service.place({ ...input, ...changes }));
   }
   assert.equal((await research.listLedger()).length, 2); assert.equal((await research.listBets()).length, 0);
+});
+
+test('manual stake may exceed five percent when available funds cover it', async (t) => {
+  const { research, service, input } = await setup(t);
+  const bet = await service.place({ ...input, stakeCents: 5001 });
+  assert.equal(bet.stakeCents, 5001);
+  assert.equal((await research.listPortfolios()).find(x => x.family === 'A').availableCents, 94999);
 });
 
 test('stale authentic quotes are archive-only and never move funds', async (t) => {

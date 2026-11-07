@@ -205,19 +205,45 @@ test('diagnostic origins cannot create v1 stakes even when their original synthe
 test('CLI selects versioned execution only with the new flag and uses diagnostic-only origins when off', async (t) => {
   for (const enabled of [false, true]) {
     const f = await fixture(t, { matches: 1 }), output = [];
-    if (enabled) await paperFixture(f);
+    if (enabled) {
+      await paperFixture(f);
+      await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/029_funded_model_bets.sql'), 'utf8'));
+      await f.research.initializePortfolios();
+    }
     const result = await runNightly({ db: f.db, policy: policy(), clock: f.clock, runId: 'cli-fixture',
       env: { RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: String(enabled) }, preparer: f.diagnosticPreparer,
       diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, log: (row) => output.push(row) });
     assert.equal(result.errors, 0); assert.equal(result.registeredBets, enabled ? 2 : 0);
     assert.equal(f.counters.executionPreparations, enabled ? 1 : 0);
     assert.equal(output.length, 1); assert.equal(output[0], result);
+    if (enabled) {
+      assert.equal(result.accountingMode, 'FUNDED');
+      assert.equal(result.protocol, 'funded-confidence-v1');
+      assert.equal((await f.recommendations.listPaperBets()).length, 0);
+      const bets = (await f.client.execute('SELECT confidence,stake_percent,stake_cents,base_available_cents FROM funded_model_bets')).rows;
+      assert.equal(bets.length, 2);
+      for (const bet of bets) {
+        assert.equal(bet.confidence, 'MEDIUM'); assert.equal(bet.stake_percent, 3);
+        assert.equal(bet.base_available_cents, 100000); assert.equal(bet.stake_cents, 3000);
+      }
+      assert.equal(Number((await f.client.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE event='OPEN'")).rows[0].n), 2);
+    }
     if (!enabled) {
       assert.equal(result.diagnosticOnly, true);
       assert.deepEqual(f.runs.map((run) => run.schedulerName), ['research_nightly_diagnostic']);
       assert.equal((await f.research.listLedger()).filter((row) => row.event === 'STAKE').length, 0);
     }
   }
+});
+
+test('funded Nightly never automatically opens or funds missing wallets', async (t) => {
+  const f = await fixture(t, { matches: 1 });
+  await paperFixture(f);
+  await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/029_funded_model_bets.sql'), 'utf8'));
+  const result = await execute(f, { fundedMode: true });
+  assert.equal(result.registeredBets, 0);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM research_ledger')).rows[0].n), 0);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM funded_model_bets')).rows[0].n), 0);
 });
 
 test('turning off or omitting the execution flag cannot revive eligible v1 stakes during rollback', async (t) => {

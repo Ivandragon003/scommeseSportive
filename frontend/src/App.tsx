@@ -23,7 +23,7 @@ const ResearchPage = lazy(() => import('./features/research/ResearchPage'));
 const PRIMARY_NAV_ITEMS = [
   { path: '/predictions', label: 'Partite', meta: 'pronostico e quote', icon: BarChart3 },
   { path: '/bets', label: 'Giocate', meta: 'aperte e storico', icon: Ticket },
-  { path: '/budget', label: 'Budget', meta: 'risultati in unità', icon: Wallet },
+  { path: '/budget', label: 'Budget', meta: 'saldi e risultati in €', icon: Wallet },
 ];
 const ADVANCED_NAV_ITEMS = [
   { path: '/prediction-archive', label: 'Archivio', meta: 'giocate registrate', icon: Archive },

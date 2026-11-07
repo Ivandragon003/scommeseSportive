@@ -3,7 +3,6 @@ import BestValueCard from './BestValueCard';
 import OddsSourceBadge from './OddsSourceBadge';
 import PlayerPropsSection from './PlayerPropsSection';
 import PredictionHero from './PredictionHero';
-import StakePlanner from './StakePlanner';
 import ValueOpportunitiesTable from './ValueOpportunitiesTable';
 import { BestValueOpportunity } from './predictionTypes';
 import {
@@ -165,23 +164,6 @@ describe('predictions UI components', () => {
     const badge = screen.getByTestId('badge');
     expect(badge).toBeTruthy();
     expect(badge.textContent).toBe('Quota bookmaker non disponibile');
-  });
-
-  test('mostra stake suggerito sul bankroll', () => {
-    render(
-      <StakePlanner
-        isReplayAnalysis={false}
-        bankroll={1000}
-        suggestedTotalStake={25}
-        maxExposurePct={8}
-        maxExposureAmount={80}
-        exposureRatio={0.3125}
-      />
-    );
-
-    expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 1000.00');
-    expect(screen.getByTestId('stake-planner').textContent).toContain('EUR 25.00');
-    expect(screen.getByText(/Utilizzo cap rischio: 31.3%/i)).toBeTruthy();
   });
 
   test('gestisce fallback provider e stato quote unavailable', () => {

@@ -11,7 +11,6 @@ import {
 import ModelBadge from './ModelBadge';
 import QualityFilters from './QualityFilters';
 import { AppSelect } from '../../components/common/AppSelect';
-import PaperWalletPage from './PaperWalletPages';
 
 const initialModel = (): WalletModelFilter => {
   const value = new URLSearchParams(window.location.search).get('model');
@@ -95,7 +94,7 @@ export function FundedWalletBudgetPage({ activeUser }: { activeUser: string }) {
   return <main className="bm-wrap budget-page wallet-budget-page">
     <header className="bm-head">
       <div><span className="fp-section-kicker">I tuoi portafogli</span><h1 className="bm-title">Budget</h1>
-        <p className="bm-sub">A deterministico · C machine learning</p></div>
+        <p className="bm-sub">A deterministico · C machine learning · saldi in euro</p></div>
       <button type="button" className="fp-btn fp-btn-ghost wallet-budget-refresh" aria-label="Aggiorna budget" onClick={refresh} disabled={loading}><RefreshCw size={17} aria-hidden="true" /><span>Aggiorna budget</span></button>
     </header>
     <div className="wallet-budget-controls">
@@ -153,11 +152,12 @@ export function FundedWalletBudgetPage({ activeUser }: { activeUser: string }) {
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
+      <p className="app-wallet-help">Le puntate automatiche impegnano il saldo del proprio modello: LOW 1%, MEDIUM 3%, HIGH 5% del disponibile all’inizio del gruppo di registrazioni, entro il saldo residuo.</p>
       <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. Il grafico mostra sempre il profitto cumulato, da zero all’inizio del periodo. I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
   </main>;
 }
 
 export function WalletBudgetPage({ activeUser }: { activeUser: string }) {
-  return <PaperWalletPage kind="budget" legacy={<FundedWalletBudgetPage activeUser={activeUser} />} />;
+  return <FundedWalletBudgetPage activeUser={activeUser} />;
 }

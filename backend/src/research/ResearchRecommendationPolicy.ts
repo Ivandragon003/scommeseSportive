@@ -63,6 +63,31 @@ export function paperExecutionPolicy(state: ChallengerExecutionState) {
     ...(state.resolutionUnavailable ? { resolutionUnavailable: true } : {}) } };
 }
 
+export const FUNDED_POLICY_VERSION = 'funded-confidence-v1';
+export const FUNDED_ACCOUNTING_MODE = 'CONFIDENCE_PERCENT_AVAILABLE';
+export function fundedExecutionPolicy(state: ChallengerExecutionState) {
+  const { fixedStakeUnits: _fixedStakeUnits, ...base } = paperExecutionPolicy(state);
+  return { ...base, version: FUNDED_POLICY_VERSION,
+    familyA: { ...PAPER_RECOMMENDATION_POLICY.familyA, stakeMode: FUNDED_ACCOUNTING_MODE },
+    familyC: { ...paperExecutionPolicy(state).familyC, stakeMode: FUNDED_ACCOUNTING_MODE },
+    stakeModeA: FUNDED_ACCOUNTING_MODE, stakeModeC: FUNDED_ACCOUNTING_MODE,
+    stakePercentByConfidence: { LOW: 1, MEDIUM: 3, HIGH: 5 },
+    budgetBase: 'AVAILABLE_AT_BATCH_START' };
+}
+
+export function isFundedPolicy(policy: any): boolean {
+  return policy?.version === FUNDED_POLICY_VERSION && policy.virtualOnly === true
+    && policy.stakeModeA === FUNDED_ACCOUNTING_MODE && policy.stakeModeC === FUNDED_ACCOUNTING_MODE
+    && policy.familyA?.stakeMode === FUNDED_ACCOUNTING_MODE && policy.familyC?.stakeMode === FUNDED_ACCOUNTING_MODE
+    && policy.budgetBase === 'AVAILABLE_AT_BATCH_START' && policy.stakePercentByConfidence?.LOW === 1
+    && policy.stakePercentByConfidence?.MEDIUM === 3 && policy.stakePercentByConfidence?.HIGH === 5
+    && Object.keys(policy.stakePercentByConfidence).length === 3 && policy.fixedStakeUnits === undefined
+    && policy.maxExposureFraction === undefined && policy.maxBetsPerMatchPerFamily === undefined
+    && policy.quoteMaxAgeMs === 300000 && policy.independentCalibrationRequired === false
+    && policy.familyA?.source === 'PredictionService' && policy.familyC?.source === 'ResearchRuntime'
+    && typeof policy.familyC?.modelVersion === 'string' && !!policy.familyC.modelVersion.trim();
+}
+
 export function recommendationQuoteReason(quote: RecommendationQuote, now: Date, family: 'A' | 'C' = 'C'): string | null {
   if (!quote || quote.source !== 'odds_api' || quote.priceType !== 'prematch'
     || quote.timestampEvidence === 'observed_snapshot') return 'real_prematch_quote_required';

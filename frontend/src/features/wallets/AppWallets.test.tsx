@@ -1,12 +1,12 @@
 import { selectOption } from '../../testSelect';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { FundedBetsManager as BetsManager } from '../../pages/BetsManager';
-import { FundedWalletBudgetPage as BudgetManager } from './WalletPages';
+import BetsManager from '../../pages/BetsManager';
+import BudgetManager from '../../pages/BudgetManager';
 import * as legacyApi from '../../utils/api';
 import { getAppWallets, getWalletArchive } from '../../utils/walletApi';
 import { ComparisonBet, ResearchComparison } from '../research/researchComparisonTypes';
-import { WalletBetTable, walletBetReturn } from './AppWallets';
+import { WalletBetTable, walletBetReturn, walletMoney } from './AppWallets';
 import { WalletPeriodPicker, walletToday } from './WalletPages';
 
 jest.mock('../../utils/walletApi');
@@ -307,4 +307,31 @@ test('budget changes classification without another remote request and keeps sel
   expect(screen.getByTestId('wallet-chart').getAttribute('data-a')).toBe(JSON.stringify(data.classificationResults.HIGH.curves.A));
   fireEvent.click(screen.getByRole('button',{name:'Confronta A e C'}));
   expect(screen.getByRole('region',{name:'Confronto dei portafogli'})).toBeTruthy();
+});
+
+test('default Budget shows a funded debit as available-to-committed movement while keeping C independent', async () => {
+  const before = payload();
+  const after = payload();
+  after.portfolios[0] = { ...after.portfolios[0], currentAvailableCents: 92713, currentCommittedCents: 7287,
+    currentEquityCents: 100000, betCount: 4, stakeCents: 7287, profitCents: 0 };
+  after.bets.rows = [...after.bets.rows, { ...rows[0], id: 'funded:automatic-a', stakeCents: 2867 }];
+  after.bets.total += 1;
+  mockedWallets.mockResolvedValueOnce(before).mockResolvedValue(after);
+  render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
+  const a = await screen.findByRole('region', { name: 'Portafoglio A' });
+  expect(within(a).getAllByText(/955,80/).length).toBeGreaterThan(0);
+  expect(within(a).getAllByText(/44,20/).length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Aggiorna budget' }));
+  await waitFor(() => expect(within(a).getAllByText(/927,13/).length).toBeGreaterThan(0));
+  expect(within(a).getAllByText(/72,87/).length).toBeGreaterThan(0);
+  expect(within(a).getByText('Patrimonio operativo attuale')).toBeTruthy();
+  expect(within(a).getAllByText(/1000,00\s*€/).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/1 unità|1 u|Storico precedente/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Modello C' }));
+  const c = screen.getByRole('region', { name: 'Portafoglio C' });
+  expect(within(c).getAllByText(/980,00/).length).toBeGreaterThan(0);
+  expect(within(c).getAllByText(/20,00/).length).toBeGreaterThan(0);
+  expect(mockedLegacy.placeBet).not.toHaveBeenCalled();
+  expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
+  expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });

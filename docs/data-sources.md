@@ -104,9 +104,12 @@ visualizzato. Le altre associazioni richiedono comunque la propria verifica.
   leggera, al massimo due volte alla settimana, senza necessità di contatto per
   tale uso. Esclude usi commerciali e progetti AI/data-training con richieste
   pesanti. Non dedurre da questo un permesso per import giornalieri, training
-  o redistribuzione. Il flusso Nightly esistente non implementa un limite
-  persistente di due download settimanali per i CSV correnti: prima di
-  riattivarlo va adeguata/verificata la cadenza. I probe non aggirano HTTP429.
+  o redistribuzione. Il percorso Nightly corrente usa `NightlyCsvCache`, con
+  prenotazioni persistenti condivise: al massimo due raccolte in sette giorni,
+  almeno 84 ore dopo una raccolta riuscita. Tentativi falliti o interrotti
+  consumano la prenotazione; il passaggio da una cache senza storico attestato
+  impone una prima attesa di sette giorni. Questo limite tecnico non certifica
+  diritti ulteriori o richieste compiute da altri client. I probe non aggirano HTTP429.
 - [API-Football](https://www.api-football.com/terms) e
   [Sportmonks](https://www.sportmonks.com/terms-of-service/) pongono condizioni
   su applicazioni, rivendita e diritti terzi. Nessun aggiramento delle quote

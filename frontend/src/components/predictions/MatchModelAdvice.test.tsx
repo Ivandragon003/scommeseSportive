@@ -224,7 +224,7 @@ test('a new C preview is explicitly nonregistered and leaves the recorded A deci
   expect(c().getByText('Bookmaker anteprima')).toBeTruthy();
   expect(c().getByText('2,70')).toBeTruthy();
   expect(c().getByText('Nessuna puntata registrata.')).toBeTruthy();
-  expect(c().getByText('Stake indicativo: 1%. L’anteprima non addebita il portafoglio.')).toBeTruthy();
+  expect(c().getByText('L’anteprima non registra giocate né addebita il portafoglio.')).toBeTruthy();
   expect(c().queryByText('Importo virtuale registrato')).toBeNull();
   expect(c().queryByText('Decisione Nightly archiviata')).toBeNull();
   expect(screen.getByRole('region', { name: 'Consiglio modello A' }).textContent).toContain('4,12');

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { selectOption } from '../../testSelect';
-import WalletArchivePage from './WalletArchivePage';
+import WalletArchivePage from '../prediction-archive/PredictionArchivePage';
 import { getWalletArchive, WalletArchiveData } from '../../utils/walletApi';
 import API from '../../utils/api';
 

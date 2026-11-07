@@ -68,19 +68,19 @@ A operativo è `PredictionService`, identificato come `APP-A-…` con hash di co
 
 Il default C è C906 con baseline A80 e selettore legacy. Il registro persistente di adozione può indicare un altro deployment: registrare un candidato o cambiare il champion research non basta a cambiare C nell'esecuzione. Lo stato effettivo del registro non si deduce dai default del repository.
 
-La nuova Nightly automatica usa un registro paper separato con unità nominali, senza saldo. I registri e le azioni manuali precedenti conservano i portafogli virtuali `shadow_A` e `shadow_C` e i rispettivi ledger. Non inviano puntate ai bookmaker.
+La Nightly automatica e le azioni manuali usano importi in euro nei portafogli virtuali esistenti `shadow_A` e `shadow_C`, con saldi e ledger conservati e separati. Non inviano puntate ai bookmaker.
 
 | Origine | Importo |
 |---|---|
-| Nightly A | 1 unità virtuale per selezione qualificata |
-| Nightly C | 1 unità virtuale per selezione qualificata |
+| Nightly A | LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile A a inizio gruppo |
+| Nightly C | LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile C a inizio gruppo |
 | Manuale A/C | Importo scelto e confermato dall'utente |
 
-Il server paper verifica quota reale recente, kickoff futuro, identità, probabilità, EV, prudenza e assenza della stessa selezione per famiglia/partita. Non impone un massimo di giocate o esposizione: più selezioni sulla stessa partita restano distinte. La migrazione additiva 028 introduce bet e liquidazioni immutabili; profitto e ROI derivano dalle unità liquidate, senza leggere il ledger finanziato. I precedenti vincoli di saldo/esposizione restano soltanto sui percorsi manuali e storici, le cui evidenze non vengono riscritte. L'archiviazione LOW/SPECULATIVE conserva proposte senza impegnare capitale.
+La policy `funded-confidence-v1` verifica quota reale recente, kickoff futuro, identità, probabilità, EV, prudenza, confidenza e assenza della stessa selezione per famiglia/partita. Considera tutte le selezioni qualificate, senza top N, massimo per partita o tetto cumulativo del 5%. All'inizio del gruppo nella transazione legge il saldo disponibile; finanzia importi completi in ordine HIGH, MEDIUM, LOW, poi EV decrescente e chiave. Confidenza mancante o SPECULATIVE non ricevono fondi. La migrazione additiva 029 conserva bet e liquidazioni finanziate immutabili e movimenti nel `research_ledger` esistente. Anche le azioni manuali verificano il saldo senza tetto del 5%. Storico e capitali non vengono riscritti; l'archiviazione di proposte senza stake non impegna capitale.
 
 Lo storico del precedente budget è classificato esplicitamente come A deterministico (`model_family = A`, identificatore di vista `legacy_deterministic_A`). Mantiene capitale e provenienza distinti dai portafogli A/C: non si sommano i capitali né si attribuisce allo storico una versione APP-A non documentata.
 
-`GET /api/paper-bets` espone tutte le nuove selezioni e gli aggregati completi in unità. Le pagine principali leggono questo registro e distinguono lo storico precedente. `GET /api/wallets` e `/api/wallets/archive` conservano saldi e dettagli storici. Aggregati e liste paginate non vanno confusi. Le letture non inizializzano un capitale. Le azioni manuali precedenti usano `POST /api/wallets/bets/manual` e `POST /api/wallets/opportunities/archive/manual`.
+Le pagine principali leggono saldi, importi e storico da `GET /api/wallets` e `/api/wallets/archive`. Le letture non inizializzano un capitale. Aggregati e liste paginate non vanno confusi. Le azioni manuali usano `POST /api/wallets/bets/manual` e `POST /api/wallets/opportunities/archive/manual`. Il registro paper precedente resta evidenza distinta: le cancellazioni logiche immutabili lo escludono dai totali operativi e dalle liquidazioni, senza conversioni di unità in euro o cancellazioni fisiche.
 
 Il settlement liquida registrazioni esistenti con risultati verificati; `/api/results/refresh` può importare finali e avviare questa manutenzione. `/api/automation/place-valid-bets` è ritirata e risponde 410. Le API del budget precedente restano un percorso distinto.
 
@@ -92,7 +92,7 @@ Fonti: [policy](../backend/src/research/ResearchRecommendationPolicy.ts), [esecu
 
 Il workflow Nightly dichiara 03:07 Europe/Rome e recuperi alle 04:17 e 05:27. La programmazione non garantisce l'istante effettivo di avvio. Guard giornaliero, concorrenza del workflow e lease persistenti limitano le duplicazioni secondo il protocollo; retry dopo errori e recuperi espliciti hanno regole proprie.
 
-Il flusso completo comprende import, supplemento, manutenzione risultati, liquidazioni, preparazione della calibrazione e, con i flag previsti, nuove decisioni A/C. Il settlement resta distinto dal consenso a creare nuove giocate. Il web non è un timer di puntata e il vecchio eseguibile T−15 è ritirato.
+Il flusso completo comprende import, supplemento, manutenzione risultati, liquidazioni e, con i flag previsti, nuove decisioni A/C. La Nightly legge soltanto profili di calibrazione A persistiti con chiave esatta: su MISS/errore A si astiene, senza ricalibrazione implicita. La preparazione della cache è un comando operativo separato ed esplicito. Il settlement resta distinto dal consenso a creare nuove giocate. Il web non è un timer di puntata e il vecchio eseguibile T−15 è ritirato.
 
 Training settimanale, preparazione della calibrazione A e watchdog sono workflow separati. Il training può registrare candidature e riesaminare il gate di adozione solo con il relativo flag; le metriche di sviluppo non adottano un modello. Il watchdog distingue controllo GitHub e controllo DB con token di sola lettura. Questi file non attestano che i workflow remoti siano attivi.
 

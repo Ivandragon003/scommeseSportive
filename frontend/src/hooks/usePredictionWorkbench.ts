@@ -5,7 +5,6 @@ import {
   buildOddsReliabilityBadge,
   canonicalRankedOpportunities,
   canonicalRecommendationForPrediction,
-  canonicalSuggestedStakeAmount,
   currentSeason,
   formatMarketKey,
   oddsCategoryLabel,
@@ -56,11 +55,7 @@ export interface PredictionWorkbenchViewModel {
   replayOutcomeLabel: string;
   leftPanelTitle: string;
   bankroll: number;
-  maxExposurePct: number;
-  maxExposureAmount: number;
-  finalRecommendedChoice: (BestValueOpportunityModel & { suggestedStakeAmount: number }) | null;
-  suggestedTotalStake: number;
-  exposureRatio: number;
+  finalRecommendedChoice: BestValueOpportunityModel | null;
   oppStakeKey: (opportunity: BestValueOpportunityModel) => string;
   oppStakeValue: (opportunity: BestValueOpportunityModel) => number;
   tabs: Array<{ id: string; label: string; count?: number }>;
@@ -73,7 +68,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
   const toastState = useToastState();
   const confirmDialog = useConfirmDialog();
   const manuallyArchivedOpportunityKeys = useMemo(() => new Set<string>(), []);
-  const userBudget = useUserBudget(activeUser, { mode: 'paper', family: 'A' });
+  const userBudget = useUserBudget(activeUser, { mode: 'automatic', family: 'A' });
   const matchSelection = useMatchSelection();
   const modelAdvice = useMatchModelAdvice();
   const predictionAnalysis = usePredictionAnalysis({
@@ -229,21 +224,8 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
           : '';
 
   const leftPanelTitle = matchSelection.matchMode === 'recent' ? 'Partite recenti giocate' : 'Partite in programma';
-  const maxExposurePct = 5;
-  const maxExposureAmount = userBudget.bankroll > 0 ? (userBudget.bankroll * maxExposurePct) / 100 : 0;
 
-  const finalRecommendedChoice = useMemo(() => {
-    const match = canonicalRecommendationForPrediction(predictionAnalysis.pred)?.selected ?? null;
-    if (!match) return null;
-    return {
-      ...match,
-      suggestedStakeAmount: canonicalSuggestedStakeAmount(predictionAnalysis.pred, userBudget.bankroll),
-    };
-  }, [userBudget.bankroll, predictionAnalysis.pred]);
-
-  const suggestedTotalStake = Number(finalRecommendedChoice?.suggestedStakeAmount ?? 0);
-  const committedAmount = Number(userBudget.budget?.committed_budget ?? 0);
-  const exposureRatio = maxExposureAmount > 0 ? (committedAmount + suggestedTotalStake) / maxExposureAmount : 0;
+  const finalRecommendedChoice = canonicalRecommendationForPrediction(predictionAnalysis.pred)?.selected ?? null;
 
   const oppStakeKey = useCallback((opportunity: BestValueOpportunityModel) =>
     buildBetKey(currentMatchId, String(opportunity.selection ?? ''), String(opportunity.marketName ?? '')),
@@ -314,11 +296,7 @@ export function usePredictionWorkbench(activeUser: string): PredictionWorkbenchV
     replayOutcomeLabel,
     leftPanelTitle,
     bankroll: userBudget.bankroll,
-    maxExposurePct,
-    maxExposureAmount,
     finalRecommendedChoice,
-    suggestedTotalStake,
-    exposureRatio,
     oppStakeKey,
     oppStakeValue,
     tabs,

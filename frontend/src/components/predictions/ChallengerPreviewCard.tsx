@@ -48,10 +48,9 @@ interface ChallengerPreviewCardProps {
   ineligible?: boolean;
   onRetry: () => void;
   actions?: React.ReactNode;
-  paperMode?: boolean;
 }
 
-export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry, actions, registered = false, paperMode = false }: ChallengerPreviewCardProps) {
+export default function ChallengerPreviewCard({ preview, loading, error, ineligible, onRetry, actions, registered = false }: ChallengerPreviewCardProps) {
   const [, setClock] = useState(0);
   useEffect(() => {
     if (!preview || !['RECOMMENDED', 'NO_BET'].includes(preview.status)) return;
@@ -83,8 +82,8 @@ export default function ChallengerPreviewCard({ preview, loading, error, ineligi
         <p>La valutazione C non ha selezionato una giocata con le quote disponibili.</p>
         <p className="match-model-advice__footnote">Valutata il {dateTime(preview.asOf)}.</p>
       </>}
-      <p className="challenger-preview__registration">{registered ? paperMode ? 'Giocate paper C presenti per questa partita.' : 'Giocata già presente nel portafoglio C per questa partita.' : 'Nessuna puntata registrata.'}</p>
-      {selected && <p>{paperMode ? 'Paper: 1 unità per selezione. L’anteprima non registra giocate.' : 'Stake indicativo: 1%. L’anteprima non addebita il portafoglio.'}</p>}
+      <p className="challenger-preview__registration">{registered ? 'Giocata già presente nel portafoglio C per questa partita.' : 'Nessuna puntata registrata.'}</p>
+      {selected && <p>L’anteprima non registra giocate né addebita il portafoglio.</p>}
       {selected && <OpportunityQuality opportunity={selected} />}
       {selected && quote && actions}
 

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { settleGoalQuote } from './GoalSettlement';
 import { prospectiveBucket, prospectivePartition, FrozenProspectiveObservation, buildFrozenProspectiveObservations } from './ResearchProspectiveEvidence';
 import { ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
+import { listFundedBetViews } from './FundedModelBetLedger';
 
 export type ResearchFamily = 'A' | 'C';
 export type ResearchMarketState = 'EXPERIMENTAL' | 'SHADOW' | 'ACTIVE' | 'SUSPENDED';
@@ -226,7 +227,7 @@ export class ResearchStore {
       CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
       ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
-    return [...result, ...await this.listManualBets(options)];
+    return [...result, ...await this.listManualBets(options), ...await listFundedBetViews(this.client, options)];
   }
 
   /** Complete accounting rows with a compact evidence projection, never truncated by a row limit. */
@@ -250,7 +251,7 @@ export class ResearchStore {
       CASE WHEN s.bet_id IS NULL THEN NULL ELSE s.return_cents-b.stake_cents END AS profit_cents
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
       ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''} ORDER BY b.placed_at,b.match_id,b.portfolio_id`, args);
-    return [...result.map((row) => { delete row.snapshotJson; return row; }), ...await this.listManualBets(options)];
+    return [...result.map((row) => { delete row.snapshotJson; return row; }), ...await this.listManualBets(options), ...await listFundedBetViews(this.client, options)];
   }
 
   async hasManualBet(tx: Executor, portfolioId: string, matchId: string): Promise<boolean> {
@@ -1241,8 +1242,9 @@ export class ResearchStore {
   async settleBet(id: string, multiplier: number, evidence: any): Promise<any> {
     return this.write(async (tx) => {
       const manual = id.startsWith('manual:');
-      const betsTable = manual ? 'manual_model_bets' : 'research_bets';
-      const settlementsTable = manual ? 'manual_model_settlements' : 'research_settlements';
+      const funded = id.startsWith('funded:');
+      const betsTable = manual ? 'manual_model_bets' : funded ? 'funded_model_bets' : 'research_bets';
+      const settlementsTable = manual ? 'manual_model_settlements' : funded ? 'funded_model_settlements' : 'research_settlements';
       const bet = await first(tx, `SELECT * FROM ${betsTable} WHERE id=?`, [id]);
       if (!bet) throw new Error('Research bet not found');
       const existing = await first(tx, `SELECT * FROM ${settlementsTable} WHERE bet_id=?`, [id]);
@@ -1257,7 +1259,7 @@ export class ResearchStore {
       await tx.execute({ sql: `INSERT INTO ${settlementsTable}(bet_id,multiplier,return_cents,evidence_json,settled_at) VALUES (?,?,?,?,?)`,
         args: [id, multiplier, returnCents, researchJson(evidence), settledAt] });
       await tx.execute({ sql: `INSERT INTO research_ledger(id,portfolio_id,bet_id,event,available_delta_cents,committed_delta_cents,created_at)
-        VALUES (?,?,?,'SETTLE',?,?,?)`, args: [`settle:${id}`, bet.portfolioId, manual ? null : id, returnCents, -Number(bet.stakeCents), settledAt] });
+        VALUES (?,?,?,'SETTLE',?,?,?)`, args: [`settle:${id}`, bet.portfolioId, manual || funded ? null : id, returnCents, -Number(bet.stakeCents), settledAt] });
       return { betId: id, multiplier, returnCents, profitCents: returnCents - Number(bet.stakeCents), evidence, settledAt, settled: true };
     });
   }

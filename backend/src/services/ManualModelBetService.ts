@@ -6,6 +6,7 @@ import { appRecommendationQuote, appQuoteSettlementSupported } from '../research
 import { recommendationQuoteReason } from '../research/ResearchRecommendationPolicy';
 import { buildCoherentBookmakerOddsBundle } from './BookmakerOddsSelectionService';
 import { researchHash, researchJson } from '../research/ResearchStore';
+import { paperSelectionKey } from '../research/PaperBetSelections';
 
 export class ManualModelActionError extends Error {
   constructor(message: string, public readonly status = 409) { super(message); }
@@ -96,14 +97,16 @@ export class ManualModelBetService {
       if (await query('SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [candidate.portfolioId, candidate.matchId])) {
         throw new ManualModelActionError('Il modello ha già una giocata registrata per questa partita.');
       }
+      if (await query("SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bets'")
+        && await query('SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?',
+          [candidate.family, candidate.matchId, paperSelectionKey(candidate.quote)])) {
+        throw new ManualModelActionError('Questa selezione è già stata registrata per il modello.');
+      }
       const portfolio = await query(`SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available,
         COALESCE(SUM(l.committed_delta_cents),0) AS committed,
         COALESCE(SUM(l.available_delta_cents+l.committed_delta_cents),0) AS equity
         FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id WHERE p.id=? GROUP BY p.id`, [candidate.portfolioId]);
       if (!portfolio || input.stakeCents > Number(portfolio.available)) throw new ManualModelActionError('Saldo del modello insufficiente.');
-      if (Number(portfolio.committed) + input.stakeCents > Math.floor(Number(portfolio.equity) * .05)) {
-        throw new ManualModelActionError('La puntata supera il limite di esposizione del modello.');
-      }
       const id = `manual:${randomUUID()}`, placedAt = now.toISOString();
       const evidence = { ...candidate, stakeCents: input.stakeCents, stakeMode: 'MANUAL_USER_AMOUNT' };
       await tx.execute({ sql: `INSERT INTO manual_model_bets(id,portfolio_id,match_id,family,model_version,market,selection,odds,stake_cents,snapshot_json,placed_at)

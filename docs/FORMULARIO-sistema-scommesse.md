@@ -100,3 +100,16 @@ EV = p_decisione * quota - 1
 La disponibilità di quote complementari, categoria, qualità dei dati, soglie effettive, rischio e calibrazione influenzano la decisione. Il peso può essere appreso entro i limiti configurati. Il percorso legacy C riceve probabilità già elaborate dalla pipeline research, evitando una seconda calibrazione o un secondo market blend nel motore value. Soglie o probabilità non garantiscono redditività.
 
 Sorgenti: `backend/src/models/value/EnhancedMarketAnalysis.ts`, `backend/src/models/value/ValueBettingEngine.ts`, `backend/src/services/MarketBlendLearningService.ts`, `backend/src/research/ResearchProbabilityPipeline.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.
+
+## Importi dell'esecuzione automatica
+
+La policy `funded-confidence-v1` usa i saldi in euro dei portafogli A/C esistenti e separati. Per ciascuna famiglia legge il saldo disponibile `B` in centesimi all'inizio del gruppo registrato nella transazione:
+
+```text
+percentuale(LOW) = 1; percentuale(MEDIUM) = 3; percentuale(HIGH) = 5
+stake_centesimi = floor(B * percentuale(confidenza) / 100)
+```
+
+Tutte le selezioni del gruppo usano la stessa base `B`. Il residuo deve coprire lo stake intero; altrimenti la selezione resta non finanziata, senza ridimensionamento proporzionale. La priorità è confidenza HIGH/MEDIUM/LOW, EV decrescente e chiave crescente. Confidenza mancante/non valida, SPECULATIVE e importi nulli non finanziano una giocata. Non c'è un tetto cumulativo del 5%, top N o limite di una giocata per partita. Restano i controlli di mercato, quota reale fresca, kickoff e duplicati.
+
+Questo calcolo è distinto dalla percentuale Kelly interna del modello e non modifica probabilità o qualificazione delle opportunità. I dettagli contabili e la conservazione dello storico sono nella [guida operativa](operations/README.md). Sorgenti: `backend/src/research/ConfidenceStake.ts`, `backend/src/research/ResearchRecommendationPolicy.ts`, `backend/src/research/ResearchRecommendationStore.ts`.

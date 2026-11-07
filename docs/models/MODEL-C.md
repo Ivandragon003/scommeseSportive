@@ -61,11 +61,11 @@ Fonti: [CatBoost](../../backend/src/research/CatBoostModel.ts), [pipeline coeren
 
 Il feed corrente di C richiede `h2h`, `totals`, `spreads`: 1X2, over/under gol e handicap asiatico. Servono una quota reale ammissibile e uno stato consentito per mercato/versione nel registry. Calcolare BTTS, DNB o doppia chance non rende disponibili le quote mancanti. Gli altri mercati di A non vengono trasferiti automaticamente a C.
 
-Il default `canonical-binary-v1`, chiamato `legacy-c906` nel builder, esclude quote con possibile rimborso o mezzo esito. Passa le probabilità C al `ValueBettingEngine` e al picker canonico, con seconda calibrazione e blending disabilitati. EV positivo da solo non supera necessariamente i filtri legacy.
+Il default `canonical-binary-v1`, chiamato `legacy-c906` nel builder, esclude quote con possibile rimborso o mezzo esito. Passa le probabilità C al `ValueBettingEngine` e al picker canonico, con seconda calibrazione e blending disabilitati. Le classi LOW, MEDIUM e HIGH provengono dallo stesso motore di A, applicato alle probabilità proprie di C: sono quelle usate per le puntate dell'1%, 3% e 5%. EV positivo da solo non supera necessariamente i filtri legacy.
 
 La causale globale `non_binary_payout_not_supported_by_canonical_engine` può comparire quando alcune quote sono state escluse e non emerge un consiglio: non prova che una giocata valida sia stata bloccata dalla Nightly.
 
-Il candidato `payout-aware-v1` valuta direttamente la distribuzione dei ritorni, compresi rimborsi, mezze vittorie e mezze perdite. Richiede EV e crescita logaritmica positivi e ordina secondo crescita, EV, rischio e parità deterministica. Non usa il motore value o il picker di A. La varianza dei ritorni secondo il modello non è una stima dell'incertezza parametrica: confidenza e incertezza non disponibili restano esplicite, senza valori inventati.
+Il candidato `payout-aware-v1` valuta direttamente la distribuzione dei ritorni, compresi rimborsi, mezze vittorie e mezze perdite. Il percorso ordinario richiede EV e crescita logaritmica positivi e ordina secondo crescita, EV, rischio e parità deterministica. La raccolta delle opportunità con stake di esecuzione separato non usa il veto sulla crescita logaritmica del precedente stake fisso; mantiene EV e gli altri criteri. Non usa il motore value o il picker di A. La varianza dei ritorni secondo il modello non è una stima dell'incertezza parametrica: confidenza e incertezza non disponibili restano esplicite, senza valori inventati. Poiché questo selettore emette `confidence: null`, la policy finanziata non ne finanzia le opportunità in assenza di una confidenza valida.
 
 Il selettore candidato è operativo solo quando è quello del deployment risolto dal registro. Esclusioni e pacchetto congelato servono a distinguere assenza di consiglio, quote inadeguate e fallimenti tecnici.
 
@@ -73,11 +73,11 @@ Fonti: [raccomandazione](../../backend/src/research/ChallengerRecommendation.ts)
 
 ## Esecuzione, anteprima e importo
 
-La Nightly può registrare al massimo una giocata C per partita, con 1% del patrimonio del portafoglio C ed esposizione massima 5%. Quote reali entro cinque minuti, kickoff, capitale, mercati liquidabili e duplicati vengono ricontrollati. Non invia puntate a bookmaker e non registra dopo il kickoff.
+La Nightly considera tutte le selezioni C qualificate, senza limite di una giocata per partita o top N. La policy `funded-confidence-v1` usa il portafoglio C esistente: LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile all'inizio del gruppo registrato nella transazione, senza tetto cumulativo del 5%. Il saldo finanzia importi completi, con priorità HIGH, MEDIUM, LOW, poi EV decrescente e chiave; confidenza mancante o SPECULATIVE non ricevono fondi. Quote reali entro cinque minuti, kickoff, saldo, mercati liquidabili e duplicati vengono ricontrollati. Non invia puntate a bookmaker e non registra dopo il kickoff. La percentuale fissa dell'1% e il tetto del 5% appartengono alle policy storiche, non all'esecuzione corrente.
 
 L'anteprima su richiesta usa lo stesso deployment e selettore C con orario corrente, ma il suo servizio usa solo quote in cache. Non registra puntate o evidenze prospettiche e cede precedenza all'archivio Nightly anche quando questo compare durante il calcolo. La scheda Giocate può acquisire quote tramite una richiesta distinta dell'app.
 
-Una puntata manuale confermata ha origine e prova proprie, usa l'importo scelto dall'utente e il medesimo portafoglio C. Il server ricostruisce il consiglio, verifica prezzo/bookmaker e freschezza, saldo, esposizione e deduplicazione con le giocate Nightly. L'1% è la policy automatica, non un limite universale sull'importo manuale. Archiviare una proposta non impegna capitale.
+Una puntata manuale confermata ha origine e prova proprie, usa l'importo scelto dall'utente e il medesimo portafoglio C. Il server ricostruisce il consiglio e verifica prezzo/bookmaker, freschezza, saldo disponibile e deduplicazione con le giocate Nightly, senza tetto cumulativo del 5%. Le percentuali automatiche non limitano l'importo manuale. Archiviare una proposta non impegna capitale.
 
 Fonti: [anteprima](../../backend/src/research/ChallengerPreviewService.ts), [esecuzione](../../backend/src/research/ResearchRecommendationRuntime.ts), [store](../../backend/src/research/ResearchRecommendationStore.ts), [manuale](../../backend/src/services/ManualModelBetService.ts).
 

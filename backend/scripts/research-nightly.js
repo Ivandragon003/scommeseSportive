@@ -82,7 +82,7 @@ async function runNightly(options = {}) {
       ? await createFixtureAdmission(db, env, { clock: options.clock }) : undefined);
     const execute = useRecommendations
       ? require('../dist/research/ResearchRecommendationNightly').runRecommendationNightly : runResearchNightly;
-    const result = await execute(db, { ...options, policy, runId, paperMode: useRecommendations,
+    const result = await execute(db, { ...options, policy, runId, fundedMode: useRecommendations,
       requireExistingCalibration: true,
       ...(alternativeSources ? { fixtureAdmission, requireExistingCalibration: true, reviewChallengerAdoption: false,
         allowChampionRollback: false, collectChallengerForecasts: false } : {}),
