@@ -2,7 +2,7 @@ import type { Client } from '@libsql/client';
 import type { DatabaseService } from '../db/DatabaseService';
 import { researchHash } from './ResearchStore';
 import { paperSelectionKey } from './PaperBetSelections';
-import { isFundedPolicy } from './ResearchRecommendationPolicy';
+import { isFundedPolicy, isDynamicFundedPolicy } from './ResearchRecommendationPolicy';
 
 type Row = Record<string, any>;
 export type ResearchIncident = { key: string; title: string; message: string; details?: Row };
@@ -24,18 +24,23 @@ const summaryHour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', 
 
 export const NIGHTLY_GRACE_SECONDS = 4 * 60 * 60;
 
-export const inspectPaperAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, false);
-export const inspectFundedAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, true);
+export const inspectPaperAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, 'paper');
+export const inspectFundedAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, 'funded');
+
+export const inspectDynamicAccounting = (client: Pick<Client, 'execute'>) => inspectAutomaticAccounting(client, 'dynamic');
 
 /** Independent SELECT-only audit of immutable automatic placements and their authorization. */
-async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funded: boolean): Promise<{
+async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, prefix: 'paper' | 'funded' | 'dynamic'): Promise<{
   schemaPresent: boolean; required: boolean; stable: boolean; checked: boolean;
   errors: number | null; failures: string[]; pendingSettlements: number;
 }> {
-  const prefix = funded ? 'funded' : 'paper', betsTable = `${prefix}_model_bets`, settlementsTable = `${prefix}_model_settlements`;
-  const policyVersion = funded ? 'funded-confidence-v1' : 'paper-fixed-unit-v1';
-  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','paper_model_bet_cancellations','funded_model_bets','funded_model_settlements','research_execution_policies','research_execution_decisions','research_execution_inputs','research_execution_jobs','research_decisions','research_ledger','matches')");
+  const dynamic = prefix === 'dynamic', funded = prefix !== 'paper';
+  const betsTable = `${prefix}_model_bets`, settlementsTable = `${prefix}_model_settlements`;
+  const policyVersion = dynamic ? 'funded-dynamic-stake-v1' : funded ? 'funded-confidence-v1' : 'paper-fixed-unit-v1';
+  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('paper_model_bets','paper_model_settlements','paper_model_bet_cancellations','funded_model_bets','funded_model_settlements','funded_model_bet_cancellations','dynamic_model_bets','dynamic_model_settlements','research_execution_policies','research_execution_decisions','research_execution_inputs','research_execution_jobs','research_decisions','research_ledger','matches')");
   const tables = new Set(inventory.rows.map(row => String(row.name)));
+  const cancellationsTable = prefix === 'paper' ? 'paper_model_bet_cancellations' : prefix === 'funded' ? 'funded_model_bet_cancellations' : null;
+  const hasCancellations = !!cancellationsTable && tables.has(cancellationsTable);
   const policies = tables.has('research_execution_policies')
     ? await client.execute({ sql: 'SELECT COUNT(*) AS count FROM research_execution_policies WHERE version=?', args: [policyVersion] }) : null;
   const required = Number(policies?.rows[0]?.count ?? 0) > 0 || tables.has(betsTable) || tables.has(settlementsTable);
@@ -49,9 +54,10 @@ async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funde
     (SELECT COUNT(*) FROM ${betsTable}) AS bets,(SELECT MAX(rowid) FROM ${betsTable}) AS last_bet,
     (SELECT COUNT(*) FROM ${settlementsTable}) AS settlements,(SELECT MAX(rowid) FROM ${settlementsTable}) AS last_settlement
     ${funded ? ',(SELECT COUNT(*) FROM research_ledger) AS ledger,(SELECT MAX(rowid) FROM research_ledger) AS last_ledger' : ''}
-    ${!funded && tables.has('paper_model_bet_cancellations') ? ',(SELECT COUNT(*) FROM paper_model_bet_cancellations) AS cancellations' : ''}`);
+    ${hasCancellations ? `,(SELECT COUNT(*) FROM ${cancellationsTable}) AS cancellations,(SELECT MAX(rowid) FROM ${cancellationsTable}) AS last_cancellation` : ''}
+    ${dynamic ? ',(SELECT COUNT(*) FROM research_execution_policies) AS policies,(SELECT COUNT(*) FROM research_execution_inputs) AS inputs,(SELECT COUNT(*) FROM research_execution_decisions) AS decisions' : ''}`);
   const before = await fingerprint();
-  const [bets, authorizations, settlements, pending, ledger] = await Promise.all([
+  const [bets, authorizations, settlements, pending, ledger, cancellations] = await Promise.all([
     client.execute(`SELECT * FROM ${betsTable}`),
     client.execute(`SELECT d.id AS authorized_id,d.family AS authorized_family,d.model_version AS authorized_version,
       d.action AS authorized_action,d.snapshot_json AS authorized_snapshot,d.origin_decision_id AS authorized_origin,
@@ -67,9 +73,11 @@ async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funde
     tables.has('matches') ? client.execute(`SELECT COUNT(DISTINCT b.id) AS count FROM ${betsTable} b
       LEFT JOIN ${settlementsTable} s ON s.bet_id=b.id JOIN matches m ON m.match_id=b.match_id
       WHERE s.bet_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL
-      ${!funded && tables.has('paper_model_bet_cancellations') ? 'AND NOT EXISTS(SELECT 1 FROM paper_model_bet_cancellations c WHERE c.bet_id=b.id)' : ''}`) : Promise.resolve({ rows: [] }),
-    funded ? client.execute(`SELECT * FROM research_ledger WHERE id LIKE 'stake:funded:%' OR id LIKE 'settle:funded:%'
+      ${hasCancellations ? `AND NOT EXISTS(SELECT 1 FROM ${cancellationsTable} c WHERE c.bet_id=b.id)` : ''}`) : Promise.resolve({ rows: [] }),
+    funded ? client.execute(dynamic ? 'SELECT rowid AS ledger_order,* FROM research_ledger ORDER BY rowid'
+      : `SELECT * FROM research_ledger WHERE id LIKE 'stake:funded:%' OR id LIKE 'settle:funded:%' OR id LIKE 'cancel:funded:%'
       OR bet_id IN (SELECT id FROM funded_model_bets)`) : Promise.resolve({ rows: [] }),
+    hasCancellations ? client.execute(`SELECT * FROM ${cancellationsTable}`) : Promise.resolve({ rows: [] }),
   ]);
   const failures: string[] = [], identities = new Set<string>(), settledIds = new Set<string>();
   const parse = (value: unknown): Row | null => {
@@ -90,10 +98,13 @@ async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funde
     const id = String(row.id), snapshot = parse(row.snapshot_json), parent = authorization?.parent, input = authorization?.input, policy = authorization?.policy;
     const quote = snapshot?.quote, key = JSON.stringify([row.family, row.match_id, row.selection_key]);
     if (identities.has(key)) failures.push(`${id}:duplicate_selection`); identities.add(key);
-    const stake = Number(row.stake_cents), percent = Number(row.stake_percent), base = Number(row.base_available_cents);
+    const stake = Number(row.stake_cents), percent = Number(row.stake_percent), base = Number(dynamic ? row.base_equity_cents : row.base_available_cents);
+    const basisPoints = Number(row.stake_basis_points);
     const confidencePercent = { LOW: 1, MEDIUM: 3, HIGH: 5 }[String(row.confidence) as 'LOW' | 'MEDIUM' | 'HIGH'];
-    if (!Number.isSafeInteger(stake) || (funded ? !id.startsWith('funded:') || stake <= 0 || !Number.isSafeInteger(base)
-      || base <= 0 || percent !== confidencePercent || stake !== Math.floor(base * percent / 100) : stake !== 100)) failures.push(`${id}:stake`);
+    if (!Number.isSafeInteger(stake) || (funded ? !id.startsWith(`${prefix}:`) || stake <= 0 || !Number.isSafeInteger(base) || base <= 0
+      || (dynamic ? !Number.isFinite(percent) || percent <= 0 || percent > 5 || !Number.isSafeInteger(basisPoints)
+        || basisPoints !== Math.round(percent * 100) || Math.abs(percent * 100 - basisPoints) > 1e-7
+        || stake !== Number(BigInt(base) * BigInt(basisPoints) / 10000n) : percent !== confidencePercent || stake !== Math.floor(base * percent / 100)) : stake !== 100)) failures.push(`${id}:stake`);
     if (!row.authorized_id || !row.execution_input_id || !row.scientific_origin || row.authorized_action !== 'BET'
       || row.authorized_family !== row.family || row.authorized_version !== row.model_version
       || row.authorized_origin !== row.origin_decision_id || row.authorized_input !== row.input_id
@@ -107,14 +118,18 @@ async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funde
       && typeof quote.bookmaker === 'string' && !!quote.bookmaker.trim() && Number.isFinite(quote.odds) && quote.odds > 1;
     if (!snapshot || !parent || !input || !policy || !validQuote || !approved
       || !approved.quote || typeof approved.quote !== 'object'
-      || policy.virtualOnly !== true || (funded ? !isFundedPolicy(policy)
+      || policy.virtualOnly !== true || (dynamic ? !isDynamicFundedPolicy(policy) : funded ? !isFundedPolicy(policy)
         : policy.fixedStakeUnits !== 1 || policy.stakeModeA !== 'PAPER_FIXED_UNIT' || policy.stakeModeC !== 'PAPER_FIXED_UNIT')
       || Number(row.odds) !== quote.odds || row.market !== snapshot.market || row.selection !== snapshot.selection
       || row.market !== quote.market || row.selection !== quote.selection || row.selection_key !== paperSelectionKey(quote)
-      || (funded ? snapshot.stakeMode !== 'CONFIDENCE_PERCENT_AVAILABLE' || parent.stakeMode !== 'CONFIDENCE_PERCENT_AVAILABLE'
+      || (funded ? snapshot.stakeMode !== (dynamic ? 'MODEL_RECOMMENDED_PERCENT' : 'CONFIDENCE_PERCENT_AVAILABLE')
+        || parent.stakeMode !== snapshot.stakeMode
         || snapshot.stakeCents !== stake || approved.stakeCents !== stake || snapshot.stakePercent !== percent || approved.stakePercent !== percent
-        || snapshot.baseAvailableCents !== base || approved.baseAvailableCents !== base || snapshot.confidence !== row.confidence
-        || approved.confidence !== row.confidence : snapshot.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.stakeCents !== 100 || snapshot.stakeUnits !== 1
+        || (dynamic ? snapshot.baseEquityCents !== base || approved.baseEquityCents !== base
+          || snapshot.stakeBasisPoints !== basisPoints || approved.stakeBasisPoints !== basisPoints
+          || snapshot.suggestedStakePercent !== percent || approved.suggestedStakePercent !== percent
+          : snapshot.baseAvailableCents !== base || approved.baseAvailableCents !== base) || (dynamic ? snapshot.confidence ?? null : snapshot.confidence) !== row.confidence
+        || (dynamic ? approved.confidence ?? null : approved.confidence) !== row.confidence : snapshot.stakeMode !== 'PAPER_FIXED_UNIT' || snapshot.stakeCents !== 100 || snapshot.stakeUnits !== 1
         || parent.stakeMode !== 'PAPER_FIXED_UNIT') || snapshot.effectiveExecutionDecisionId !== row.execution_decision_id
       || snapshot.originDecisionId !== row.origin_decision_id || snapshot.inputId !== row.input_id || snapshot.matchId !== row.match_id
       || snapshot.family !== row.family || snapshot.modelVersion !== row.model_version || snapshot.policyHash !== row.policy_hash
@@ -143,23 +158,50 @@ async function inspectAutomaticAccounting(client: Pick<Client, 'execute'>, funde
   if (funded) {
     const betById = new Map(bets.rows.map(row => [String(row.id), row]));
     const settlementById = new Map(settlements.rows.map(row => [String(row.bet_id), row]));
+    const cancellationById = new Map(cancellations.rows.map(row => [String(row.bet_id), row]));
+    const automaticLedger = ledger.rows.filter(row => String(row.id).startsWith(`stake:${prefix}:`)
+      || String(row.id).startsWith(`settle:${prefix}:`) || String(row.id).startsWith(`cancel:${prefix}:`) || betById.has(String(row.bet_id)));
     const linked = (movement: Row, id: string) => movement.bet_id === id
-      || movement.id === `stake:${id}` || movement.id === `settle:${id}`;
+      || movement.id === `stake:${id}` || movement.id === `settle:${id}` || movement.id === `cancel:${id}`;
     for (const bet of bets.rows) {
-      const id = String(bet.id), movements = ledger.rows.filter(row => linked(row, id));
-      const stakes = movements.filter(row => row.event === 'STAKE'), settled = movements.filter(row => row.event === 'SETTLE');
-      const validMovement = (row: Row, event: string, available: number, committed: number) => row.id === `${event.toLowerCase()}:${id}`
+      const id = String(bet.id), movements = automaticLedger.filter(row => linked(row, id));
+      const stakes = movements.filter(row => row.event === 'STAKE');
+      const settled = movements.filter(row => row.event === 'SETTLE' && row.id !== `cancel:${id}`);
+      const refunds = movements.filter(row => row.id === `cancel:${id}`);
+      const validMovement = (row: Row, event: string, available: number, committed: number, identity = event.toLowerCase()) => row.id === `${identity}:${id}`
+        && row.event === event
         && row.bet_id == null && row.portfolio_id === bet.portfolio_id && Number(row.available_delta_cents) === available
         && Number(row.committed_delta_cents) === committed;
       if (stakes.length !== 1 || !validMovement(stakes[0], 'STAKE', -Number(bet.stake_cents), Number(bet.stake_cents))) failures.push(`${id}:stake_ledger`);
       const settlement = settlementById.get(id);
       if (settlement ? settled.length !== 1 || !validMovement(settled[0], 'SETTLE', Number(settlement.return_cents), -Number(bet.stake_cents))
         : settled.length > 0) failures.push(`${id}:settlement_ledger`);
+      const cancellation = cancellationById.get(id);
+      if (cancellation ? settlement || refunds.length !== 1 || !validMovement(refunds[0], 'SETTLE', Number(bet.stake_cents), -Number(bet.stake_cents), 'cancel')
+        || refunds[0]?.created_at !== cancellation.cancelled_at
+        : refunds.length > 0) failures.push(`${id}:cancellation_ledger`);
       if (movements.some(row => !['STAKE', 'SETTLE'].includes(String(row.event)))) failures.push(`${id}:ledger_event`);
     }
-    for (const movement of ledger.rows) {
-      const id = String(movement.id).replace(/^(?:stake|settle):/, '');
+    for (const cancellation of cancellations.rows) {
+      const bet = betById.get(String(cancellation.bet_id)), at = Date.parse(String(cancellation.cancelled_at));
+      if (!bet || typeof cancellation.reason !== 'string' || !cancellation.reason.trim() || !Number.isFinite(at)
+        || at < Date.parse(String(bet?.placed_at))) failures.push(`${String(cancellation.bet_id)}:cancellation_evidence`);
+    }
+    for (const movement of automaticLedger) {
+      const id = String(movement.id).replace(/^(?:stake|settle|cancel):/, '');
       if (!betById.has(id) || !linked(movement, id)) failures.push(`${String(movement.id)}:orphan_ledger`);
+    }
+  }
+  if (dynamic) {
+    const running = new Map<string, { available: number; committed: number }>();
+    const betById = new Map(bets.rows.map(row => [String(row.id), row]));
+    for (const movement of ledger.rows) {
+      const portfolio = String(movement.portfolio_id), prior = running.get(portfolio) ?? { available: 0, committed: 0 };
+      const bet = betById.get(String(movement.id).replace(/^stake:/, ''));
+      if (bet && movement.event === 'STAKE' && (Number(bet.stake_cents) > prior.available
+        || Number(bet.base_equity_cents) !== prior.available + prior.committed)) failures.push(`${String(bet.id)}:stake_budget`);
+      running.set(portfolio, { available: prior.available + Number(movement.available_delta_cents),
+        committed: prior.committed + Number(movement.committed_delta_cents) });
     }
   }
   const after = await fingerprint(), stable = JSON.stringify(before.rows) === JSON.stringify(after.rows);
@@ -218,6 +260,7 @@ export class ResearchMonitoringStore {
 
   async auditPaperAccounting() { await this.ready(); return inspectPaperAccounting(this.client); }
   async auditFundedAccounting() { await this.ready(); return inspectFundedAccounting(this.client); }
+  async auditDynamicAccounting() { await this.ready(); return inspectDynamicAccounting(this.client); }
 
   async reconcile(incidents: ResearchIncident[], now: string | Date): Promise<void> {
     await this.ready();
@@ -346,12 +389,12 @@ export function researchCriticalIncidents(input: { now: string; schedulerEnabled
     const committed = own.reduce((sum, row) => sum + Number(row.committedDeltaCents), 0);
     if (available < 0 || committed < 0 || available !== portfolio.availableCents || committed !== portfolio.committedCents
       || available + committed !== portfolio.equityCents || own.filter((row) => row.event === 'OPEN').length !== 1) failures.push(portfolio.id);
-    const legacyBets = ownBets.filter(bet => !String(bet.id).startsWith('funded:'));
+    const legacyBets = ownBets.filter(bet => !['funded:', 'dynamic:'].some(prefix => String(bet.id).startsWith(prefix)));
     if (new Set(legacyBets.map((bet) => bet.matchId)).size !== legacyBets.length) failures.push(`${portfolio.id}:duplicate_match`);
     const openStakes = ownBets.filter((bet) => bet.status === 'PENDING').reduce((sum, bet) => sum + bet.stakeCents, 0);
     if (openStakes !== committed) failures.push(`${portfolio.id}:committed`);
     for (const bet of ownBets) {
-      const linked = (row: Row, event: string) => row.betId === bet.id || ['manual:', 'funded:'].some(prefix => String(bet.id).startsWith(prefix))
+      const linked = (row: Row, event: string) => row.betId === bet.id || ['manual:', 'funded:', 'dynamic:'].some(prefix => String(bet.id).startsWith(prefix))
         && row.betId == null && row.id === `${event.toLowerCase()}:${bet.id}`;
       const stake = own.filter((row) => linked(row, 'STAKE') && row.event === 'STAKE');
       if (stake.length !== 1 || stake[0].availableDeltaCents !== -bet.stakeCents || stake[0].committedDeltaCents !== bet.stakeCents) failures.push(`${portfolio.id}:stake`);
@@ -373,9 +416,9 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
     ? Promise.all(['research_nightly', 'research_settlement', 'research_model_check', 'research_provider']
       .map((name) => db.listRecentSchedulerRunsByName!(name, 10))).then((groups) => groups.flat())
     : db.listRecentSchedulerRuns(50);
-  const [runs, portfolios, bets, ledger, paper, funded] = await Promise.all([
+  const [runs, portfolios, bets, ledger, paper, funded, dynamic] = await Promise.all([
     namedRuns, db.research.listPortfolios(), db.research.listBets(), db.research.listLedger(),
-    db.researchMonitoring.auditPaperAccounting(), db.researchMonitoring.auditFundedAccounting(),
+    db.researchMonitoring.auditPaperAccounting(), db.researchMonitoring.auditFundedAccounting(), db.researchMonitoring.auditDynamicAccounting(),
   ]);
   // The ledger is append-only. A changed second read means the independent
   // accounting reads straddled a commit; defer that integrity check until stable.
@@ -404,6 +447,15 @@ export async function reconcileResearchMonitoring(db: MonitoringDb, now: string 
   });
   if (!funded.stable) {
     const prior = (await db.researchMonitoring.read()).incidents.filter(incident => ['funded_schema_required', 'funded_accounting_integrity'].includes(incident.key));
+    for (const incident of prior) incidents.push({ key: incident.key, title: incident.title, message: incident.message, details: incident.details });
+  }
+  if (dynamic.stable && dynamic.errors) incidents.push({
+    key: dynamic.failures.includes('dynamic_schema_required') ? 'dynamic_schema_required' : 'dynamic_accounting_integrity',
+    title: 'Integrità delle giocate dinamiche da verificare',
+    message: 'Le giocate con stake del modello hanno evidenza o movimenti incoerenti.', details: { failures: dynamic.failures },
+  });
+  if (!dynamic.stable) {
+    const prior = (await db.researchMonitoring.read()).incidents.filter(incident => ['dynamic_schema_required', 'dynamic_accounting_integrity'].includes(incident.key));
     for (const incident of prior) incidents.push({ key: incident.key, title: incident.title, message: incident.message, details: incident.details });
   }
   await db.researchMonitoring.reconcile(incidents, timestamp);

@@ -72,11 +72,11 @@ La Nightly automatica e le azioni manuali usano importi in euro nei portafogli v
 
 | Origine | Importo |
 |---|---|
-| Nightly A | LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile A a inizio gruppo |
-| Nightly C | LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile C a inizio gruppo |
+| Nightly A | Percentuale dinamica suggerita da A sul patrimonio A a inizio gruppo |
+| Nightly C | Percentuale dinamica suggerita dal motore sulle probabilità C, sul patrimonio C a inizio gruppo |
 | Manuale A/C | Importo scelto e confermato dall'utente |
 
-La policy `funded-confidence-v1` verifica quota reale recente, kickoff futuro, identità, probabilità, EV, prudenza, confidenza e assenza della stessa selezione per famiglia/partita. Considera tutte le selezioni qualificate, senza top N, massimo per partita o tetto cumulativo del 5%. All'inizio del gruppo nella transazione legge il saldo disponibile; finanzia importi completi in ordine HIGH, MEDIUM, LOW, poi EV decrescente e chiave. Confidenza mancante o SPECULATIVE non ricevono fondi. La migrazione additiva 029 conserva bet e liquidazioni finanziate immutabili e movimenti nel `research_ledger` esistente. Anche le azioni manuali verificano il saldo senza tetto del 5%. Storico e capitali non vengono riscritti; l'archiviazione di proposte senza stake non impegna capitale.
+La policy `funded-dynamic-stake-v1` verifica quota reale recente, kickoff futuro, identità, probabilità, EV, prudenza e assenza della stessa selezione per famiglia/partita. Considera tutte le selezioni qualificate, senza top N, massimo per partita o tetto cumulativo del 5%. Nella transazione legge il patrimonio iniziale del gruppo (disponibile + impegnato), applica la percentuale suggerita dal modello e finanzia soltanto importi completi coperti dal saldo disponibile. La priorità è HIGH, MEDIUM, LOW, poi EV decrescente e chiave; percentuali mancanti/invalide non ricevono fondi. La migrazione 030 conserva giocate e liquidazioni dinamiche immutabili sul `research_ledger` esistente. La 031 consente cancellazioni immutabili delle precedenti giocate fisse con rimborso esatto dello stake: disponibile aumenta, impegnato diminuisce e patrimonio resta invariato. Le giocate cancellate sono escluse da operatività e settlement, senza riscrivere le loro righe. Anche le azioni manuali verificano il saldo senza tetto cumulativo del 5%. L'archiviazione di proposte senza stake non impegna capitale.
 
 Lo storico del precedente budget è classificato esplicitamente come A deterministico (`model_family = A`, identificatore di vista `legacy_deterministic_A`). Mantiene capitale e provenienza distinti dai portafogli A/C: non si sommano i capitali né si attribuisce allo storico una versione APP-A non documentata.
 

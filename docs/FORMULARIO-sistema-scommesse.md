@@ -103,13 +103,15 @@ Sorgenti: `backend/src/models/value/EnhancedMarketAnalysis.ts`, `backend/src/mod
 
 ## Importi dell'esecuzione automatica
 
-La policy `funded-confidence-v1` usa i saldi in euro dei portafogli A/C esistenti e separati. Per ciascuna famiglia legge il saldo disponibile `B` in centesimi all'inizio del gruppo registrato nella transazione:
+La policy `funded-dynamic-stake-v1` usa i portafogli A/C esistenti e separati. Ogni selezione conserva la percentuale suggerita dal proprio motore, derivata da probabilità, quota e controlli Kelly/rischio. Per C legacy è il valore già calcolato sulle probabilità C prima dell'override storico all'1%; usarlo operativamente è una nuova scelta, non il ripristino di uno stake dinamico C precedente.
+
+Per ciascuna famiglia, `E` è il patrimonio in centesimi (disponibile + impegnato) all'inizio del gruppo registrato nella transazione; `p` è la percentuale suggerita, valida con due decimali:
 
 ```text
-percentuale(LOW) = 1; percentuale(MEDIUM) = 3; percentuale(HIGH) = 5
-stake_centesimi = floor(B * percentuale(confidenza) / 100)
+bps = p * 100
+stake_centesimi = floor(E * bps / 10000)
 ```
 
-Tutte le selezioni del gruppo usano la stessa base `B`. Il residuo deve coprire lo stake intero; altrimenti la selezione resta non finanziata, senza ridimensionamento proporzionale. La priorità è confidenza HIGH/MEDIUM/LOW, EV decrescente e chiave crescente. Confidenza mancante/non valida, SPECULATIVE e importi nulli non finanziano una giocata. Non c'è un tetto cumulativo del 5%, top N o limite di una giocata per partita. Restano i controlli di mercato, quota reale fresca, kickoff e duplicati.
+L'implementazione usa aritmetica intera per evitare perdite di precisione. Tutte le selezioni del gruppo usano la stessa base `E`. Il saldo disponibile residuo deve coprire lo stake intero; altrimenti la selezione resta non finanziata, senza ridimensionamento proporzionale. La priorità è confidenza HIGH/MEDIUM/LOW, EV decrescente e chiave crescente. Percentuali mancanti/invalide e importi arrotondati a zero non finanziano giocate. Non c'è un tetto cumulativo del 5%, top N o limite di una giocata per partita; restano i limiti propri del motore per singola selezione e i controlli su mercato, quota reale fresca, kickoff e duplicati.
 
-Questo calcolo è distinto dalla percentuale Kelly interna del modello e non modifica probabilità o qualificazione delle opportunità. I dettagli contabili e la conservazione dello storico sono nella [guida operativa](operations/README.md). Sorgenti: `backend/src/research/ConfidenceStake.ts`, `backend/src/research/ResearchRecommendationPolicy.ts`, `backend/src/research/ResearchRecommendationStore.ts`.
+La mappa LOW 1% / MEDIUM 3% / HIGH 5% appartiene alla policy storica `funded-confidence-v1`. Cambiare lo stake non modifica probabilità o formule predittive. I dettagli contabili, gli annullamenti con rimborso e la conservazione dello storico sono nella [guida operativa](operations/README.md). Sorgenti: `backend/src/research/DynamicModelStake.ts`, `backend/src/research/ResearchRecommendationPolicy.ts`, `backend/src/research/ResearchRecommendationStore.ts`.

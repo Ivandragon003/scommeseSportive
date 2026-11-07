@@ -97,8 +97,15 @@ export class ManualModelBetService {
       if (await query('SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [candidate.portfolioId, candidate.matchId])) {
         throw new ManualModelActionError('Il modello ha già una giocata registrata per questa partita.');
       }
+      const fundedCancellationSchema = await query("SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
       if (await query("SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bets'")
-        && await query('SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?',
+        && await query(`SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?${fundedCancellationSchema
+          ? ' AND NOT EXISTS (SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=funded_model_bets.id)' : ''}`,
+          [candidate.family, candidate.matchId, paperSelectionKey(candidate.quote)])) {
+        throw new ManualModelActionError('Questa selezione è già stata registrata per il modello.');
+      }
+      if (await query("SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'")
+        && await query('SELECT id FROM dynamic_model_bets WHERE family=? AND match_id=? AND selection_key=?',
           [candidate.family, candidate.matchId, paperSelectionKey(candidate.quote)])) {
         throw new ManualModelActionError('Questa selezione è già stata registrata per il modello.');
       }

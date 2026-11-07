@@ -107,10 +107,10 @@ async function unavailableDiagnostic(db: RuntimeDb, job: T15Job, clock: () => Da
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
   preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean;
-  fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean; fundedMode?: boolean;
+  fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean; fundedMode?: boolean; dynamicMode?: boolean;
   allowChampionRollback?: boolean; collectChallengerForecasts?: boolean } = {}): Promise<NightlySummary> {
-  if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
-  const selectionMode = options.paperMode === true || options.fundedMode === true;
+  if ([options.paperMode, options.fundedMode, options.dynamicMode].filter(Boolean).length > 1) throw new Error('Conflicting recommendation accounting modes');
+  const selectionMode = options.paperMode === true || options.fundedMode === true || options.dynamicMode === true;
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()

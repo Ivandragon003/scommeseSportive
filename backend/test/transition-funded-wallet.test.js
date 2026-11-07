@@ -6,7 +6,7 @@ const { tmpdir } = require('node:os');
 const { resolve, join, basename, sep } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createClient } = require('@libsql/client');
-const { main, parseArgs, targetFingerprint, MIGRATION, TABLES } = require('../scripts/transition-funded-wallet');
+const { main, parseArgs, targetFingerprint, MIGRATION, TABLES, readSnapshot } = require('../scripts/transition-funded-wallet');
 
 const NOW = '2026-11-07T08:00:00.000Z', KICKOFF = '2026-11-07T18:00:00.000Z';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -306,5 +306,21 @@ test('new qualified paper rows invalidate the exact planned cancellation set', a
     args: [JSON.stringify({ stakeMode: 'PAPER_FIXED_UNIT', stakeCents: 100, effectiveExecutionDecisionId: 'execution-decision-0-A', quote })] });
     await assert.rejects(f.execute(), /source_bets_changed/);
     assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM paper_model_bet_cancellations')).rows[0].n), 0);
+  } finally { f.cleanup(); }
+});
+
+test('partial wallet snapshots include additive dynamic wagers and settlements without requiring migration 030', async () => {
+  const f = await fixture();
+  try {
+    const before = await readSnapshot(f.client, '2026-11-07');
+    assert.deepEqual(before.tables.dynamic_model_bets, []); assert.deepEqual(before.tables.dynamic_model_settlements, []);
+    await f.client.executeMultiple(`CREATE TABLE dynamic_model_bets(id TEXT PRIMARY KEY,portfolio_id TEXT,stake_cents INTEGER);
+      CREATE TABLE dynamic_model_settlements(bet_id TEXT PRIMARY KEY,return_cents INTEGER);
+      INSERT INTO dynamic_model_bets VALUES ('dynamic:A','shadow_A',117),('dynamic:C','shadow_C',218),('unrelated','main',999);
+      INSERT INTO dynamic_model_settlements VALUES ('dynamic:C',436),('unrelated',1998);`);
+    const after = await readSnapshot(f.client, '2026-11-07');
+    assert.deepEqual(after.tables.dynamic_model_bets.map(row => row.id), ['dynamic:A', 'dynamic:C']);
+    assert.deepEqual(after.tables.dynamic_model_settlements.map(row => row.bet_id), ['dynamic:C']);
+    assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM schema_migrations WHERE version=?', ['030_dynamic_model_bets.sql'])).rows[0].n), 0);
   } finally { f.cleanup(); }
 });

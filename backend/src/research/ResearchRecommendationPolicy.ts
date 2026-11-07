@@ -88,6 +88,30 @@ export function isFundedPolicy(policy: any): boolean {
     && typeof policy.familyC?.modelVersion === 'string' && !!policy.familyC.modelVersion.trim();
 }
 
+export const DYNAMIC_FUNDED_POLICY_VERSION = 'funded-dynamic-stake-v1';
+export const DYNAMIC_STAKE_MODE = 'MODEL_RECOMMENDED_PERCENT';
+export function dynamicFundedPolicyFromParent(parent: ReturnType<typeof paperExecutionPolicy> | any) {
+  const { fixedStakeUnits: _fixed, stakePercentByConfidence: _percent, ...base } = parent;
+  return { ...base, version: DYNAMIC_FUNDED_POLICY_VERSION,
+    familyA: { ...parent.familyA, stakeMode: DYNAMIC_STAKE_MODE },
+    familyC: { ...parent.familyC, stakeMode: DYNAMIC_STAKE_MODE },
+    stakeModeA: DYNAMIC_STAKE_MODE, stakeModeC: DYNAMIC_STAKE_MODE, budgetBase: 'EQUITY_AT_BATCH_START' };
+}
+export function dynamicFundedExecutionPolicy(state: ChallengerExecutionState) {
+  return dynamicFundedPolicyFromParent(paperExecutionPolicy(state));
+}
+export function isDynamicFundedPolicy(policy: any): boolean {
+  return policy?.version === DYNAMIC_FUNDED_POLICY_VERSION && policy.virtualOnly === true
+    && policy.stakeModeA === DYNAMIC_STAKE_MODE && policy.stakeModeC === DYNAMIC_STAKE_MODE
+    && policy.familyA?.stakeMode === DYNAMIC_STAKE_MODE && policy.familyC?.stakeMode === DYNAMIC_STAKE_MODE
+    && policy.budgetBase === 'EQUITY_AT_BATCH_START' && policy.fixedStakeUnits === undefined
+    && policy.stakePercentByConfidence === undefined && policy.maxExposureFraction === undefined
+    && policy.maxBetsPerMatchPerFamily === undefined && policy.quoteMaxAgeMs === 300000
+    && policy.independentCalibrationRequired === false && policy.familyA?.source === 'PredictionService'
+    && policy.familyC?.source === 'ResearchRuntime' && typeof policy.familyC?.modelVersion === 'string'
+    && !!policy.familyC.modelVersion.trim();
+}
+
 export function recommendationQuoteReason(quote: RecommendationQuote, now: Date, family: 'A' | 'C' = 'C'): string | null {
   if (!quote || quote.source !== 'odds_api' || quote.priceType !== 'prematch'
     || quote.timestampEvidence === 'observed_snapshot') return 'real_prematch_quote_required';

@@ -39,16 +39,19 @@ Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste 
 
 Per la transizione ai portafogli in euro, tenere le nuove recommendation
 spente e usare la [procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
-La migrazione additiva 029 conserva schema e dati precedenti, aggiunge bet e
-liquidazioni finanziate e cancellazioni logiche delle vecchie selezioni paper.
-Queste ultime restano evidenza: nessun DELETE, ricarica dei saldi o conversione
-di unità in euro. Il piano SELECT-only verifica target, selezioni e portafogli;
-l'esecuzione distinta richiede hash del piano e backup privato nuovo verificato.
-Il backup limitato della transizione non sostituisce il backup completo Turso.
-Non usare il bootstrap ordinario come comando di migrazione: eseguirebbe
-anche procedure pendenti estranee. Verificare schema, trigger, indici, foreign
-key, saldi e ledger conservati, quindi backend, frontend e infine Nightly.
-Le nuove decisioni usano `funded-confidence-v1` soltanto dopo tali verifiche.
+Le migrazioni additive 030/031 conservano schema e dati precedenti: aggiungono
+giocate/liquidazioni dinamiche e cancellazioni delle precedenti giocate fisse
+con rimborso integrale dello stake. Disponibile e impegnato cambiano in senso
+opposto, senza variare il patrimonio; nessun DELETE, apertura o reset del saldo.
+Il piano SELECT-only verifica target, selezioni e portafogli; l'esecuzione
+richiede hash del piano e backup privato nuovo verificato. Il backup limitato
+della transizione non sostituisce il backup completo Turso. Non usare il
+bootstrap ordinario come comando di migrazione: eseguirebbe procedure pendenti
+estranee. Verificare schema, trigger, indici, foreign key, cancellazioni,
+rimborsi e conservazione del ledger, quindi backend, frontend e cache A della
+build finale. La normale Nightly usa `funded-dynamic-stake-v1` soltanto dopo
+tali verifiche e ricalcola A/C con quote fresche; non ricrea automaticamente
+le selezioni annullate. Le cancellazioni paper precedenti restano separate.
 Un rollback al vecchio backend non è trasparente: non riconosce le giocate
 finanziate e i loro movimenti. Conservare un percorso compatibile per letture
 e liquidazioni finché esistono pending; non cancellare le tabelle per tornare indietro.

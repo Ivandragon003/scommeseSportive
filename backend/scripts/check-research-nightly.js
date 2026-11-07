@@ -80,21 +80,25 @@ async function inspectGithub({ now = new Date(), token, repository, expectSchedu
 }
 
 async function inspectDatabase(client, { now = new Date(), expectEnabled = false, oddsAccountScope = 'primary' } = {}) {
-  const { researchNightlyStatus, inspectPaperAccounting, inspectFundedAccounting } = require('../dist/research/ResearchMonitoring');
+  const { researchNightlyStatus, inspectPaperAccounting, inspectFundedAccounting, inspectDynamicAccounting } = require('../dist/research/ResearchMonitoring');
   const { SmartOddsRequestStore } = require('../dist/services/odds-provider/SmartOddsRequestStore');
   const before = await client.execute('SELECT COUNT(*) AS count,MAX(rowid) AS last FROM research_ledger');
-  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('manual_model_bets','manual_model_settlements','funded_model_bets','funded_model_settlements')");
+  const inventory = await client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('manual_model_bets','manual_model_settlements','funded_model_bets','funded_model_settlements','funded_model_bet_cancellations','dynamic_model_bets','dynamic_model_settlements')");
   const tables = new Set(inventory.rows.map(row => String(row.name)));
   const manual = tables.has('manual_model_bets');
   const funded = tables.has('funded_model_bets') && tables.has('funded_model_settlements');
+  const dynamic = tables.has('dynamic_model_bets') && tables.has('dynamic_model_settlements');
   const fundedBets = `(
     SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,0 AS manual
       FROM research_bets b LEFT JOIN research_settlements s ON s.bet_id=b.id
     ${manual ? `UNION ALL SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,1 AS manual
       FROM manual_model_bets b LEFT JOIN manual_model_settlements s ON s.bet_id=b.id` : ''}
     ${funded ? `UNION ALL SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,1 AS manual
-      FROM funded_model_bets b LEFT JOIN funded_model_settlements s ON s.bet_id=b.id` : ''})`;
-  const [runs, pending, accounting, invalidMovements, odds, paperAccounting, fundedAccounting] = await Promise.all([
+      FROM funded_model_bets b LEFT JOIN funded_model_settlements s ON s.bet_id=b.id
+      ${tables.has('funded_model_bet_cancellations') ? 'WHERE NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=b.id)' : ''}` : ''}
+    ${dynamic ? `UNION ALL SELECT b.id,b.portfolio_id,b.match_id,b.stake_cents,s.bet_id AS settled_id,s.return_cents,1 AS manual
+      FROM dynamic_model_bets b LEFT JOIN dynamic_model_settlements s ON s.bet_id=b.id` : ''})`;
+  const [runs, pending, accounting, invalidMovements, odds, paperAccounting, fundedAccounting, dynamicAccounting] = await Promise.all([
     client.execute("SELECT scheduler_name,started_at,ended_at,success,error,summary_json FROM scheduler_runs WHERE scheduler_name='research_nightly' ORDER BY julianday(started_at) DESC LIMIT 10"),
     client.execute(`SELECT COUNT(*) AS count FROM ${fundedBets} b
       JOIN matches m ON m.match_id=b.match_id WHERE b.settled_id IS NULL AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL`),
@@ -110,7 +114,7 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
        AND l.portfolio_id=b.portfolio_id AND l.available_delta_cents=b.return_cents AND l.committed_delta_cents=-b.stake_cents)!=1)
       OR (b.settled_id IS NULL AND EXISTS(SELECT 1 FROM research_ledger l WHERE (l.bet_id=b.id OR b.manual=1 AND l.id='settle:'||b.id) AND l.event='SETTLE'))`),
     new SmartOddsRequestStore(client, async () => {}, { clock: () => now }).overview(),
-    inspectPaperAccounting(client), inspectFundedAccounting(client),
+    inspectPaperAccounting(client), inspectFundedAccounting(client), inspectDynamicAccounting(client),
   ]);
   const after = await client.execute('SELECT COUNT(*) AS count,MAX(rowid) AS last FROM research_ledger');
   const stableAccounting = JSON.stringify(before.rows) === JSON.stringify(after.rows);
@@ -144,11 +148,12 @@ async function inspectDatabase(client, { now = new Date(), expectEnabled = false
     && (Number(row.available) < 0 || Number(row.committed) < 0 || Number(row.openings) !== 1
       || Number(row.committed) !== Number(row.open_stakes))).length + Number(invalidMovements.rows[0]?.count ?? 0);
   if (stableAccounting && accountingErrors) issues.push('virtual_accounting_integrity');
+  if (dynamicAccounting.stable && dynamicAccounting.errors) issues.push(dynamicAccounting.failures.includes('dynamic_schema_required') ? 'dynamic_schema_required' : 'dynamic_accounting_integrity');
   if (fundedAccounting.stable && fundedAccounting.errors) issues.push(fundedAccounting.failures.includes('funded_schema_required') ? 'funded_schema_required' : 'funded_accounting_integrity');
   if (paperAccounting.stable && paperAccounting.errors) issues.push(paperAccounting.failures.includes('paper_schema_required') ? 'paper_schema_required' : 'paper_accounting_integrity');
   return { checkedAt: now.toISOString(), ok: issues.length === 0, issues, nightly,
     pendingSettlements, accounting: { stable: stableAccounting, checked: stableAccounting, errors: stableAccounting ? accountingErrors : null },
-    paperAccounting, fundedAccounting, odds, activeOdds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
+    paperAccounting, fundedAccounting, dynamicAccounting, odds, activeOdds, delivery: { externalConfigured: false, note: 'No external message was sent by this check.' } };
 }
 
 async function main() {

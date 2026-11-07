@@ -152,7 +152,7 @@ export function FundedWalletBudgetPage({ activeUser }: { activeUser: string }) {
           <div><dt>Vinte, incluse mezze vincite</dt><dd>{row.wonCount ?? '—'}</dd></div><div><dt>Perse, incluse mezze perdite</dt><dd>{row.lostCount ?? '—'}</dd></div>
         </dl>
       </section>)}</div>
-      <p className="app-wallet-help">Le puntate automatiche impegnano il saldo del proprio modello: LOW 1%, MEDIUM 3%, HIGH 5% del disponibile all’inizio del gruppo di registrazioni, entro il saldo residuo.</p>
+      <p className="app-wallet-help">Ogni giocata automatica usa la percentuale suggerita dal proprio modello sul patrimonio a inizio ciclo Nightly. Il patrimonio comprende disponibile e impegnato; l’importo deve rientrare nel saldo ancora disponibile.</p>
       <p className="app-wallet-help">{qualities.length > 0 && 'Classificazione applicata ai risultati e al profitto cumulato. I saldi disponibili e impegnati restano quelli effettivi. '}I risultati A comprendono anche lo storico deterministico. Il grafico mostra sempre il profitto cumulato, da zero all’inizio del periodo. I saldi mostrano il capitale attuale. Profitto e rendimento comprendono le liquidazioni del periodo, anche per giocate registrate prima.</p>
     </>}
   </main>;

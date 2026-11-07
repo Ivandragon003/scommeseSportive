@@ -9,6 +9,8 @@ export async function listFundedBetViews(db: Executor, options: FundedReadOption
   if (!schema.rows.length) return [];
   if (schema.rows.length !== 2) throw new Error('Funded execution migration 029 is incomplete');
   const filters: string[] = [], args: any[] = [];
+  const cancellationSchema = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
+  if (cancellationSchema.rows.length) filters.push('NOT EXISTS (SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=b.id)');
   if (options.portfolioId) { filters.push('b.portfolio_id=?'); args.push(options.portfolioId); }
   if (options.matchId) { filters.push('b.match_id=?'); args.push(options.matchId); }
   if (options.status === 'PENDING') filters.push('s.bet_id IS NULL');

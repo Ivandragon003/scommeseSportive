@@ -335,3 +335,24 @@ test('default Budget shows a funded debit as available-to-committed movement whi
   expect(mockedLegacy.initBudget).not.toHaveBeenCalled();
   expect(mockedLegacy.syncSharedBets).not.toHaveBeenCalled();
 });
+
+
+test('Budget describes automatic model percentages without fixed confidence brackets', async () => {
+  render(<MemoryRouter><BudgetManager activeUser="user1" /></MemoryRouter>);
+  await screen.findByRole('region', { name: 'Portafoglio A' });
+  expect(screen.getByText(/Ogni giocata automatica usa la percentuale suggerita dal proprio modello/).textContent)
+    .toContain('patrimonio a inizio ciclo Nightly');
+  expect(screen.queryByText(/LOW 1%|MEDIUM 3%|HIGH 5%/)).toBeNull();
+});
+
+test('recorded A and C stakes preserve variable euros independently of confidence brackets', () => {
+  const a = { ...rows[0], stakeCents: 370, confidence: 'HIGH' };
+  const c = { ...rows[3], stakeCents: 2460, confidence: 'LOW' };
+  const original = JSON.stringify([a, c]);
+  render(<WalletBetTable rows={[a, c]} model="all" />);
+  const recordedA = screen.getByRole('article', { name: `A · ${a.matchLabel}` });
+  const recordedC = screen.getByRole('article', { name: `C · ${c.matchLabel}` });
+  expect(within(recordedA).getByText(/^3,70/)).toBeTruthy();
+  expect(within(recordedC).getByText(/^24,60/)).toBeTruthy();
+  expect(JSON.stringify([a, c])).toBe(original);
+});

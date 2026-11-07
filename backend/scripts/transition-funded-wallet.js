@@ -10,7 +10,8 @@ const PROTOCOL = 'funded-wallet-transition-v1';
 const MIGRATION = '029_funded_model_bets.sql';
 const MIGRATION_PATH = join(__dirname, '../migrations', MIGRATION);
 const MAX_BETS = 200, MAX_ROWS = 50000, MAX_BYTES = 100 * 1024 * 1024;
-const OPTIONAL_TABLES = ['paper_model_bet_cancellations', 'funded_model_bets', 'funded_model_settlements'];
+const MIGRATION_TABLES = ['paper_model_bet_cancellations', 'funded_model_bets', 'funded_model_settlements'];
+const OPTIONAL_TABLES = [...MIGRATION_TABLES, 'dynamic_model_bets', 'dynamic_model_settlements', 'funded_model_bet_cancellations'];
 const TABLES = ['schema_migrations', 'matches', 'research_portfolios', 'research_ledger',
   'research_bets', 'research_settlements', 'research_bet_cancellations',
   'manual_model_bets', 'manual_model_settlements', 'manual_model_archives',
@@ -58,7 +59,7 @@ function readMigration() {
   try { sql = readFileSync(MIGRATION_PATH, 'utf8'); } catch { fail('migration_unavailable'); }
   const objects = [...sql.matchAll(/CREATE\s+(TABLE|INDEX|TRIGGER)\s+IF\s+NOT\s+EXISTS\s+(\w+)/gi)]
     .map(match => ({ type: match[1].toLowerCase(), name: match[2] }));
-  if (!objects.length || OPTIONAL_TABLES.some(name => !objects.some(object => object.name === name && object.type === 'table'))) fail('migration_invalid');
+  if (!objects.length || MIGRATION_TABLES.some(name => !objects.some(object => object.name === name && object.type === 'table'))) fail('migration_invalid');
   return { sql, sha256: hash(sql), objects };
 }
 
@@ -68,13 +69,15 @@ function scopeFor(table, window) {
   const dayArgs = [window.dayStartAt, window.dayEndAt];
   if (table === 'matches') return { where: `t.match_id IN (${dayMatches})`, args: dayArgs };
   if (table === 'research_portfolios') return { where: `t.id IN ${wallets}`, args: [] };
-  if (['research_ledger', 'research_bets', 'manual_model_bets', 'funded_model_bets', 'research_decisions', 'research_execution_decisions'].includes(table)) {
+  if (['research_ledger', 'research_bets', 'manual_model_bets', 'funded_model_bets', 'dynamic_model_bets', 'research_decisions', 'research_execution_decisions'].includes(table)) {
     return { where: `t.portfolio_id IN ${wallets}`, args: [] };
   }
-  if (['research_settlements', 'manual_model_settlements', 'funded_model_settlements'].includes(table)) {
-    const bets = { research_settlements: 'research_bets', manual_model_settlements: 'manual_model_bets', funded_model_settlements: 'funded_model_bets' }[table];
+  if (['research_settlements', 'manual_model_settlements', 'funded_model_settlements', 'dynamic_model_settlements'].includes(table)) {
+    const bets = { research_settlements: 'research_bets', manual_model_settlements: 'manual_model_bets', funded_model_settlements: 'funded_model_bets',
+      dynamic_model_settlements: 'dynamic_model_bets' }[table];
     return { where: `t.bet_id IN (SELECT id FROM ${bets} WHERE portfolio_id IN ${wallets})`, args: [] };
   }
+  if (table === 'funded_model_bet_cancellations') return { where: `t.bet_id IN (SELECT id FROM funded_model_bets WHERE portfolio_id IN ${wallets})`, args: [] };
   if (table === 'paper_model_bets') return { where: `t.family IN ('A','C') AND t.match_id IN (${dayMatches})`, args: dayArgs };
   if (['paper_model_settlements', 'paper_model_bet_cancellations'].includes(table)) {
     return { where: `t.bet_id IN (SELECT id FROM paper_model_bets WHERE family IN ('A','C') AND match_id IN (${dayMatches}))`, args: dayArgs };
@@ -164,8 +167,10 @@ function walletBalances(snapshot) {
     }
     if (availableCents < 0 || committedCents < 0 || !Number.isSafeInteger(availableCents + committedCents)) fail('wallet_balance_invalid');
     let pendingCents = 0;
-    for (const [bets, settlements] of [['research_bets', 'research_settlements'], ['manual_model_bets', 'manual_model_settlements'], ['funded_model_bets', 'funded_model_settlements']]) {
+    for (const [bets, settlements] of [['research_bets', 'research_settlements'], ['manual_model_bets', 'manual_model_settlements'],
+      ['funded_model_bets', 'funded_model_settlements'], ['dynamic_model_bets', 'dynamic_model_settlements']]) {
       const settled = new Set(snapshot.tables[settlements].map(row => row.bet_id));
+      if (bets === 'funded_model_bets') for (const cancellation of snapshot.tables.funded_model_bet_cancellations) settled.add(cancellation.bet_id);
       for (const bet of snapshot.tables[bets]) if (bet.portfolio_id === portfolioId && !settled.has(bet.id)) {
         if (!Number.isSafeInteger(bet.stake_cents) || bet.stake_cents <= 0) fail('wallet_amount_invalid');
         pendingCents += bet.stake_cents;
@@ -385,7 +390,8 @@ async function main(argv = process.argv.slice(2), dependencies = {}) {
 }
 
 module.exports = { PROTOCOL, MIGRATION, TABLES, MAX_BETS, MAX_ROWS, MAX_BYTES, targetFingerprint, validateTarget,
-  readMigration, readSnapshot, buildPlan, writePrivateJson, parseArgs, planTransition, executeTransition, main };
+  readMigration, readSnapshot, snapshotInTransaction, walletBalances, fingerprints, objectHash, assertIdle,
+  buildPlan, writePrivateJson, parseArgs, planTransition, executeTransition, main };
 if (require.main === module) main().catch(error => {
   console.error(JSON.stringify({ ok: false, code: /^wallet_transition_[a-z_]+$/.test(error.message) ? error.message : 'wallet_transition_failed', providerRequests: 0 }));
   process.exitCode = 1;

@@ -29,8 +29,8 @@ La UI distingue registrazioni manuali, Nightly e opportunità archiviate.
 Aggregati, filtri temporali e dettagli paginati/limitati hanno significati
 diversi: una lista parziale non sostituisce il totale del portafoglio.
 
-La Nightly automatica usa la policy `funded-confidence-v1`, con
-`stakeMode=CONFIDENCE_PERCENT_AVAILABLE`: considera
+La Nightly automatica usa la policy `funded-dynamic-stake-v1`, con
+`stakeMode=MODEL_RECOMMENDED_PERCENT`: considera
 tutte le opportunità dei mercati già supportati che superano i criteri del
 modello, EV e controlli prudenziali esistenti. Non applica top N né massimi
 per esecuzione, giorno, campionato, partita o modello. Più mercati della
@@ -44,17 +44,19 @@ si conserva il migliore prezzo già qualificato. A e C restano separati.
 Le quote dei bookmaker già acquisite sono qualificate prima di scegliere il
 migliore prezzo ammissibile; non si aumenta il numero di chiamate per selezione.
 
-Ogni gruppo di registrazioni usa il saldo disponibile della famiglia letto
-all'inizio della transazione: **LOW 1%, MEDIUM 3%, HIGH 5%**, arrotondato per
-difetto al centesimo. Gli importi del gruppo hanno la stessa base, senza
-ricalcolare percentuali su un saldo via via ridotto. Il saldo residuo deve
+Ogni modello fornisce la propria percentuale dinamica suggerita: A usa i
+controlli Kelly/rischio esistenti; C conserva la percentuale calcolata dal
+motore sulle probabilità proprie prima dell'override storico all'1%. Non è
+la mappa fissa LOW 1% / MEDIUM 3% / HIGH 5%. La percentuale valida, espressa
+con due decimali, si applica al **patrimonio della famiglia a inizio gruppo**,
+cioè saldo disponibile più importo già impegnato, letto nella transazione.
+Lo stake viene arrotondato per difetto al centesimo. Il saldo residuo deve
 coprire l'intero importo: non si ridistribuisce proporzionalmente. Se non basta,
-la priorità è HIGH, MEDIUM, LOW, poi EV decrescente e chiave crescente della
-selezione. Confidenza mancante/non valida o SPECULATIVE non ricevono fondi;
-un importo arrotondato a zero non viene registrato. Non esiste un tetto
-cumulativo del 5%: più giocate del gruppo possono impegnare una quota maggiore,
-entro il saldo disponibile. I controlli di ammissibilità del modello restano
-distinti dall'assegnazione dei fondi.
+la priorità è HIGH, MEDIUM, LOW, poi EV decrescente e chiave crescente.
+Percentuali mancanti/invalide e stake arrotondati a zero non finanziano giocate.
+Non esiste un tetto cumulativo del 5%: più giocate possono impegnare una quota
+maggiore, entro il saldo disponibile. I limiti interni per singola selezione
+del motore restano distinti dal saldo e dall'ammissibilità delle opportunità.
 
 Il profitto è il ritorno in euro meno lo stake della selezione liquidata;
 il ROI è `100 × profitto / stake delle selezioni liquidate`. Le puntate aperte
@@ -63,15 +65,24 @@ usano il moltiplicatore del settlement; il ritorno è arrotondato al centesimo.
 La percentuale di successo esclude gli annullamenti. Le proposte senza stake
 non entrano nel ROI.
 
-La migrazione **additiva 029** introduce `funded_model_bets`,
-`funded_model_settlements` e `paper_model_bet_cancellations`. Bet, liquidazioni
-e cancellazioni sono immutabili. Stake e ritorni usano lo stesso `research_ledger`
-dei portafogli esistenti, con identità distinte `stake:funded:<uuid>` e
-`settle:funded:<uuid>` e `bet_id` nullo; non duplicano i movimenti storici.
-Le vecchie registrazioni paper annullate restano come evidenza, ma sono escluse
-da conteggi operativi, ROI e nuove liquidazioni. Non si converte 1 unità in 1 euro:
-la nuova Nightly acquisisce quote fresche e ricalcola le opportunità.
-Backup, preparazione dello schema e riavvio seguono la
+La migrazione **additiva 030** introduce `dynamic_model_bets` e
+`dynamic_model_settlements`, con evidenze immutabili e movimenti sullo stesso
+`research_ledger` dei portafogli esistenti. Non apre capitali né riscrive lo
+storico. La precedente policy `funded-confidence-v1` e i suoi importi fissi
+restano identificabili come storici.
+
+La migrazione **additiva 031** introduce `funded_model_bet_cancellations`:
+il passaggio controllato annulla soltanto le giocate fisse future, pendenti
+e scelte nel piano. Ogni cancellazione immutabile restituisce tutto lo stake
+al saldo e lo sottrae dall'impegnato, lasciando invariato il patrimonio.
+Il movimento ha ID `cancel:<id-giocata>` ed evento `SETTLE`, con `bet_id` nullo:
+è un rimborso di cancellazione, non una liquidazione sportiva. Le righe delle
+vecchie giocate e i movimenti precedenti restano invariati; le giocate annullate
+sono escluse da totali operativi, ROI e settlement. Anche le precedenti
+registrazioni paper annullate restano evidenza distinta, senza conversioni
+in euro. La nuova Nightly acquisisce quote fresche e ricalcola A e C:
+può produrre selezioni diverse o astenersi, senza ricreare automaticamente
+le giocate annullate. Backup, migrazioni e rimborso seguono la
 [procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
 Nessun percorso trasmette puntate a un bookmaker.
 
@@ -124,9 +135,10 @@ Riferimenti: [AppWalletService](../../backend/src/services/AppWalletService.ts),
 [WalletArchiveService](../../backend/src/services/WalletArchiveService.ts),
 [identità A del registro precedente](../../backend/migrations/027_deterministic_bet_model.sql),
 [policy Nightly](../../backend/src/research/ResearchRecommendationPolicy.ts),
-[assegnazione degli importi](../../backend/src/research/ConfidenceStake.ts),
-[registro finanziato](../../backend/src/research/FundedModelBetLedger.ts),
-[migrazione 029](../../backend/migrations/029_funded_model_bets.sql).
+[assegnazione degli importi](../../backend/src/research/DynamicModelStake.ts),
+[registro dinamico](../../backend/src/research/DynamicModelBetLedger.ts),
+[migrazione 030](../../backend/migrations/030_dynamic_model_bets.sql),
+[migrazione 031](../../backend/migrations/031_dynamic_funded_cancellations.sql).
 
 ## Consigli, quote e consumo provider
 

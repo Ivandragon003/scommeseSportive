@@ -4,7 +4,7 @@ import { loadNightlyPolicy, nextNightlyBoundary, NightlyPolicy, NightlySummary, 
 import { ResearchRuntime } from './ResearchRuntime';
 import { ResearchRecommendationRuntime } from './ResearchRecommendationRuntime';
 import type { FixtureAdmissionCheck } from './ResearchRecommendationRuntime';
-import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fundedExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
+import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fundedExecutionPolicy, dynamicFundedExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
 import type { RecommendationCommit, RecommendationJob, RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
 import { TECHNICAL_RECOVERY_PROTOCOL, TECHNICAL_RECOVERY_REASONS, TechnicalRecoveryPlan } from './ResearchRecommendationRecovery';
 import { researchHash } from './ResearchStore';
@@ -31,7 +31,7 @@ type Options = {
   policy?: NightlyPolicy; clock?: () => Date; runId?: string; leaseMs?: number; dataGatesPassed?: boolean;
   diagnosticPreparer?: DiagnosticOptions['preparer']; researchRuntime?: ResearchRuntime; runtime?: RecommendationPreparer;
   technicalRecovery?: TechnicalRecoveryPlan;
-  fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean; fundedMode?: boolean;
+  fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean; fundedMode?: boolean; dynamicMode?: boolean;
   reviewChallengerAdoption?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean;
 };
 
@@ -80,8 +80,8 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
 
 /** Diagnostic origins remain immutable; execution uses a separately versioned paper or historical wallet policy. */
 export async function runRecommendationNightly(db: RecommendationDb, options: Options = {}): Promise<RecommendationNightlySummary> {
-  if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
-  const selectionMode = options.paperMode === true || options.fundedMode === true;
+  if ([options.paperMode, options.fundedMode, options.dynamicMode].filter(Boolean).length > 1) throw new Error('Conflicting recommendation accounting modes');
+  const selectionMode = options.paperMode === true || options.fundedMode === true || options.dynamicMode === true;
   const policy = options.policy ?? loadNightlyPolicy(), clock = options.clock ?? (() => new Date());
   const startedAt = clock().toISOString();
   const windowEndAt = policy.windowHours ? new Date(Date.parse(startedAt) + policy.windowHours * 3600000).toISOString()
@@ -92,12 +92,12 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     errors: 0, apiErrors: 0, settlement: { checked: 0, settled: 0, unresolved: 0 }, quota: null, reasonCounts: {},
     protocol: VIRTUAL_RECOMMENDATION_POLICY.version, policyHash: researchHash(VIRTUAL_RECOMMENDATION_POLICY),
     diagnosticRunId: null, decisionCount: 0,
-    accountingMode: options.fundedMode ? 'FUNDED' : options.paperMode ? 'PAPER' : 'LEGACY' };
+    accountingMode: options.fundedMode || options.dynamicMode ? 'FUNDED' : options.paperMode ? 'PAPER' : 'LEGACY' };
   const reason = (code: string) => { summary.reasonCounts[code] = (summary.reasonCounts[code] ?? 0) + 1; };
   if (!policy.enabled) { reason('nightly_disabled'); summary.endedAt = clock().toISOString(); return summary; }
   if (process.env.RESEARCH_T15_SCHEDULER_ENABLED === 'true') throw new Error('Conflicting automatic research schedulers');
   let deploymentC = fallbackChallengerState();
-  const executionPolicyFor = options.fundedMode ? fundedExecutionPolicy : options.paperMode ? paperExecutionPolicy : challengerExecutionPolicy;
+  const executionPolicyFor = options.dynamicMode ? dynamicFundedExecutionPolicy : options.fundedMode ? fundedExecutionPolicy : options.paperMode ? paperExecutionPolicy : challengerExecutionPolicy;
   let executionPolicy: RecommendationPolicyDescriptor = executionPolicyFor(deploymentC);
   let sharedRuntime = options.researchRuntime;
   const diagnosticPreparer = options.diagnosticPreparer ?? {
@@ -153,7 +153,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (deploymentC.source !== 'fallback') summary.deploymentC = deploymentC;
     sharedRuntime?.pinChallengerDeployment(deploymentC.deployment);
     const diagnostic = await runResearchNightly(db, { policy, clock, runId, leaseMs: options.leaseMs,
-      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode, fundedMode: options.fundedMode,
+      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode, fundedMode: options.fundedMode, dynamicMode: options.dynamicMode,
       fixtureAdmission: options.fixtureAdmission ? (matchId, at) => options.fixtureAdmission!(matchId, at, deploymentC) : undefined });
     summary.diagnosticRunId = diagnostic.runId;
     summary.windowEndAt = diagnostic.windowEndAt;
@@ -208,7 +208,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
         sharedRuntime ??= new ResearchRuntime(db, { clock, nightly: policy, paperMode: selectionMode,
           candidateVersionC: deploymentC.deployment.modelVersion, deploymentC: deploymentC.deployment,
         allowChampionRollback: options.allowChampionRollback, collectChallengerForecasts: options.collectChallengerForecasts });
-        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC, paperMode: options.paperMode, fundedMode: options.fundedMode,
+        runtime = new ResearchRecommendationRuntime(db, { clock, researchRuntime: sharedRuntime, deploymentC, paperMode: options.paperMode, fundedMode: options.fundedMode, dynamicMode: options.dynamicMode,
           fixtureAdmission: options.fixtureAdmission, requireExistingCalibration: options.requireExistingCalibration });
       }
       runtime.beginCohort(runId, deploymentC);

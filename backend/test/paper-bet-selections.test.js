@@ -123,6 +123,23 @@ test('C paper selection preserves quality evidence even when the legacy payout s
   const fundedC = (await funded.prepare(job)).decisions.find((value) => value.family === 'C');
   assert.equal(fundedC.action, 'ABSTAIN');
   assert.equal(fundedC.reason, 'confidence_unavailable');
+  const dynamic = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), dynamicMode: true, researchRuntime, appOdds, deploymentC });
+  const dynamicC = (await dynamic.prepare(job)).decisions.find((value) => value.family === 'C');
+  assert.equal(dynamicC.action, 'ABSTAIN'); assert.equal(dynamicC.reason, 'dynamic_stake_unavailable');
+  const canonicalQuotes = quotesFor('Best', 3.5);
+  const canonicalRuntime = { ...researchRuntime, prepareNightly: async () => ({ job, status: 'upcoming', kickoffAt: row.date,
+    quotes: canonicalQuotes, paperQuotes: canonicalQuotes, decisions: [decision] }) };
+  const canonicalDeployment = { ...deploymentC, deployment: { ...deploymentC.deployment, selectorPolicy: 'canonical-binary-v1' } };
+  const canonical = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), dynamicMode: true,
+    researchRuntime: canonicalRuntime, appOdds, deploymentC: canonicalDeployment });
+  const actual = (await canonical.prepare(job)).decisions.find(value => value.family === 'C');
+  const { buildChallengerRecommendation } = require(`${build}/research/ChallengerRecommendation`);
+  const original = buildChallengerRecommendation({ decision, quotes: canonicalQuotes, observedAt: at,
+    competition: row.competition, expectedIdentity: canonicalDeployment.deployment, allowedMarkets: ['1x2'], paperFixedUnit: true });
+  const reference = original.opportunities.find(value => value.selection === actual.selections?.[0]?.selection);
+  assert.equal(actual.action, 'BET'); assert.ok(reference);
+  assert.equal(actual.selections[0].suggestedStakePercent, reference.engineSuggestedStakePercent);
+  assert.notEqual(reference.engineSuggestedStakePercent, 1);
 });
 
 test('suppressProspective skips recorder while preserving the prediction and default recording', async (t) => {

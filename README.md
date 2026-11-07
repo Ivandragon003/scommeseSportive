@@ -107,13 +107,15 @@ cache. Le puntate manuali richiedono conferma e verifica server di selezione,
 quota e saldo disponibile; aprire un consiglio non registra una puntata.
 
 La Nightly A/C registra importi in euro nei portafogli virtuali separati A e C,
-usando i saldi esistenti: LOW 1%, MEDIUM 3%, HIGH 5% del saldo disponibile
-all'inizio del gruppo registrato nella transazione. Considera tutte le selezioni
+usando la percentuale dinamica suggerita da ciascun modello e il patrimonio
+della famiglia all'inizio del gruppo registrato nella transazione. Il saldo
+disponibile deve coprire ogni importo completo. Considera tutte le selezioni
 qualificate, senza top N, limite per partita o tetto cumulativo del 5%; finanzia
 solo gli importi completi coperti dal saldo, dando priorità a confidenza, EV e
 chiave della selezione. Duplicati e budget API restano controllati. Lo storico
-e le puntate manuali restano conservati; le vecchie registrazioni paper annullate
-non entrano nei totali operativi e non vengono convertite da unità in euro.
+e le puntate manuali restano conservati. Le vecchie giocate a percentuale fissa
+annullate sono escluse dall'operatività e rimborsate sul rispettivo portafoglio;
+le registrazioni paper precedenti non vengono convertite da unità in euro.
 Le proposte senza puntata non producono ROI. Nessuna puntata è inviata ai bookmaker.
 La [guida operativa](docs/operations/README.md) descrive queste distinzioni.
 

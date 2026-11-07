@@ -5,9 +5,12 @@ import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported } from './AppRecommendationQuotes';
 import { isPaperPolicy, listPaperBetViews, PaperReadOptions, PaperSelection, PAPER_ACCOUNTING_MODE, PAPER_POLICY_VERSION } from './PaperModelBetLedger';
 import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
-import { FUNDED_ACCOUNTING_MODE, FUNDED_POLICY_VERSION, isFundedPolicy } from './ResearchRecommendationPolicy';
+import { FUNDED_ACCOUNTING_MODE, FUNDED_POLICY_VERSION, isFundedPolicy, DYNAMIC_FUNDED_POLICY_VERSION,
+  DYNAMIC_STAKE_MODE, isDynamicFundedPolicy } from './ResearchRecommendationPolicy';
 import { listFundedBetViews } from './FundedModelBetLedger';
 import { allocateConfidenceStakes } from './ConfidenceStake';
+import { allocateDynamicStakes } from './DynamicModelStake';
+import { listDynamicBetViews } from './DynamicModelBetLedger';
 export type { PaperSelection } from './PaperModelBetLedger';
 
 export type RecommendationPolicyDescriptor = { version: string; [key: string]: any };
@@ -124,6 +127,9 @@ export class ResearchRecommendationStore {
     if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor) || !descriptor.version?.trim()) throw new Error('Policy descriptor required');
     const paper = isPaperPolicy(descriptor);
     const funded = isFundedPolicy(descriptor);
+    const dynamic = isDynamicFundedPolicy(descriptor);
+    if (descriptor.version === DYNAMIC_FUNDED_POLICY_VERSION && !dynamic) throw new Error('Unsupported dynamic execution policy');
+    if (dynamic && descriptor.recovery !== undefined) throw new Error('Dynamic recovery policy is unsupported');
     if (descriptor.version === FUNDED_POLICY_VERSION && !funded) throw new Error('Unsupported funded execution policy');
     if (descriptor.version === PAPER_POLICY_VERSION && !paper) throw new Error('Unsupported paper execution policy');
     if (paper && (descriptor.maxExposureFraction !== undefined || descriptor.maxBetsPerMatchPerFamily !== undefined
@@ -134,18 +140,19 @@ export class ResearchRecommendationStore {
       || typeof descriptor.familyC?.modelVersion !== 'string' || !descriptor.familyC.modelVersion.trim())) {
       throw new Error('Unsupported paper execution policy');
     }
-    if (!paper && !funded && (descriptor.virtualOnly !== true || descriptor.stakeModeA !== 'RECOMMENDED_PERCENT' || descriptor.stakeModeC !== 'FIXED_ONE_PERCENT'
+    if (!paper && !funded && !dynamic && (descriptor.virtualOnly !== true || descriptor.stakeModeA !== 'RECOMMENDED_PERCENT' || descriptor.stakeModeC !== 'FIXED_ONE_PERCENT'
       || descriptor.maxExposureFraction !== .05 || descriptor.quoteMaxAgeMs !== 300000 || descriptor.independentCalibrationRequired !== false)) {
       throw new Error('Unsupported virtual execution policy');
     }
-    if (!paper && !funded && descriptor.maxBetsPerMatchPerFamily !== undefined && descriptor.maxBetsPerMatchPerFamily !== 1) throw new Error('One virtual bet per match and family is required');
+    if (!paper && !funded && !dynamic && descriptor.maxBetsPerMatchPerFamily !== undefined && descriptor.maxBetsPerMatchPerFamily !== 1) throw new Error('One virtual bet per match and family is required');
     const hash = researchHash(descriptor), serialized = researchJson(descriptor);
     await this.ensureGuards();
     return this.research.runResearchTransaction(async (tx) => {
       if (paper && !await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bets'")) throw new Error('Paper execution migration 028 is required');
-      if (funded) {
+      if (funded || dynamic) {
         const schema = await rows(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('funded_model_bets','funded_model_settlements','paper_model_bet_cancellations')");
         if (schema.length !== 3) throw new Error('Funded execution migration 029 is required');
+        if (dynamic && (await rows(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('dynamic_model_bets','dynamic_model_settlements')")).length !== 2) throw new Error('Dynamic execution migration 030 is required');
       }
       const previous = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [hash]);
       if (previous && researchJson(previous.descriptor) !== serialized) throw new Error('Policy descriptor is immutable');
@@ -309,7 +316,7 @@ export class ResearchRecommendationStore {
         const origins = await rows(tx, "SELECT id,family FROM research_decisions WHERE input_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [origin.id]);
         const originIds = Object.fromEntries(origins.map((decision) => [decision.family, decision.id]));
         if (!originIds.A || !originIds.C || origins.length !== 2) { skip('paired_origin_decisions_required'); continue; }
-        if (!isPaperPolicy(policy.descriptor) && !isFundedPolicy(policy.descriptor)) {
+        if (!isPaperPolicy(policy.descriptor) && !isFundedPolicy(policy.descriptor) && !isDynamicFundedPolicy(policy.descriptor)) {
           const existingBets = await first(tx, "SELECT COUNT(DISTINCT portfolio_id) AS count FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [fixture.matchId]);
           if (Number(existingBets.count) === 2) { skip('both_portfolios_already_bet'); continue; }
         }
@@ -376,7 +383,7 @@ export class ResearchRecommendationStore {
     item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any;
   }, hasSharedQuote: (quote: any) => boolean, options: { validateOnly?: boolean; fundedAllocations?: Map<string, any> } = {}): Promise<{ decision: any; bets: any[]; quotes: any[]; candidates?: PaperSelection[] }> {
     const { item, job, inputId, decision, policy } = plan, portfolioId = `shadow_${decision.family}`;
-    const funded = isFundedPolicy(policy.descriptor);
+    const dynamic = isDynamicFundedPolicy(policy.descriptor), funded = isFundedPolicy(policy.descriptor) || dynamic;
     const observed = Date.parse(item.inputSnapshot.observedAt), at = this.clock().getTime();
     let reason: string | null = decision.action === 'ABSTAIN' ? decision.reason ?? 'model_abstained' : decision.reason ?? null;
     const abstain = (code: string) => { reason ??= code; };
@@ -408,7 +415,7 @@ export class ResearchRecommendationStore {
         || child.selectionKey !== paperSelectionKey(quote)) reject('selection_quote_mismatch');
       if (!Number.isFinite(child.probability) || child.probability <= 0 || child.probability >= 1
         || !Number.isFinite(child.ev) || child.ev <= 0) reject('positive_finite_recommendation_required');
-      if ((decision.family === 'A' || funded) && !['HIGH', 'MEDIUM', 'LOW'].includes((funded ? child.confidence : child.confidence ?? decision.confidence) ?? '')) reject('recommendation_confidence_required');
+      if ((decision.family === 'A' || funded && !dynamic) && !['HIGH', 'MEDIUM', 'LOW'].includes((funded ? child.confidence : child.confidence ?? decision.confidence) ?? '')) reject('recommendation_confidence_required');
       if (!hasSharedQuote(quote)) reject('quote_not_in_shared_snapshot');
       // The disabled market categories remain excluded, even if a caller fabricates a candidate.
       if (typeof child.market !== 'string' || ['corners', 'fouls', 'correct_score', 'exact_score'].includes(child.market)
@@ -444,9 +451,16 @@ export class ResearchRecommendationStore {
       return row.market === child.market && typeof row.selection === 'string'
         && row.selection.trim().toLowerCase() === child.selection.trim().toLowerCase();
     };
+    const dynamicSchema = funded && !!await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'");
+    const fundedCancellationSchema = dynamic && !!await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
+    const priorFundedQuery = fundedCancellationSchema
+      ? 'SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=? AND NOT EXISTS (SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=funded_model_bets.id)'
+      : 'SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?';
     const selected: PaperSelection[] = [];
     for (const child of unique) {
-      if (await first(tx, `SELECT id FROM ${funded ? 'funded_model_bets' : 'paper_model_bets'} WHERE family=? AND match_id=? AND selection_key=?`, [decision.family, job.matchId, child.selectionKey])) {
+      if (await first(tx, `SELECT id FROM ${dynamic ? 'dynamic_model_bets' : funded ? 'funded_model_bets' : 'paper_model_bets'} WHERE family=? AND match_id=? AND selection_key=?`, [decision.family, job.matchId, child.selectionKey])
+        || dynamic && await first(tx, priorFundedQuery, [decision.family, job.matchId, child.selectionKey])
+        || funded && !dynamic && dynamicSchema && await first(tx, 'SELECT id FROM dynamic_model_bets WHERE family=? AND match_id=? AND selection_key=?', [decision.family, job.matchId, child.selectionKey])) {
         rejected.push({ selection: child.selection, reason: funded ? 'funded_selection_already_recorded' : 'paper_selection_already_recorded' });
       } else if (funded && historical.some(row => matchesHistorical(child, row))) {
         rejected.push({ selection: child.selection, reason: 'historical_selection_already_recorded' });
@@ -464,9 +478,9 @@ export class ResearchRecommendationStore {
     if (!selected.length) reason ??= rejected[0]?.reason ?? 'no_positive_paper_selections';
     const id = randomUUID(), createdAt = iso(at), action = selected.length && !reason ? 'BET' : 'ABSTAIN';
     const { suggestedStakePercent: _suggested, stakePercent: _percent, equityBasisCents: _equity, ...parent } = decision;
+    const mode = dynamic ? DYNAMIC_STAKE_MODE : funded ? FUNDED_ACCOUNTING_MODE : PAPER_ACCOUNTING_MODE;
     const evidence = { ...item.inputSnapshot.match, ...parent, ...(selected[0] ?? {}), action, reason,
-      decisionMode: funded ? FUNDED_ACCOUNTING_MODE : 'PAPER_FIXED_UNIT', accountingMode: funded ? FUNDED_ACCOUNTING_MODE : PAPER_ACCOUNTING_MODE,
-      stakeMode: funded ? FUNDED_ACCOUNTING_MODE : PAPER_ACCOUNTING_MODE,
+      decisionMode: mode, accountingMode: mode, stakeMode: mode,
       ...(funded ? {} : { fixedStakeUnits: 1, stakeUnits: action === 'BET' ? 1 : 0, stakeCents: action === 'BET' ? 100 : 0,
         totalStakeUnits: action === 'BET' ? selected.length : 0 }), selections: action === 'BET' ? selected : [], rejectedSelections: rejected,
       policyHash: job.policyHash, policyVersion: policy.version, runId: job.runId, matchId: job.matchId,
@@ -479,9 +493,13 @@ export class ResearchRecommendationStore {
     if (action === 'BET') for (const child of selected) {
       this.assertLease(job, item.leaseToken, this.clock().getTime());
       if (funded) {
-        const betId = `funded:${randomUUID()}`, snapshot = { ...evidence, ...child, modelVersion: decision.modelVersion,
+        const betId = `${dynamic ? 'dynamic' : 'funded'}:${randomUUID()}`, snapshot = { ...evidence, ...child, modelVersion: decision.modelVersion,
           selections: undefined, rejectedSelections: undefined };
-        await tx.execute({ sql: `INSERT INTO funded_model_bets
+        if (dynamic) await tx.execute({ sql: `INSERT INTO dynamic_model_bets
+          (id,execution_decision_id,origin_decision_id,input_id,policy_hash,portfolio_id,family,match_id,model_version,market,selection,selection_key,odds,stake_cents,stake_percent,stake_basis_points,base_equity_cents,confidence,snapshot_json,placed_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args: [betId,id,decision.originDecisionId,inputId,job.policyHash,portfolioId,decision.family,job.matchId,
+          decision.modelVersion,child.market,child.selection,child.selectionKey,child.quote.odds,child.stakeCents,child.stakePercent,child.stakeBasisPoints,child.baseEquityCents,child.confidence ?? null,researchJson(snapshot),createdAt] });
+        else await tx.execute({ sql: `INSERT INTO funded_model_bets
           (id,execution_decision_id,origin_decision_id,input_id,policy_hash,portfolio_id,family,match_id,model_version,market,selection,selection_key,odds,stake_cents,stake_percent,base_available_cents,confidence,snapshot_json,placed_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args: [betId,id,decision.originDecisionId,inputId,job.policyHash,portfolioId,decision.family,job.matchId,
           decision.modelVersion,child.market,child.selection,child.selectionKey,child.quote.odds,child.stakeCents,child.stakePercent,child.baseAvailableCents,child.confidence,researchJson(snapshot),createdAt] });
@@ -521,24 +539,27 @@ export class ResearchRecommendationStore {
     const jobQuery = (id: string): Statement => ({ sql: 'SELECT * FROM research_execution_jobs WHERE id=?', args: [id] });
     const fixtureSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'", args: [] };
     const manualSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'", args: [] };
-    await fetch([fixtureSchema, manualSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
+    const dynamicSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'", args: [] };
+    const fundedCancellationSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'", args: [] };
+    await fetch([fixtureSchema, manualSchema, dynamicSchema, fundedCancellationSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
     const jobs = prepared.map((item) => object(cache.get(key(jobQuery(item.jobId))).rows[0]));
     // Completed jobs and recovery policies retain the existing immutable-replay path.
     if (jobs.some((job) => !job || job.status === 'COMPLETED')) return null;
     const policyQuery = (hash: string): Statement => ({ sql: 'SELECT * FROM research_execution_policies WHERE hash=?', args: [hash] });
     await fetch(jobs.map((job) => policyQuery(job.policyHash)));
     const policies = jobs.map((job) => object(cache.get(key(policyQuery(job.policyHash))).rows[0]));
-    if (policies.some((policy) => !policy || !(isPaperPolicy(policy.descriptor) || isFundedPolicy(policy.descriptor))
+    if (policies.some((policy) => !policy || !(isPaperPolicy(policy.descriptor) || isFundedPolicy(policy.descriptor) || isDynamicFundedPolicy(policy.descriptor))
       || Object.prototype.hasOwnProperty.call(policy.descriptor, 'recovery'))) return null;
     const hasFixtures = cache.get(key(fixtureSchema)).rows.length > 0;
     const statements: Statement[] = [];
     prepared.forEach((item, index) => {
       const job = jobs[index];
-      const funded = isFundedPolicy(policies[index].descriptor);
+      const dynamic = isDynamicFundedPolicy(policies[index].descriptor), funded = isFundedPolicy(policies[index].descriptor) || dynamic;
       statements.push({ sql: 'SELECT i.id,j.match_id FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?', args: [item.originInputId] });
       if (hasFixtures) statements.push({ sql: 'SELECT date,home_goals,away_goals FROM matches WHERE match_id=?', args: [job.matchId] });
       for (const decision of item.decisions) {
-        if (funded) statements.push({ sql: `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents
+        if (funded) statements.push({ sql: `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
+          COALESCE(SUM(l.available_delta_cents+l.committed_delta_cents),0) AS equity_cents
           FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id WHERE p.id=? GROUP BY p.id`, args: [`shadow_${decision.family}`] });
         if (funded) {
           statements.push({ sql: 'SELECT selection,market,snapshot_json FROM research_bets WHERE family=? AND match_id=?', args: [decision.family, job.matchId] });
@@ -551,7 +572,11 @@ export class ResearchRecommendationStore {
         if (Array.isArray(decision.selections)) for (const child of decision.selections) {
           if (!child || typeof child.market !== 'string' || typeof child.selectionKey !== 'string') continue;
           if (decision.family === 'C') statements.push({ sql: 'SELECT state FROM research_markets WHERE family=? AND model_version=? AND market=?', args: [decision.family, decision.modelVersion, child.market] });
-          statements.push({ sql: `SELECT id FROM ${funded ? 'funded_model_bets' : 'paper_model_bets'} WHERE family=? AND match_id=? AND selection_key=?`, args: [decision.family, job.matchId, child.selectionKey] });
+          for (const table of funded ? ['funded_model_bets', ...(cache.get(key(dynamicSchema)).rows.length ? ['dynamic_model_bets'] : [])] : ['paper_model_bets']) {
+            const filter = dynamic && table === 'funded_model_bets' && cache.get(key(fundedCancellationSchema)).rows.length
+              ? ' AND NOT EXISTS (SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=funded_model_bets.id)' : '';
+            statements.push({ sql: `SELECT id FROM ${table} WHERE family=? AND match_id=? AND selection_key=?${filter}`, args: [decision.family, job.matchId, child.selectionKey] });
+          }
         }
       }
     });
@@ -567,6 +592,9 @@ export class ResearchRecommendationStore {
         } else if (/^\s*INSERT INTO funded_model_bets\b/i.test(normalized.sql)) {
           const args = normalized.args;
           cache.set(key({ sql: 'SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[6], args[7], args[11]] }), { rows: [{ id: args[0] }] });
+        } else if (/^\s*INSERT INTO dynamic_model_bets\b/i.test(normalized.sql)) {
+          const args = normalized.args;
+          cache.set(key({ sql: 'SELECT id FROM dynamic_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[6], args[7], args[11]] }), { rows: [{ id: args[0] }] });
         } else if (/^\s*UPDATE research_execution_jobs SET status='COMPLETED'/i.test(normalized.sql)) {
           const query = jobQuery(normalized.args[1]), result = cache.get(key(query));
           cache.set(key(query), { ...result, rows: [{ ...result.rows[0], status: 'COMPLETED', updated_at: normalized.args[0] }] });
@@ -605,6 +633,7 @@ export class ResearchRecommendationStore {
           const policy = await first(tx, 'SELECT descriptor_json FROM research_execution_policies WHERE hash=?', [job.policyHash]);
           if (isPaperPolicy(policy?.descriptor)) bets.push(...await listPaperBetViews(tx, { matchId: job.matchId }).then(rows => rows.filter(row => row.inputId === stored.id)));
           if (isFundedPolicy(policy?.descriptor)) bets.push(...await listFundedBetViews(tx, { matchId: job.matchId }).then(rows => rows.filter(row => row.inputId === stored.id)));
+          if (isDynamicFundedPolicy(policy?.descriptor)) bets.push(...await listDynamicBetViews(tx, { matchId: job.matchId }).then(rows => rows.filter(row => row.inputId === stored.id)));
           completedJobs.push(job); continue;
         }
         const at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
@@ -639,20 +668,24 @@ export class ResearchRecommendationStore {
       const paperQuoteChecks = new Map<RecommendationCommit, (quote: any) => boolean>();
       const fundedAllocations = new Map<string, any>();
       for (const family of ['A', 'C'] as const) {
-        const candidates: Array<{ key: string; confidence?: unknown; ev?: number }> = [];
-        const fundedPlans = plans.filter(plan => plan.decision.family === family && isFundedPolicy(plan.policy.descriptor));
+        const candidates: Array<{ key: string; confidence?: unknown; ev?: number; suggestedStakePercent?: unknown }> = [];
+        const fundedPlans = plans.filter(plan => plan.decision.family === family && (isFundedPolicy(plan.policy.descriptor) || isDynamicFundedPolicy(plan.policy.descriptor)));
         if (!fundedPlans.length) continue;
+        const dynamic = isDynamicFundedPolicy(fundedPlans[0].policy.descriptor);
+        if (fundedPlans.some(plan => isDynamicFundedPolicy(plan.policy.descriptor) !== dynamic)) throw new Error('Mixed funded accounting policies in batch');
         const portfolioId = `shadow_${family}`;
-        const portfolio = await first(tx, `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents
+        const portfolio = await first(tx, `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
+          COALESCE(SUM(l.available_delta_cents+l.committed_delta_cents),0) AS equity_cents
           FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id WHERE p.id=? GROUP BY p.id`, [portfolioId]);
         if (!portfolio) throw new Error('Execution portfolio not initialized');
         for (const plan of fundedPlans) {
           const hashes = new Set(plan.item.inputSnapshot.quotes.map((quote: any) => researchHash(quote)));
           const validated = await this.commitPaperDecision(tx, plan, quote => hashes.has(researchHash(quote)), { validateOnly: true });
           for (const child of validated.candidates ?? []) candidates.push({ key: JSON.stringify([plan.job.matchId, family, child.selectionKey]),
-            confidence: child.confidence, ev: child.ev });
+            confidence: child.confidence, ev: child.ev, suggestedStakePercent: child.suggestedStakePercent });
         }
-        for (const allocation of allocateConfidenceStakes(candidates, Number(portfolio.availableCents))) fundedAllocations.set(allocation.key, allocation);
+        for (const allocation of dynamic ? allocateDynamicStakes(candidates, Number(portfolio.availableCents), Number(portfolio.equityCents))
+          : allocateConfidenceStakes(candidates, Number(portfolio.availableCents))) fundedAllocations.set(allocation.key, allocation);
       }
       for (const plan of plans) {
         const { item, job, decision } = plan, at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
@@ -660,7 +693,7 @@ export class ResearchRecommendationStore {
         if (decision.portfolioId && decision.portfolioId !== portfolioId) throw new Error('Execution uses only independent shadow portfolios');
         const origin = await first(tx, 'SELECT id,input_id,family,portfolio_id FROM research_decisions WHERE id=?', [decision.originDecisionId]);
         if (!origin || origin.inputId !== item.originInputId || origin.family !== decision.family || origin.portfolioId !== portfolioId) throw new Error('Execution origin decision mismatch');
-        if (isPaperPolicy(plan.policy.descriptor) || isFundedPolicy(plan.policy.descriptor)) {
+        if (isPaperPolicy(plan.policy.descriptor) || isFundedPolicy(plan.policy.descriptor) || isDynamicFundedPolicy(plan.policy.descriptor)) {
           if (!paperQuoteChecks.has(item)) {
             const hashes = new Set<string>(); let next = 0;
             paperQuoteChecks.set(item, (quote: any) => {
@@ -785,9 +818,14 @@ export class ResearchRecommendationStore {
       this.cancellationSchemaPresent = !!await first(this.client,
         "SELECT name FROM sqlite_master WHERE type='table' AND name='research_bet_cancellations'");
     }
-    return this.cancellationSchemaPresent
-      ? "NOT EXISTS(SELECT 1 FROM research_bet_cancellations cancelled WHERE json_extract(cancelled.bet_json,'$.execution_decision_id')=d.id)"
-      : null;
+    const filters: string[] = [];
+    if (this.cancellationSchemaPresent) filters.push("NOT EXISTS(SELECT 1 FROM research_bet_cancellations cancelled WHERE json_extract(cancelled.bet_json,'$.execution_decision_id')=d.id)");
+    if (await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'")) {
+      filters.push(`(NOT EXISTS(SELECT 1 FROM funded_model_bets f WHERE f.execution_decision_id=d.id)
+        OR EXISTS(SELECT 1 FROM funded_model_bets f WHERE f.execution_decision_id=d.id
+          AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)))`);
+    }
+    return filters.length ? filters.join(' AND ') : null;
   }
 
   async listDecisionViews(options: { policyHash?: string; runId?: string; matchId?: string; family?: ResearchFamily;
@@ -797,6 +835,8 @@ export class ResearchRecommendationStore {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || options.includeForecasts && !options.matchId) throw new Error('Invalid execution view scope');
     const filters: string[] = ["j.policy_hash NOT IN (SELECT hash FROM research_execution_policies WHERE version='paper-fixed-unit-v1')"], args: any[] = [];
     const fundedSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bets'");
+    const fundedCancellationSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
+    const dynamicSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'");
     const activeExecution = await this.activeExecutionFilter();
     if (activeExecution) filters.push(activeExecution);
     for (const [key, column] of [['policyHash', 'j.policy_hash'], ['runId', 'j.run_id'], ['matchId', 'j.match_id'], ['family', 'd.family']] as const) {
@@ -810,25 +850,28 @@ export class ResearchRecommendationStore {
       ELSE json_extract(i.snapshot_json,'$.forecasts.C.recommendation') END` : 'NULL';
     const result = await rows(this.client, `WITH effective_ids AS (
       SELECT d.id,ROW_NUMBER() OVER (PARTITION BY j.match_id,d.family,d.portfolio_id ORDER BY
-        CASE WHEN EXISTS(SELECT 1 FROM research_bets funded WHERE funded.execution_decision_id=d.id)${fundedSchema ? ' OR EXISTS(SELECT 1 FROM funded_model_bets f WHERE f.execution_decision_id=d.id)' : ''} THEN 1 ELSE 0 END DESC,
+        CASE WHEN EXISTS(SELECT 1 FROM research_bets funded WHERE funded.execution_decision_id=d.id)${fundedSchema ? ` OR EXISTS(SELECT 1 FROM funded_model_bets f WHERE f.execution_decision_id=d.id${fundedCancellationSchema ? ' AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)' : ''})` : ''}${dynamicSchema ? ' OR EXISTS(SELECT 1 FROM dynamic_model_bets f WHERE f.execution_decision_id=d.id)' : ''} THEN 1 ELSE 0 END DESC,
         julianday(d.created_at) DESC,d.id DESC) AS rank
       FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id
       ${filters.length ? 'WHERE ' + filters.join(' AND ') : ''}
     ) SELECT d.id,d.input_id,d.origin_decision_id,d.family,d.model_version,d.portfolio_id,d.action,d.market,d.selection,
       d.reason,d.created_at,j.policy_hash,p.version AS policy_version,j.run_id,j.match_id,j.kickoff_at,
       json_extract(i.snapshot_json,'$.observedAt') AS forecast_at,json_object(${snapshot}) AS snapshot_json,
-      ${forecast} AS recommendation_packet_json,${fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} AS bet_id,
-      ${fundedSchema ? 'COALESCE(b.stake_cents,fb.stake_cents)' : 'b.stake_cents'} AS bet_stake_cents,
-      ${fundedSchema ? 'COALESCE(b.placed_at,fb.placed_at)' : 'b.placed_at'} AS bet_placed_at,
-      CASE WHEN ${fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NULL THEN NULL WHEN ${fundedSchema ? 'COALESCE(s.bet_id,fs.bet_id)' : 's.bet_id'} IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS bet_status,
+      ${forecast} AS recommendation_packet_json,${dynamicSchema ? 'COALESCE(b.id,fb.id,db.id)' : fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} AS bet_id,
+      ${dynamicSchema ? 'COALESCE(b.stake_cents,fb.stake_cents,db.stake_cents)' : fundedSchema ? 'COALESCE(b.stake_cents,fb.stake_cents)' : 'b.stake_cents'} AS bet_stake_cents,
+      ${dynamicSchema ? 'COALESCE(b.placed_at,fb.placed_at,db.placed_at)' : fundedSchema ? 'COALESCE(b.placed_at,fb.placed_at)' : 'b.placed_at'} AS bet_placed_at,
+      CASE WHEN ${dynamicSchema ? 'COALESCE(b.id,fb.id,db.id)' : fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NULL THEN NULL WHEN ${dynamicSchema ? 'COALESCE(s.bet_id,fs.bet_id,ds.bet_id)' : fundedSchema ? 'COALESCE(s.bet_id,fs.bet_id)' : 's.bet_id'} IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS bet_status,
       xb.id AS existing_bet_id,xb.execution_decision_id AS existing_bet_execution_decision_id,xb.decision_id AS existing_bet_origin_decision_id
       FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id
       JOIN effective_ids effective ON effective.id=d.id AND effective.rank=1
       JOIN research_execution_policies p ON p.hash=j.policy_hash LEFT JOIN research_bets b ON b.execution_decision_id=d.id
       LEFT JOIN research_settlements s ON s.bet_id=b.id LEFT JOIN research_bets xb ON xb.match_id=j.match_id AND xb.portfolio_id=d.portfolio_id
-      ${fundedSchema ? `LEFT JOIN funded_model_bets fb ON fb.id=COALESCE((SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id
-        AND f.market=d.market AND f.selection=d.selection ORDER BY f.id LIMIT 1), (SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id ORDER BY f.id LIMIT 1))
+      ${fundedSchema ? `LEFT JOIN funded_model_bets fb ON fb.id=COALESCE((SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id${fundedCancellationSchema ? ' AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)' : ''}
+        AND f.market=d.market AND f.selection=d.selection ORDER BY f.id LIMIT 1), (SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id${fundedCancellationSchema ? ' AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)' : ''} ORDER BY f.id LIMIT 1))
         LEFT JOIN funded_model_settlements fs ON fs.bet_id=fb.id` : ''}
+      ${dynamicSchema ? `LEFT JOIN dynamic_model_bets db ON db.id=COALESCE((SELECT x.id FROM dynamic_model_bets x WHERE x.execution_decision_id=d.id
+        AND x.market=d.market AND x.selection=d.selection ORDER BY x.id LIMIT 1), (SELECT x.id FROM dynamic_model_bets x WHERE x.execution_decision_id=d.id ORDER BY x.id LIMIT 1))
+        LEFT JOIN dynamic_model_settlements ds ON ds.bet_id=db.id` : ''}
       ORDER BY julianday(d.created_at) DESC,d.id DESC LIMIT ?`, [...args, limit]);
     return result.map((row) => { delete row.snapshotJson; delete row.recommendationPacketJson; return row; });
   }
@@ -843,6 +886,8 @@ export class ResearchRecommendationStore {
     if (Date.parse(to) <= Date.parse(from) || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('Invalid comparison decision scope');
     const hasExecution = await this.hasSchema();
     const fundedSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bets'");
+    const fundedCancellationSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
+    const dynamicSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'");
     const activeExecution = hasExecution ? await this.activeExecutionFilter() : null;
     const fields = ['quote','probability','ev','confidence','suggestedStakePercent','stakePercent','stakeCents','decisionMode','policyHash','policyVersion',
       'matchId','competition','league','matchLabel','homeTeamName','awayTeamName','kickoffAt'];
@@ -858,17 +903,20 @@ export class ResearchRecommendationStore {
       WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family`;
     const execution = hasExecution ? ` UNION ALL SELECT d.id,j.id AS job_id,d.input_id,d.origin_decision_id,d.family,d.model_version,d.portfolio_id,
       d.action,d.market,d.selection,d.reason,d.created_at,j.match_id,j.kickoff_at,'execution' AS authority,1 AS authority_rank,j.policy_hash,p.version AS policy_version,
-      CASE WHEN ${fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NOT NULL THEN 1 ELSE 0 END AS funded,
-      ${fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} AS bet_id,${fundedSchema ? 'COALESCE(b.stake_cents,fb.stake_cents)' : 'b.stake_cents'} AS bet_stake_cents,
-      ${fundedSchema ? 'COALESCE(b.placed_at,fb.placed_at)' : 'b.placed_at'} AS bet_placed_at,
-      CASE WHEN ${fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NULL THEN NULL WHEN ${fundedSchema ? 'COALESCE(s.bet_id,fs.bet_id)' : 's.bet_id'} IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS bet_status,
+      CASE WHEN ${dynamicSchema ? 'COALESCE(b.id,fb.id,db.id)' : fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NOT NULL THEN 1 ELSE 0 END AS funded,
+      ${dynamicSchema ? 'COALESCE(b.id,fb.id,db.id)' : fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} AS bet_id,${dynamicSchema ? 'COALESCE(b.stake_cents,fb.stake_cents,db.stake_cents)' : fundedSchema ? 'COALESCE(b.stake_cents,fb.stake_cents)' : 'b.stake_cents'} AS bet_stake_cents,
+      ${dynamicSchema ? 'COALESCE(b.placed_at,fb.placed_at,db.placed_at)' : fundedSchema ? 'COALESCE(b.placed_at,fb.placed_at)' : 'b.placed_at'} AS bet_placed_at,
+      CASE WHEN ${dynamicSchema ? 'COALESCE(b.id,fb.id,db.id)' : fundedSchema ? 'COALESCE(b.id,fb.id)' : 'b.id'} IS NULL THEN NULL WHEN ${dynamicSchema ? 'COALESCE(s.bet_id,fs.bet_id,ds.bet_id)' : fundedSchema ? 'COALESCE(s.bet_id,fs.bet_id)' : 's.bet_id'} IS NULL THEN 'PENDING' ELSE 'SETTLED' END AS bet_status,
       json_extract(d.snapshot_json,'$.quote') AS quote_json,json_object(${compact('d')}) AS snapshot_json
       FROM research_execution_decisions d JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id
       JOIN research_execution_policies p ON p.hash=j.policy_hash LEFT JOIN research_bets b ON b.execution_decision_id=d.id
       LEFT JOIN research_settlements s ON s.bet_id=b.id
-      ${fundedSchema ? `LEFT JOIN funded_model_bets fb ON fb.id=COALESCE((SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id
-        AND f.market=d.market AND f.selection=d.selection ORDER BY f.id LIMIT 1), (SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id ORDER BY f.id LIMIT 1))
+      ${fundedSchema ? `LEFT JOIN funded_model_bets fb ON fb.id=COALESCE((SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id${fundedCancellationSchema ? ' AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)' : ''}
+        AND f.market=d.market AND f.selection=d.selection ORDER BY f.id LIMIT 1), (SELECT f.id FROM funded_model_bets f WHERE f.execution_decision_id=d.id${fundedCancellationSchema ? ' AND NOT EXISTS(SELECT 1 FROM funded_model_bet_cancellations c WHERE c.bet_id=f.id)' : ''} ORDER BY f.id LIMIT 1))
         LEFT JOIN funded_model_settlements fs ON fs.bet_id=fb.id` : ''}
+      ${dynamicSchema ? `LEFT JOIN dynamic_model_bets db ON db.id=COALESCE((SELECT x.id FROM dynamic_model_bets x WHERE x.execution_decision_id=d.id
+        AND x.market=d.market AND x.selection=d.selection ORDER BY x.id LIMIT 1), (SELECT x.id FROM dynamic_model_bets x WHERE x.execution_decision_id=d.id ORDER BY x.id LIMIT 1))
+        LEFT JOIN dynamic_model_settlements ds ON ds.bet_id=db.id` : ''}
       WHERE d.family IN ('A','C') AND d.portfolio_id='shadow_'||d.family AND p.version<>'paper-fixed-unit-v1'${activeExecution ? ` AND ${activeExecution}` : ''}` : '';
     const quoteDifferences = ['odds','bookmaker','source','line','side','team'].map((key) =>
       `json_extract(a.quote_json,'$.${key}') IS NOT json_extract(c.quote_json,'$.${key}')`).join(' OR ');
@@ -915,13 +963,17 @@ export class ResearchRecommendationStore {
     const paperSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bets'");
     const fundedSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bets'");
     const cancellationSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='paper_model_bet_cancellations'");
+    const fundedCancellationSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'");
+    const dynamicSchema = !!await first(this.client, "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'");
     const jobs = await rows(this.client, `SELECT j.id,j.match_id,j.status,COUNT(DISTINCT i.id) AS input_count,
-      COUNT(DISTINCT d.id) AS decision_count,COUNT(DISTINCT b.id)${paperSchema ? `+COUNT(DISTINCT ${cancellationSchema ? 'CASE WHEN cancellation.bet_id IS NULL THEN paper.id END' : 'paper.id'})` : ''}${fundedSchema ? '+COUNT(DISTINCT funded.id)' : ''} AS bet_count
+      COUNT(DISTINCT d.id) AS decision_count,COUNT(DISTINCT b.id)${paperSchema ? `+COUNT(DISTINCT ${cancellationSchema ? 'CASE WHEN cancellation.bet_id IS NULL THEN paper.id END' : 'paper.id'})` : ''}${fundedSchema ? `+COUNT(DISTINCT ${fundedCancellationSchema ? 'CASE WHEN funded_cancelled.bet_id IS NULL THEN funded.id END' : 'funded.id'})` : ''}${dynamicSchema ? '+COUNT(DISTINCT dynamic.id)' : ''} AS bet_count
       FROM research_execution_jobs j LEFT JOIN research_execution_inputs i ON i.job_id=j.id
       LEFT JOIN research_execution_decisions d ON d.input_id=i.id LEFT JOIN research_bets b ON b.execution_decision_id=d.id
       ${paperSchema ? 'LEFT JOIN paper_model_bets paper ON paper.execution_decision_id=d.id' : ''}
       ${paperSchema && cancellationSchema ? 'LEFT JOIN paper_model_bet_cancellations cancellation ON cancellation.bet_id=paper.id' : ''}
       ${fundedSchema ? 'LEFT JOIN funded_model_bets funded ON funded.execution_decision_id=d.id' : ''}
+      ${fundedSchema && fundedCancellationSchema ? 'LEFT JOIN funded_model_bet_cancellations funded_cancelled ON funded_cancelled.bet_id=funded.id' : ''}
+      ${dynamicSchema ? 'LEFT JOIN dynamic_model_bets dynamic ON dynamic.execution_decision_id=d.id' : ''}
       WHERE ${filter} GROUP BY j.id,j.match_id,j.status`, args);
     const reasons = await rows(this.client, `SELECT d.reason,COUNT(*) AS count FROM research_execution_decisions d
       JOIN research_execution_inputs i ON i.id=d.input_id JOIN research_execution_jobs j ON j.id=i.job_id

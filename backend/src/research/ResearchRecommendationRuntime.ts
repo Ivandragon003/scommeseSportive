@@ -11,7 +11,7 @@ import { buildChallengerRecommendation, challengerTechnicalReason } from './Chal
 import { researchHash } from './ResearchStore';
 import type { RecommendationJob, RecommendationCommit, RecommendationDecision } from './ResearchRecommendationStore';
 import { recommendationQuoteReason,
-  VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, paperExecutionPolicy, fundedExecutionPolicy } from './ResearchRecommendationPolicy';
+  VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, fallbackChallengerState, paperExecutionPolicy, fundedExecutionPolicy, dynamicFundedExecutionPolicy } from './ResearchRecommendationPolicy';
 import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
@@ -39,19 +39,21 @@ export class ResearchRecommendationRuntime {
   private readonly appOdds: AppOddsFeed;
   private readonly fixtureAdmission?: FixtureAdmissionCheck;
   private deploymentC: ChallengerExecutionState;
-  private executionPolicy: ReturnType<typeof challengerExecutionPolicy> | ReturnType<typeof paperExecutionPolicy> | ReturnType<typeof fundedExecutionPolicy>;
+  private executionPolicy: ReturnType<typeof challengerExecutionPolicy> | ReturnType<typeof paperExecutionPolicy> | ReturnType<typeof fundedExecutionPolicy> | ReturnType<typeof dynamicFundedExecutionPolicy>;
   private readonly paperMode: boolean;
   private readonly fundedMode: boolean;
+  private readonly dynamicMode: boolean;
   constructor(private readonly db: DatabaseService, options: { clock?: () => Date; researchRuntime?: ResearchPreparation;
     predictionService?: AppPrediction; odds?: OddsFeed; appOdds?: AppOddsFeed;
     deploymentC?: ChallengerExecutionState; fixtureAdmission?: FixtureAdmissionCheck;
-    requireExistingCalibration?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean; paperMode?: boolean; fundedMode?: boolean } = {}) {
+    requireExistingCalibration?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean; paperMode?: boolean; fundedMode?: boolean; dynamicMode?: boolean } = {}) {
     this.clock = options.clock ?? (() => new Date());
-    if (options.paperMode && options.fundedMode) throw new Error('Conflicting recommendation accounting modes');
+    if ([options.paperMode, options.fundedMode, options.dynamicMode].filter(Boolean).length > 1) throw new Error('Conflicting recommendation accounting modes');
     this.fundedMode = options.fundedMode === true;
-    this.paperMode = options.paperMode === true || this.fundedMode;
+    this.dynamicMode = options.dynamicMode === true;
+    this.paperMode = options.paperMode === true || this.fundedMode || this.dynamicMode;
     this.deploymentC = options.deploymentC ?? fallbackChallengerState();
-    this.executionPolicy = this.fundedMode ? fundedExecutionPolicy(this.deploymentC) : this.paperMode ? paperExecutionPolicy(this.deploymentC) : challengerExecutionPolicy(this.deploymentC);
+    this.executionPolicy = this.dynamicMode ? dynamicFundedExecutionPolicy(this.deploymentC) : this.fundedMode ? fundedExecutionPolicy(this.deploymentC) : this.paperMode ? paperExecutionPolicy(this.deploymentC) : challengerExecutionPolicy(this.deploymentC);
     this.researchRuntime = options.researchRuntime ?? new ResearchRuntime(db, { clock: this.clock, odds: options.odds,
       nightly: { quoteMaxAgeMs: VIRTUAL_RECOMMENDATION_POLICY.quoteMaxAgeMs, minEv: .04, minPrudentialEv: .01 },
       paperMode: this.paperMode,
@@ -66,7 +68,7 @@ export class ResearchRecommendationRuntime {
   beginCohort(runId: string, deploymentC?: ChallengerExecutionState): void {
     if (deploymentC) {
       this.deploymentC = deploymentC;
-      this.executionPolicy = this.fundedMode ? fundedExecutionPolicy(deploymentC) : this.paperMode ? paperExecutionPolicy(deploymentC) : challengerExecutionPolicy(deploymentC);
+      this.executionPolicy = this.dynamicMode ? dynamicFundedExecutionPolicy(deploymentC) : this.fundedMode ? fundedExecutionPolicy(deploymentC) : this.paperMode ? paperExecutionPolicy(deploymentC) : challengerExecutionPolicy(deploymentC);
       this.researchRuntime.pinChallengerDeployment?.(deploymentC.deployment);
     }
     this.researchRuntime.beginNightlyCohort(runId);
@@ -229,7 +231,7 @@ export class ResearchRecommendationRuntime {
     const paperQuotes: RecommendationQuote[] = [];
     if (this.paperMode) {
       type PaperCandidate = { market: string; selection: string; selectionKey: string; quote: RecommendationQuote;
-        probability: number; ev: number; confidence?: string; probabilityConfiguration: Record<string, unknown>;
+        probability: number; ev: number; confidence?: string; suggestedStakePercent?: number; probabilityConfiguration: Record<string, unknown>;
         probabilityConfigurationHash: string; payout?: unknown; quality?: unknown; qualificationEvidence?: Record<string, unknown> };
       const appCandidates: PaperCandidate[] = [];
       const sheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
@@ -261,7 +263,7 @@ export class ResearchRecommendationRuntime {
           const probability = Number(opportunity.ourProbability) / 100, ev = Number(opportunity.expectedValue) / 100;
           if (!quote || !finiteProbability(probability) || !Number.isFinite(ev) || ev <= 0) continue;
           appCandidates.push({ market: quote.market, selection: quote.selection, selectionKey: paperSelectionKey(quote), quote,
-            probability, ev, confidence: opportunity.confidence, probabilityConfiguration: configuration,
+            probability, ev, confidence: opportunity.confidence, suggestedStakePercent: opportunity.suggestedStakePercent, probabilityConfiguration: configuration,
             probabilityConfigurationHash: researchHash(configuration), qualificationEvidence: {
               marketCategory: opportunity.marketCategory, marketTier: opportunity.marketTier,
               isValueBet: opportunity.isValueBet, calibrationSampleSize: opportunity.calibrationSampleSize ?? null,
@@ -296,6 +298,8 @@ export class ResearchRecommendationRuntime {
             if (!quote || !finiteProbability(probability) || !Number.isFinite(ev) || ev <= 0) continue;
             challengerCandidates.push({ market: quote.market, selection: quote.selection, selectionKey: paperSelectionKey(quote), quote,
               probability, ev, ...(typeof opportunity.confidence === 'string' ? { confidence: opportunity.confidence } : {}),
+              ...('engineSuggestedStakePercent' in opportunity && typeof opportunity.engineSuggestedStakePercent === 'number'
+                ? { suggestedStakePercent: opportunity.engineSuggestedStakePercent } : {}),
               ...('payout' in opportunity ? { payout: opportunity.payout, quality: opportunity.quality } : {}),
               probabilityConfiguration: configuration, probabilityConfigurationHash: String(decisionC.probabilityConfigurationHash) });
           }
@@ -303,14 +307,21 @@ export class ResearchRecommendationRuntime {
       }
       for (const [family, candidates] of [['A', appCandidates], ['C', challengerCandidates]] as const) {
         const index = decisions.findIndex((decision) => decision.family === family);
-        const selections = bestPaperSelections(this.fundedMode
-          ? candidates.filter((candidate) => ['LOW', 'MEDIUM', 'HIGH'].includes(candidate.confidence ?? '')) : candidates);
+        const eligible = this.fundedMode || this.dynamicMode
+          ? candidates.filter((candidate) => ['LOW', 'MEDIUM', 'HIGH'].includes(candidate.confidence ?? '')) : candidates;
+        const selections = bestPaperSelections(this.dynamicMode ? eligible.filter((candidate) => {
+          const value = candidate.suggestedStakePercent;
+          return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 5
+            && Math.abs(value * 100 - Math.round(value * 100)) < 1e-7;
+        }) : eligible);
         if (selections.length) decisions[index] = { ...decisions[index], ...selections[0], action: 'BET', reason: undefined,
           ...(family === 'C' && packetC?.dataQuality ? { dataQualityPolicyHash: packetC.dataQuality.policyHash,
             dataQualityBaselineClean: true, dataQualityEvidence: packetC.dataQuality.evidence } : {}),
           recommended: true, validated: true, selections };
         else decisions[index] = abstain(family, decisions[index].modelVersion,
-          (this.fundedMode && candidates.length ? 'confidence_unavailable' : decisions[index].reason)
+          (this.dynamicMode && candidates.some(candidate => candidate.suggestedStakePercent == null) ? 'dynamic_stake_unavailable'
+            : this.dynamicMode && eligible.length ? 'dynamic_stake_unavailable'
+            : (this.fundedMode || this.dynamicMode) && candidates.length ? 'confidence_unavailable' : decisions[index].reason)
             ?? (family === 'A' ? 'app_no_recommendation' : 'challenger_no_recommendation'));
       }
     }

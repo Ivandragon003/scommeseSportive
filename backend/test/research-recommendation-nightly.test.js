@@ -208,6 +208,15 @@ test('CLI selects versioned execution only with the new flag and uses diagnostic
     if (enabled) {
       await paperFixture(f);
       await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/029_funded_model_bets.sql'), 'utf8'));
+      await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations/030_dynamic_model_bets.sql'), 'utf8'));
+      const originalPrepare = f.runtime.prepare;
+      f.runtime.prepare = async (job) => {
+        const item = await originalPrepare(job);
+        for (const decision of item.decisions) for (const selection of decision.selections) {
+          selection.confidence = 'HIGH'; selection.suggestedStakePercent = decision.family === 'A' ? 0.84 : 1.72;
+        }
+        return item;
+      };
       await f.research.initializePortfolios();
     }
     const result = await runNightly({ db: f.db, policy: policy(), clock: f.clock, runId: 'cli-fixture',
@@ -218,14 +227,11 @@ test('CLI selects versioned execution only with the new flag and uses diagnostic
     assert.equal(output.length, 1); assert.equal(output[0], result);
     if (enabled) {
       assert.equal(result.accountingMode, 'FUNDED');
-      assert.equal(result.protocol, 'funded-confidence-v1');
+      assert.equal(result.protocol, 'funded-dynamic-stake-v1');
       assert.equal((await f.recommendations.listPaperBets()).length, 0);
-      const bets = (await f.client.execute('SELECT confidence,stake_percent,stake_cents,base_available_cents FROM funded_model_bets')).rows;
-      assert.equal(bets.length, 2);
-      for (const bet of bets) {
-        assert.equal(bet.confidence, 'MEDIUM'); assert.equal(bet.stake_percent, 3);
-        assert.equal(bet.base_available_cents, 100000); assert.equal(bet.stake_cents, 3000);
-      }
+      const bets = (await f.client.execute('SELECT family,confidence,stake_percent,stake_cents,base_equity_cents FROM dynamic_model_bets ORDER BY family')).rows;
+      assert.deepEqual(bets.map(row => [row.family, row.confidence, row.stake_percent, row.stake_cents, row.base_equity_cents]),
+        [['A', 'HIGH', 0.84, 840, 100000], ['C', 'HIGH', 1.72, 1720, 100000]]);
       assert.equal(Number((await f.client.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE event='OPEN'")).rows[0].n), 2);
     }
     if (!enabled) {
