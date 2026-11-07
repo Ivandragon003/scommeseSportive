@@ -38,10 +38,20 @@ Mantenere `MODEL_A_PROSPECTIVE_ENABLED=false`, `MODEL_A_PROSPECTIVE_COLLECTION_E
 Il bypass impedisce le scritture di avvio, non rende l'app read-only: richieste utente e processi già autorizzati conservano i propri effetti, inclusa la cache di calibrazione. Non aprire previsioni per fare uno smoke tecnico privo di scritture. Non disabilitare protezioni o cambiare token per aggirare un controllo. Un rollback a una versione precedente all’opzione ignora questo flag e riattiva il bootstrap: per conservare il vincolo senza migrazioni usare soltanto versioni che supportano il bypass o un fix successivo verificato.
 
 La build con protezione delle osservazioni e versionamento del mapping quote
-richiede prima le migrazioni additive 034/035. Con bootstrap disabilitato non
+richiede prima le migrazioni additive 034/035; la protezione del kickoff
+richiede anche la 036. Con bootstrap disabilitato non
 vengono applicate dal deploy: usare il piano mirato descritto nelle
 [operazioni](README.md), verificato su copia del backup. Il reset dello storico C
 è una manutenzione distinta ed esplicita, non un effetto dell'aggiornamento.
+
+La rettifica ufficiale del kickoff e la 036 seguono il comando mirato
+`reconcile-official-kickoff.js` descritto nel
+[contratto delle osservazioni](../data-observation-contract.md), con piano,
+nuovo backup verificato e prova di rollback su copia. Non usare un bootstrap
+generale per applicarla. Un backend precedente può leggere i dati corretti,
+ma non conserva esplicitamente la data protetta durante gli upsert: i trigger
+bloccano i tentativi discordanti. Per mantenere funzionanti anche gli import
+usare una release che riconosce la protezione del kickoff.
 
 Per la transizione ai portafogli in euro, tenere le nuove recommendation
 spente e usare la [procedura controllata](../github-actions-nightly-sync.md#pubblicazione-e-passaggio-ai-portafogli-in-euro).
