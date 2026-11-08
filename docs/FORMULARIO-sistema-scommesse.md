@@ -6,7 +6,7 @@ Questo documento descrive le formule e i confini principali presenti nel codice.
 
 Understat è la fonte primaria dei dati calcistici. `FootballDataService` integra i campi mancanti con football-data.co.uk senza sovrascrivere valori esistenti; le quote storiche hanno provenienza distinta dalle statistiche. Le quote usate per decisioni e valutazioni economiche devono essere reali e attribuite al bookmaker effettivo: completamenti sintetici del modello non sono evidenza di value, ROI o CLV.
 
-A operativo usa `PredictionService`, contesto, modelli statistici, calibrazione e selezione. C usa gli stessi componenti matematici correnti tramite la ricostruzione cronologica `ForecastCore`, più un artefatto CatBoost. Questa ricostruzione non replica tutto lo stato operativo di A e non conserva una copia eseguibile di A80. La release locale è dichiarata in `CurrentChallengerRelease.ts`; la versione realmente attiva richiede una lettura del registro dell'installazione. Il selettore canonico C riusa il motore value e il selettore canonico; il selettore `payout-aware-v1` è un percorso distinto, usato operativamente solo quando l'adozione lo specifica.
+A operativo usa `PredictionService`, contesto, modelli statistici, calibrazione e selezione. C usa gli stessi componenti matematici correnti tramite la ricostruzione cronologica `ForecastCore`, più un artefatto CatBoost. Questa ricostruzione non replica tutto lo stato operativo di A e non conserva una copia eseguibile di A80. La release corrente `C-271c9573ba485956`, con proiezione dei valori delle foglie basata sui supporti del training e calibrazione ristimata, è dichiarata in `CurrentChallengerRelease.ts`; la versione realmente attiva richiede una lettura del registro dell'installazione. Il selettore canonico C riusa il motore value e il selettore canonico; il selettore `payout-aware-v1` resta distinto per ricerca e policy archiviate, mentre la release corrente usa `canonical-binary-v1`.
 
 Sorgenti: `backend/src/services/FootballDataService.ts`, `backend/src/services/PredictionService.ts`, `backend/src/research/ForecastCore.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ResearchRecommendationRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.
 
@@ -71,15 +71,25 @@ Lo schema base `prematch-numeric-v1` contiene 40 feature: 16 per ciascuna squadr
 
 Lo storico è filtrato alla data della previsione, con ritardo prudenziale di disponibilità, esclusione del target e dei duplicati; il ritardo è un proxy, non prova dell'istante di pubblicazione. Il fit della baseline richiede almeno 30 partite ammissibili della competizione.
 
-L'artefatto può correggere le intensità, stimarle direttamente, correggere 1X2 o usare il controllo senza ML. Per `intensity_correction`:
+La release corrente è un `calibrated_ensemble`: due regressori Poisson con
+120 alberi per lato, profondità 5, 10 iterazioni Newton, learning rate 0,05 e
+seed 20261027 stimano le log-intensità. La proiezione delle foglie raggruppa i
+valori che coincidono nelle condizioni diverse da `home_sample` e `away_sample`.
+Con `n_l` supporto della foglia `l` nel solo training, per ogni gruppo `G`:
 
 ```text
-λ_C = clamp(exp(log(λ_baseline) + output_albero), 0,05, 8)
-M_mix = (1 - weight) * M_baseline + weight * M_ML
-M_raw = normalize(max(1e-15, M_mix) ^ (1 / temperature))
+v_G = somma(n_l * v_l per l in G) / somma(n_l per l in G)
+λ_ML = clamp(exp(output_alberi_proiettati), 0,05, 8)
+M_mix = 0,25 * M_baseline + 0,75 * M_ML
+M_raw = normalize(max(1e-15, M_mix) ^ (1 / 0,8))
 ```
 
-`weight`, `temperature` e tipo dipendono dall'artefatto. La temperatura dell'artefatto è distinta da quella eventuale della calibrazione successiva.
+Ogni foglia del gruppo riceve `v_G`. Un gruppo senza supporto è ammesso solo
+con tutti i valori originali zero. Scala/bias e media training del contributo
+di ogni albero sono preservati; la calibrazione C viene ristimata sulle
+358 gare dedicate. La temperatura 0,8 dell'artefatto è distinta da quella
+eventuale della calibrazione successiva. Il runtime valuta direttamente i
+valori proiettati, senza nuovo fit o ricalcolo dei supporti.
 
 Sorgenti: `backend/src/research/ForecastCore.ts`, `backend/src/research/ChallengerFeatures.ts`, `backend/src/research/CatBoostModel.ts`.
 
@@ -97,13 +107,13 @@ p_decisione = peso_modello * p_calibrata + (1 - peso_modello) * p_no_vig
 EV = p_decisione * quota - 1
 ```
 
-La disponibilità di quote complementari, categoria, qualità dei dati, soglie effettive, rischio e calibrazione influenzano la decisione. Il peso può essere appreso entro i limiti configurati. Il percorso legacy C riceve probabilità già elaborate dalla pipeline research, evitando una seconda calibrazione o un secondo market blend nel motore value. Soglie o probabilità non garantiscono redditività.
+La disponibilità di quote complementari, categoria, qualità dei dati, soglie effettive, rischio e calibrazione influenzano la decisione. Il peso può essere appreso entro i limiti configurati. Il percorso C corrente riceve probabilità già elaborate dalla pipeline research, evitando una seconda calibrazione o un secondo market blend nel motore value. Soglie o probabilità non garantiscono redditività.
 
 Sorgenti: `backend/src/models/value/EnhancedMarketAnalysis.ts`, `backend/src/models/value/ValueBettingEngine.ts`, `backend/src/services/MarketBlendLearningService.ts`, `backend/src/research/ResearchProbabilityPipeline.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.
 
 ## Importi dell'esecuzione automatica
 
-La policy `funded-dynamic-stake-v1` usa i portafogli A/C esistenti e separati. Ogni selezione conserva la percentuale suggerita dal proprio motore, derivata da probabilità, quota e controlli Kelly/rischio. Per C legacy è il valore già calcolato sulle probabilità C prima dell'override storico all'1%; usarlo operativamente è una nuova scelta, non il ripristino di uno stake dinamico C precedente.
+La policy `funded-dynamic-stake-v1` usa i portafogli A/C esistenti e separati. Ogni selezione conserva la percentuale suggerita dal proprio motore, derivata da probabilità, quota e controlli Kelly/rischio. Per C il valore è calcolato sulle proprie probabilità gol; per i mercati statistici proviene dall'opportunità qualificata dello specialista condiviso.
 
 Per ciascuna famiglia, `E` è il patrimonio in centesimi (disponibile + impegnato) all'inizio del gruppo registrato nella transazione; `p` è la percentuale suggerita, valida con due decimali:
 

@@ -1,0 +1,131 @@
+{
+  "verifiedAt": "2026-11-08T14:49:56.088789+00:00",
+  "scriptHash": "d51231365148a2659a9c967c363619edefac486007c99f04a1112e577f16ceb0",
+  "planHash": "146b9f41cf66d8613de6dffc4ff30c08f70696b02ca9264342e9794270b88c75",
+  "selectionHash": "8a6e75ba386686dd30ff402ba2f2c63060853a7580d44b4d3f459f027e0931c0",
+  "auditHash": "fac5c36a2c97132ccf80c65d568986237e3b98e1ef94a4af737bacda09a321de",
+  "catboostVersion": "1.2.8",
+  "dependencyHashes": {
+    "backend\\experiments\\c-tree-hierarchical-research\\verify_selection.py": "d5378a4ba5a730f84e068c8dc738781ae2b8821dbeaff3d74dd8edb5d08ce1c3",
+    "backend\\experiments\\c-tree-l2-research\\verify_selection.py": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+    "backend\\experiments\\c-tree-weight-research\\verify_selection.py": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "backend\\experiments\\c-tree-sample-projection\\verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b"
+  },
+  "modelInputHashes": {
+    "models\\minimax-ridge-10-home.json": "23e8764c4dc0911643431bc71097f5a1f4b8872025fabe540ae265247ad53c8b",
+    "models\\minimax-ridge-10-away.json": "88c60e6c9e9aade4be2fe90c00b1c8ceb36163a42df7159ec150be8c14724821",
+    "models\\minimax-ridge-1-home.json": "811ce350768169303c163213cdcc235442a977e798c0eab6554e7f5ef6ea1fd3",
+    "models\\minimax-ridge-1-away.json": "f3436f4ea00f020db9ae759de7477562de59dd7e48130633bfbbce699172b74c",
+    "models\\minimax-ridge-0.1-home.json": "932c3d0b6999b1b8862e413e9c7f2ec7f936886d0f66d44d188139ac719cc726",
+    "models\\minimax-ridge-0.1-away.json": "0d27013d4c6c5b49a9f699536e5c8442e4aa67043cccf55dfd1fc8c77181dcb6",
+    "models\\minimax-ridge-0.01-home.json": "4b68306ac872dfc42c0960d543003fb7ec698f9facf537a292c0915ce620387f",
+    "models\\minimax-ridge-0.01-away.json": "dab2e95d5550a242fc9adaf0bcbce853203cc8edcaf031b11d19801cda3c976d"
+  },
+  "modelChecks": {
+    "10.0": {
+      "home": {
+        "changedLeafCount": 3035,
+        "originalEmptyLeavesStillZero": 805,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      },
+      "away": {
+        "changedLeafCount": 3002,
+        "originalEmptyLeavesStillZero": 838,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      }
+    },
+    "1.0": {
+      "home": {
+        "changedLeafCount": 3035,
+        "originalEmptyLeavesStillZero": 805,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      },
+      "away": {
+        "changedLeafCount": 3002,
+        "originalEmptyLeavesStillZero": 838,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      }
+    },
+    "0.1": {
+      "home": {
+        "changedLeafCount": 3035,
+        "originalEmptyLeavesStillZero": 805,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      },
+      "away": {
+        "changedLeafCount": 3002,
+        "originalEmptyLeavesStillZero": 838,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      }
+    },
+    "0.01": {
+      "home": {
+        "changedLeafCount": 3035,
+        "originalEmptyLeavesStillZero": 805,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      },
+      "away": {
+        "changedLeafCount": 3002,
+        "originalEmptyLeavesStillZero": 838,
+        "entireTreeScalingExact": true,
+        "allOtherModelMetadataExactlyUnchanged": true
+      }
+    }
+  },
+  "solutionChecks": [
+    {
+      "ridge": 10.0,
+      "nativeTrainingRisksRecomputed": true,
+      "failureReasons": [],
+      "admissible": true
+    },
+    {
+      "ridge": 1.0,
+      "nativeTrainingRisksRecomputed": true,
+      "failureReasons": [],
+      "admissible": true
+    },
+    {
+      "ridge": 0.1,
+      "nativeTrainingRisksRecomputed": true,
+      "failureReasons": [],
+      "admissible": true
+    },
+    {
+      "ridge": 0.01,
+      "nativeTrainingRisksRecomputed": true,
+      "failureReasons": [],
+      "admissible": true
+    }
+  ],
+  "nativeTrainingRowsPerAttempt": 5293,
+  "nativeTrainingAttemptsChecked": 4,
+  "nativeAllFeatureRowsPerAdmissibleRegressor": 6577,
+  "nativeSelectionRowsPerAdmissiblePair": 317,
+  "independentTrainingRiskMaximumError": 3.3306690738754696e-16,
+  "independentSolutionValueMaximumError": 2.220446049250313e-16,
+  "nativeAllFeatureRawMaximumError": 4.440892098500626e-16,
+  "nativeSelectionRawMaximumError": 0.0,
+  "independentSelectionProbabilityMaximumError": 0.0,
+  "independentSelectionMetricMaximumError": 0.0,
+  "decision": {
+    "acceptedNonIdentity": false,
+    "selectedFitIndex": null,
+    "selectedRidge": null,
+    "frozenAt": "2026-11-08T14:49:17.856323Z"
+  },
+  "allFiveLeagueSelectionReproduced": true,
+  "sameOriginalPartitionsAndPolicyExclusions": true,
+  "optimizerOptimalityVerified": false,
+  "noModelFitsOrOptimizerCalls": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

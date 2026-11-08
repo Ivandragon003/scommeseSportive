@@ -1,0 +1,236 @@
+{
+  "verifiedAt": "2026-11-08T15:05:40.598085+00:00",
+  "scriptHash": "9fae195e7873739abae3ca0e3a0c8760efca2a6fcc2ab2b7e20e45aa12cfb551",
+  "planHash": "9c3243479fc915a8ec10425a3445c1bf33d3ada8a93b0af838d03677f5b98f3f",
+  "selectionHash": "c266ee483b9cb06471f2520332363ea9765d310f6b90efbca1d8cca9327f87b0",
+  "auditHash": "73b9fd7ecea3c53696344cbd5403c4fd472d415307d16f341ebecb55c36c08ee",
+  "catboostVersion": "1.2.8",
+  "dependencyHashes": {
+    "backend\\experiments\\c-tree-hierarchical-research\\verify_selection.py": "d5378a4ba5a730f84e068c8dc738781ae2b8821dbeaff3d74dd8edb5d08ce1c3",
+    "backend\\experiments\\c-tree-l2-research\\verify_selection.py": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+    "backend\\experiments\\c-tree-weight-research\\verify_selection.py": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "backend\\experiments\\c-tree-sample-projection\\verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b"
+  },
+  "nativeRowsPerRegressor": 6577,
+  "nativeTrainingRowsPerCandidate": 5293,
+  "nativeSelectionRowsPerPair": 317,
+  "featureMappingChecks": {
+    "home": {
+      "floatFeatureMapping": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "39": 39
+      },
+      "mappedFloatFeatures": 40,
+      "splitCount": 600,
+      "inputSchemaSize": 40,
+      "noIgnoredFeatureSplits": true
+    },
+    "away": {
+      "floatFeatureMapping": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "15": 15,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "39": 39
+      },
+      "mappedFloatFeatures": 40,
+      "splitCount": 600,
+      "inputSchemaSize": 40,
+      "noIgnoredFeatureSplits": true
+    }
+  },
+  "controlChecks": {
+    "home": {
+      "leafMaximumError": 6.938893903907228e-17,
+      "nativeMaximumError": 1.1657341758564144e-15
+    },
+    "away": {
+      "leafMaximumError": 9.71445146547012e-17,
+      "nativeMaximumError": 1.2212453270876722e-15
+    }
+  },
+  "supportChecks": {
+    "home": {
+      "nativeTrainingRows": 5293,
+      "treeCount": 120,
+      "allLeafSupportsMatch": true
+    },
+    "away": {
+      "nativeTrainingRows": 5293,
+      "treeCount": 120,
+      "allLeafSupportsMatch": true
+    }
+  },
+  "ignoredPerturbationChecks": {
+    "home_-1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    },
+    "home_1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    },
+    "away_-1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    },
+    "away_1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    },
+    "both_-1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    },
+    "both_1000": {
+      "home": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      },
+      "away": {
+        "nativeMaximumDifference": 0.0,
+        "sourceTypeScriptMaximumDifference": 2.220446049250313e-16
+      }
+    }
+  },
+  "sourceTypeScriptVerification": {
+    "sourceHash": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "compiledHash": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "buildParity": {
+      "backend/src/models/value/ValueBettingEngine.ts": true,
+      "backend/src/models/value/EnhancedMarketAnalysis.ts": true,
+      "backend/src/research/CatBoostModel.ts": true,
+      "backend/src/research/GoalSettlement.ts": true,
+      "backend/src/research/CoherentProbabilityPipeline.ts": true,
+      "backend/src/research/ResearchProbabilityPipeline.ts": true,
+      "backend/src/research/ForecastCore.ts": true,
+      "backend/src/config/PredictionEngineConfig.ts": true
+    },
+    "baselineHashBefore": "c8551e61fb49a99df87156b056d9b985a99c1ea29d249cf76d6ff0229f4d7ff5",
+    "baselineHashAfter": "c8551e61fb49a99df87156b056d9b985a99c1ea29d249cf76d6ff0229f4d7ff5",
+    "inputHash": "b9e8af9f0176d7f9e3c7652d5a5d8b3e0911e0a61d86ea07f2479d002d2c94dd",
+    "outputHash": "b0775622c3ff2f2cbb49918e87baa740a4624edbc4bdd5bfd4f9e15555ef4674"
+  },
+  "sourceBridgeHash": "4b9170d3e6db3f3c045749301df7fdcfa77e83ead6ee8270fecf10aecc337520",
+  "nativePythonMaximumError": 4.440892098500626e-16,
+  "nativeSourceTypeScriptMaximumError": 4.440892098500626e-16,
+  "controlNativeMaximumError": 1.2212453270876722e-15,
+  "ignoredNativeMaximumDifference": 0.0,
+  "ignoredSourceTypeScriptMaximumDifference": 2.220446049250313e-16,
+  "selectionRawMaximumError": 2.220446049250313e-16,
+  "selectionProbabilityMaximumError": 2.220446049250313e-16,
+  "selectionMetricsMaximumError": 1.1102230246251565e-16,
+  "decision": {
+    "acceptedNonIdentity": false,
+    "selectedVariant": null,
+    "frozenAt": "2026-11-08T15:03:38.031120Z"
+  },
+  "allFiveLeagueSelectionReproduced": true,
+  "noFitsOrProviderCalls": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

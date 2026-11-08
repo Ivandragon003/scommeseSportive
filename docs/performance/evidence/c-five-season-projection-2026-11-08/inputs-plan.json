@@ -1,0 +1,316 @@
+{
+  "protocol": "c-five-season-projection-research-v1",
+  "phase": "input_reconstruction",
+  "createdAt": "2026-11-08T15:52:48.792777+00:00",
+  "request": "Compare the fixed best count-leaf projection with originalC75 training recipe using chronological refits over five previous seasons and all five leagues; no current model replacement.",
+  "seasonStartYears": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "incumbentArtifactHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "baselineManifest": {
+    "protocolVersion": "current-a-statistical-asof-v2",
+    "algorithmVersion": "value-engine-v4",
+    "backtestEngineVersion": "backtest-engine-v5-oos",
+    "rankingVersion": "ranking-edge-novig-loggrowth-v2",
+    "featureSchema": "prematch-numeric-v1",
+    "minTrainingMatches": 30,
+    "refitIntervalMs": 604800000,
+    "resultDelayMs": 7200000,
+    "predictionConfig": {
+      "model": {
+        "homeAdvantageScale": 0.5,
+        "contextWeights": {
+          "form": 0.12,
+          "motivation": 0.06,
+          "absences": 0.05,
+          "discipline": 0.03
+        }
+      },
+      "markets": {
+        "minSampleSizePerTeam": 8,
+        "minCombinedSampleSize": 20
+      },
+      "playerGoals": {
+        "xgShrink": 0.88
+      }
+    },
+    "predictionEngineConfig": {
+      "dixonColes": {
+        "dynamicTeamStrengths": {
+          "enableDynamicTeamStrengths": false,
+          "dynamicSmoothingSigmaAttack": 0.25,
+          "dynamicSmoothingSigmaDefence": 0.25,
+          "dynamicSmoothingSigmaHomeAdvantage": 0.2
+        },
+        "temporalWeights": {
+          "currentSeasonDecay": 0.002,
+          "previousSeasonBaseWeight": 0.35,
+          "previousSeasonDecay": 0.018,
+          "olderSeasonBaseWeight": 0.08,
+          "olderSeasonDecay": 0.018,
+          "preCoachChangeWeightMultiplier": 0.15,
+          "preStructuralBreakWeightMultiplier": 0.25
+        },
+        "structuralBreaks": {
+          "enableAutomaticStructuralBreakDetection": false,
+          "detectionWindow": 5,
+          "minConfidence": 0.62
+        },
+        "bootstrap": {
+          "bootstrapMode": "paramNoise",
+          "bootstrapSamples": 200,
+          "uncertaintyCvReference": 0.25
+        },
+        "xgBlend": {
+          "enableXgBlend": true,
+          "xgWeight": 0.8,
+          "maxXgValue": 8
+        }
+      },
+      "specializedModels": {
+        "countDispersionTolerance": 0.5,
+        "dispersionShrinkageStrength": 12,
+        "minSampleForTeamDispersion": 12
+      },
+      "playerShots": {
+        "playerShotsDistribution": "ZIP",
+        "minutesDistributionMode": "triangular",
+        "minMinutesForShotShare": 20,
+        "teamInfluenceWeight": 0.35,
+        "minTeamInfluenceMultiplier": 0.75,
+        "maxTeamInfluenceMultiplier": 1.3
+      },
+      "playerCards": {
+        "teamYellowInfluenceWeight": 0.25,
+        "minMinutesForStableCards": 900
+      },
+      "context": {
+        "weights": {
+          "w_form": 0.12,
+          "w_motivation": 0.06,
+          "w_absences": 0.05,
+          "w_discipline": 0.03,
+          "w_rest": 0.05,
+          "w_scheduleLoad": 0.04,
+          "w_formAbsenceInteraction": 0.04
+        },
+        "multiplierMode": "linearClamp",
+        "richnessScore": {
+          "baseline": 0.3,
+          "sampleWeight": 0.32,
+          "xgWeight": 0.12,
+          "playerCoverageWeight": 0.1,
+          "refereeCoverageWeight": 0.06,
+          "min": 0.3,
+          "max": 0.93
+        }
+      },
+      "valueBetting": {
+        "kellyMode": "quarter",
+        "dynamicKellyMinFraction": 0.1,
+        "dynamicKellyMaxFraction": 0.5,
+        "dynamicEvThresholdEnabled": false,
+        "bootstrapUncertainty": {
+          "enableBootstrapUncertainty": true,
+          "uncertaintyWeight": 0.35
+        },
+        "operational": {
+          "maxOdds": 8,
+          "applyMaxOddsToAllMarkets": true
+        }
+      },
+      "lineupXg": {
+        "enableLineupXgAdjustment": true,
+        "replacementRatio": 0.6,
+        "maxXgReduction": 0.18
+      },
+      "comboBetting": {
+        "comboRiskMode": "sqrtLegs"
+      },
+      "calibration": {
+        "desiredBuckets": 10,
+        "minBucketSize": 20,
+        "enablePerFamilyCalibration": true,
+        "perFamilyMinSamples": 120
+      },
+      "marketBlending": {
+        "enableLearnedBlendWeights": true,
+        "learnedBlendMinSamples": 80,
+        "learnedBlendMaxShift": 0.18
+      },
+      "ensemble": {
+        "enabled": true,
+        "weights": {
+          "default": 0.5,
+          "oneXTwo": 0.5,
+          "overUnder": 0.5,
+          "btts": 0.5
+        }
+      },
+      "backtesting": {
+        "metricWeightMode": "none"
+      },
+      "adaptiveTuning": {
+        "confidenceWeightDenominator": 12,
+        "evDeltaMin": -0.012,
+        "evDeltaMax": 0.008
+      },
+      "operational": {
+        "primaryOddsProvider": "odds_api"
+      }
+    },
+    "fit": {
+      "iterations": 280,
+      "learningRate": 0.04
+    },
+    "codeHashes": {
+      "config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+      "config/algorithmVersions.js": "e1098e9cff6635442b8dc3c88f9e5f98f18088717c28f05b7b28a30a225e3764",
+      "config/predictionConfig.js": "f2240a65cabecfe7cb4a1630d46f15af25953d8e537afde68262760eaec13a30",
+      "models/backtesting/BacktestingEngine.js": "1125cb81b1cfbb1657e1365ae67cd2038ede3ac0e50a5d2341530315d2dd2bf0",
+      "models/core/DixonColesModel.js": "827418397ea5c943daf1ce1aee8d6e60c4a47c06abfffe286727afe704aeddf7",
+      "models/core/PoissonXgModel.js": "fec414e792b9c893b6c863c0e3937e2f52635daac6b81131d52955ad5335b219",
+      "models/markets/PlayerCardsModel.js": "c67dab61d72d81b08ec74263c5beb082f12f3ff7a43fe90928e7b4c7d3830292",
+      "models/markets/ShotsModel.js": "119db2259d499178818851453c2b7ee959b828990e70fd4b90f69e62363e6f78",
+      "models/markets/SpecializedModels.js": "b23397f0683805aa36ed02a2cea7e47ed7139c5386da929a9817b97b4a75bd92",
+      "models/utils/MathUtils.js": "5a976bcfed201f8569b32a33df996d28356ad9c63c17f1234442fb4728f9f250",
+      "models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+      "models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+      "research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+      "services/ChronologicalForecastService.js": "4883c353efbac363f93ef0cfb3234ee32f50101bc3bed9a7a850c535a64fff30",
+      "services/MarketBlendLearningService.js": "c63334c0ff7ae5173984b8838d619e1f8f8dc5f97e74d73bff05a5410b42af0d",
+      "services/PredictionContextBuilder.js": "0fc28f75bca09ea4ddab9fcd884f71ca433eb8c1c8eb8d2386d20bef6ea1b9d7",
+      "services/ProbabilityEnsembleService.js": "4e90d51a68f14b93afe819478358c6dc66ba6f7d73d3eb1195141927a465f279",
+      "services/SharedForecastCalculator.js": "312acfb6f427349b548ef03433b634a6849a29216ea5044ac76ad4950eb0f6fc",
+      "utils/dataHelpers.js": "e0a61cf80c10ed0379735c45dd1a26376b85f646c530b45d693d0f55445e7a63",
+      "utils/historicalTime.js": "9389c221b8779861a029216c5448373d8fe6fff8a47ae2d55609e96bc8c1451b"
+    },
+    "probabilityProtocol": "As-of statistical adapter using current shared A kernels and historical supplementary context; not the full operational A application state. Calibration and decision filtering are downstream, shared for A/C.",
+    "matrixProtocol": "Joint proxy: DC + Poisson-xG with the configured default ensemble weight. If family weights differ, this proxy is not identical to every A flat marginal; official A market evaluation uses baselineProbabilities.",
+    "oddsAsFeatures": false,
+    "playerFeatures": false,
+    "version": "A-9227e65a047783bd",
+    "fingerprint": "9227e65a047783bd5b9ef55527f1d6e09133a82aaf387159fbdceef8b5e93218"
+  },
+  "reconstruction": {
+    "targetFrom": "2019-07-01T00:00:00.000Z",
+    "targetUntil": "2026-07-01T00:00:00.000Z",
+    "asOf": "2026-07-01T00:00:00.000Z",
+    "warmupSeason": "2018/2019",
+    "features": 40,
+    "decisionTime": "03:07 Europe/Rome",
+    "resultAvailability": "kickoff+2h proxy, postdated by explicit availableAt when present",
+    "workers": 2,
+    "perMatchBaselineFitPreserved": true
+  },
+  "foldCalendar": {
+    "training": "expanding2019onward,forecastAt and availableAt before March1of test startyear",
+    "reserved": "March1inclusive toMay1exclusive, not ML training/calibration/selection",
+    "calibration": "May1inclusive toJuly1exclusive,labels available beforeJuly1",
+    "test": "July1inclusive toJuly1ofnextyear exclusive",
+    "refitsPerSeason": 1,
+    "selectionOrTuning": false
+  },
+  "sourceConflictExclusions": [
+    "understat_17955",
+    "understat_17503"
+  ],
+  "additionalWarmupArchiveExclusion": "understat_9220",
+  "policy": "Exclude745protected target IDs and22quarantine target/history IDs; protected prior results may enter shared baseline as current code permits.",
+  "sourceHashes": {
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/archive-manifest-v3.json": "825399a4b42e301c74d134c55f21f7e55bb3050b97045738da04bd9ee4146e20",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/archive-verification.json": "e748bbe04d2e39823d83243d615b51747a72c4668baedf67ecd6ec9027a32e96",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/matches-archive.json": "71e9681decd606dc870dbb2edb470edbaa45fd669049913c56182c43564c1513",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-manifest.json": "0a55de33cfdcf5711518dbbf5c0bd798f242bbd16768b4b20756982c93e95641",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2018.csv": "f03ee41b741aca9c43cbafb800bbc6f01ca9d7ed19c1a9dd4c309389280cfe11",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2019.csv": "0a032b1adc75f7fa018dcfeff7fcdcc0a89014e3fe69f44534f538b6f931aef5",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2020.csv": "48ec5d53d2452b6ebdbc07bd78a836d6a4686f99fc020439ee3292e685315e61",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2021.csv": "034d0e1296e944dddf25e3c91b85ef5bd1ad25661b89d73878f5c73bfea4b9fc",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2018.csv": "7c096b3c2ecd54c6993d22eeea73450c2bde11e3457238b226b8f43c62dfc35e",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2019.csv": "100037618b94f94057400bb02bf6bac4ef74ddaa58cde4b38370839c39caee61",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2020.csv": "5afe63f69401457b8354eaacee24f9a3e520b3c3af6329564a9783e20d789c62",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2021.csv": "335afcbabeb2939fa10ab39ba3e8215072d0b577cb8d0705c1e44c56e934e703",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2018.csv": "31559a4d8b52eff6f78e13a9b33d7b844e4f41d823dd1cf5c1aaa61c51eaaf9c",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2019.csv": "bda566f6aea24bc2f08cceac8f7d6c81d7f9c64cfda9fdae7eb9be2b84dddd2a",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2020.csv": "124560ab39a1c256eb6ee5ad2dd1eed250c9780d0cbb34525d9abee41fbf7f70",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2021.csv": "9e9eaefb8704264f8d55a718a119d940de4af7d7b4217ac4097b957406e16213",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2018.csv": "2baea8a1fb31096960b5f5797d31dbb6b454eb41b00845e6b0b79feb82a0e3d0",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2019.csv": "f33233e0c428ebe4f7cb854c4a504e0b59c4e009ee8b679269486e26afdc575b",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2020.csv": "c09196fa18877547442807d375317299947abdd6d51a5e0df044cc6026e13f36",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2021.csv": "6a9555d5a90e652a883fd2862a52545c06e264016cd770347c067a6d7c993170",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2018.csv": "9b8cece2c85e90e382b30dc4fc5046534f12c6d2b0efa74cd7d1d52e90a0c201",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2019.csv": "a05d5d60eee0b1414c56d6d6817f860cdc620e206234069a1886c98a8cb318da",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2020.csv": "b4137db923101f464e8403c4973acbfaf7d71724ce93b4336fad580e894d9591",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2021.csv": "2d9e619700712823d15716c07715133f8c3b1a09046930dcfc785a38633dee2e",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs/history.json": "a78f0c64b08f959e56bccc23fea109c6b2c0697f42517fc50354d6f6baa6c24e",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs/quotes.json": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs/source-exclusions.json": "c03d4c330275ea2d32868b43f39b036e51be80331d1b814a54eabb44c8b5437b",
+    "backend/artifacts/research/c-five-season-projection-20261108/inputs-v2/input-audit.json": "184c1bb87f64c7660723efbf81a3a4b1a1878d22c30bc031ca30321d9ebb93f4",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2022.csv": "b716517b25033ce8e0243e967aa961876425a4c41e97c8aa8fa59f2aca061341",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2023.csv": "1de8bc12a133dbbf71bc6ffda62082642f087f61b1b7c15ae9f2d320876fb07e",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2024.csv": "daf239ba83b6fba815a3bd5879e7111f3723e6bb1e64fa484399a20b32c4cb2e",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2025.csv": "db8306fcb4aa2ace9048f0423ef54271c560d58f5381e0591f2bc7b2a1882037",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2022.csv": "8442792d3b614c94ea3cf381bd2736805889cc1713169035368fff19c3d02380",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2023.csv": "b2e057b0ed959f198b0f63d2391c01239f3608e6de5db68edab3f88e04d07ff3",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2024.csv": "a0fb4e281b6f0e0fce66ac4c6bca53e54686d2db6054b5eb49b90decf161c12f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2025.csv": "25b1ecbf34c961fbe9a3a3b3bf906a6c7cf76121d4605ed11a1106cc4d15de7f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2022.csv": "18ea07d922e8b6360b81189637efd5aaf44779765db856bff208d5b1acf69b2f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2023.csv": "ca0a4bf51d5b1ccfd0e1558ea41de6bb829df6c96c759888a87248d296d5adb7",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2024.csv": "f1cf48edf42cc28b9675f1aa801f60a74214d672892fc2ee3adc5ea5a5b374fa",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2025.csv": "806b1dd80e002707abd0c01f124c6554522af40ed4e54315f7b034a475c23217",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2022.csv": "9960837f37a97ae700f876c87b85a8b7a2f5a5d05a53077830c21b9db8880c45",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2023.csv": "343a89db026fe4204ebeabd663cdfee8d02a45457828fc1cb63fa630ca170723",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2024.csv": "0973077b99e9f7cba60fa80b8c2ed0c1326fd4950a6243b3fa213f6b51c0c205",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2025.csv": "bafbf14aacd7e764bc1fd65ec382cfd4c0bf7038523b065a56dd46b4ac477d49",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2022.csv": "53348112526b5165539df240be350083989bb258f30c0ff7cacbc0165ca7e4b3",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2023.csv": "5323f596c7ed318e4bce95557a369d809d98501fa499ea5f41350cd45cf3c7d9",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2024.csv": "caf6feffad03388a5d681c3210130b15f329b5e23195298428d0d0568e922364",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2025.csv": "5c0e49a163785fcc62fc424942500421d77c8d7c51e7159d1c9c0cad7d1d775f",
+    "backend/current-models/challenger.json": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "backend/dist/config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+    "backend/dist/models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+    "backend/dist/models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+    "backend/dist/research/CatBoostModel.js": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "backend/dist/research/ChallengerDataQuality.js": "674081752090d953ed9e6c030b84d0ef2eb87b974ad6f0c3e2dd07a7d791dc13",
+    "backend/dist/research/ChallengerFeatures.js": "9d10d7d8afa12b860ab5fe24f8bb4f1f7fadc6d32578e51cbd1c480ffaaee3f1",
+    "backend/dist/research/CoherentProbabilityPipeline.js": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+    "backend/dist/research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+    "backend/dist/research/ForecastDecisionTime.js": "d2d14e1d0e84d8e42a52ae0075059d09dca20e9a0ec629057bcca5270df096da",
+    "backend/dist/research/GoalSettlement.js": "4f4314987114eb2d672a9b8e60a0e2bada67dc62bfac4e51432c0e4638b0b083",
+    "backend/dist/research/ResearchProbabilityPipeline.js": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1",
+    "backend/dist/services/FootballDataService.js": "497406cf31945d12b24b1faba47cf2d34b8663945a5f8919992e059515c55a4f",
+    "backend/experiments/c-five-season-projection-research/acquire_csv.py": "67068b357d13937379e55eae0f5b6c8f0a700386d33ab20f3e0b7d037d1cbda8",
+    "backend/experiments/c-five-season-projection-research/acquire_inputs.py": "05dc25bc55c8227d7d4f2081ecc88aee7733aeeef91554e8167e9df3b1f07b98",
+    "backend/experiments/c-five-season-projection-research/build_dataset.cjs": "ad5b90464def8186607d57ef0ca7cbd160aeb799165c4a4778c9607cd1b07d78",
+    "backend/experiments/c-five-season-projection-research/finalize_inputs.py": "83ea10845886733fa59bfba07e3a485260b666111c3a0bb02420ace966f4ef5b",
+    "backend/experiments/c-five-season-projection-research/prepare_inputs.cjs": "62d7bc5e55edcb5d3821ff627fa86ce2c8b6c61a6ba55ddbc0f8970759c58c63",
+    "backend/experiments/c-five-season-projection-research/test_build_dataset.cjs": "1d16815e40d01a1728e3b7e37aba8176bfe192814418c59aacd2968740f25aea",
+    "backend/experiments/c-five-season-projection-research/test_prepare_inputs.cjs": "fbf64b49f10dacfadb0f2d0707a2a975f88cec9aedeb3e034a9caa5026506bcf",
+    "backend/src/config/PredictionEngineConfig.ts": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": "e8046a86fab0fe78cc602f78445e9f184bdcf77579e9d6df467b7cdd57aa3309",
+    "backend/src/models/value/ValueBettingEngine.ts": "c3d3ef7826f265ff35fab465cc93fb48cbbe8857cf85aa565bf7aa35dd558bba",
+    "backend/src/research/CatBoostModel.ts": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "backend/src/research/challenger-data-quarantine.json": "1350f1fa837196ca57029946fe5b8a1bea5cd90cdbc0e72886a9dc19dc770d7d",
+    "backend/src/research/ChallengerDataQuality.ts": "98f09fc15cf30fb185bbfcd2be0b6838a59870b2d78e81c0747c0e1e0865073b",
+    "backend/src/research/ChallengerFeatures.ts": "c8ba723d48efd38fa2d27dade1bd5ec393c4ddc26cfeeec7f395450ebd047c6f",
+    "backend/src/research/CoherentProbabilityPipeline.ts": "24fdc38ad9b30756ab7c6aeab014e99cf5a36998b6ba225bd2f187d9df97a129",
+    "backend/src/research/ForecastCore.ts": "bc2a3f0fcf0b9e190d1ccd51728e64c17910d2db06eaaf1708efebafef85afcb",
+    "backend/src/research/ForecastDecisionTime.ts": "5c793aec760c84dda084ec6402fbac2f0f7a8eb89c5e7f343a0afe47a61d1eef",
+    "backend/src/research/GoalSettlement.ts": "7ec091e305001b22f2c2746a22f757a5332b05c2ac0b89b746bef620f7277c94",
+    "backend/src/research/original-holdout-policy.json": "e78e2a275ff5aae8be5d24f546d5e8ef522f62d60ab78dbb28e84357ea46d164",
+    "backend/src/research/ResearchProbabilityPipeline.ts": "16f21136f11955f82bd359d093d5479f42a09a35a864e7c4b1c1280e34c9cf46",
+    "backend/src/services/FootballDataService.ts": "578a5526a0701d1c2680a861b594493c43dcdc0ad05f82a9ceeac976bddc4e37"
+  },
+  "adoption": false,
+  "databaseWrites": 0,
+  "limitations": [
+    "Archived Understat provenance via pinned public dumps; acquisition is later than events. No claim that snapshots were captured before each historical forecast.",
+    "Real Bet365 closing prices are retrospective; quote-missing rows retain paired raw/calibrated evaluation without synthesized market prices.",
+    "The leaf rule was selected in prior research, so this is an exploratory recipe backtest, not independent adoption evidence."
+  ]
+}

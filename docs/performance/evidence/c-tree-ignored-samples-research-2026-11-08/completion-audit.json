@@ -1,0 +1,99 @@
+{
+  "createdAt": "2026-11-08T15:12:40.582728+00:00",
+  "previousGoalTurnClassification": "progress: one frozen native ignored-counts ablation completed, rejecting candidate on3/5; calculation independently reproduced.",
+  "objective": "Explain deteriorating leagues and find a verified tree-parameter modification improving all five leagues in an isolated copy without replacing currentC.",
+  "requirements": [
+    {
+      "requirement": "Explain La Liga and Premier League deterioration in earlier leaf edit",
+      "status": "evidence_available",
+      "evidence": [
+        "originalLeagueDiagnosis"
+      ],
+      "limit": "Arithmetic attribution for that candidate and already-consulted diagnostic cohort, not causal explanation of football results."
+    },
+    {
+      "requirement": "Evaluate an isolated tree-parameter/training modification against originalC75",
+      "status": "completed",
+      "evidence": [
+        "latestPlan",
+        "latestSelection",
+        "latestVerification"
+      ],
+      "result": "Same5293training, one variant, strict317development screen,3/5."
+    },
+    {
+      "requirement": "Verified probability benefit for all five leagues",
+      "status": "not_achieved",
+      "evidence": [
+        "latestSummary"
+      ],
+      "result": "Premier League and Serie A both regress; raw5/5 prerequisite fails and no final calibrated candidate is produced."
+    },
+    {
+      "requirement": "Keep currentC unchanged",
+      "status": "verified_for_local_artifact_and_performed_actions",
+      "evidence": [
+        "incumbent"
+      ],
+      "result": "OriginalSHAunchanged, no deployment, registry or database writes. Remote installation state not asserted."
+    },
+    {
+      "requirement": "Independent sufficient confirmation for a future replacement",
+      "status": "missing_in_inspected_sources",
+      "evidence": [
+        "newIndependentEvidenceInventory",
+        "initialIndependentEvidenceInventory"
+      ],
+      "result": "No eligible candidate-specific frozen forecast set found;0/24additional realclosing prices;17/24IDs already referenced,7independenceunknown. OlderC906snapshot does not validate new copies."
+    }
+  ],
+  "allRequirementsSatisfied": false,
+  "goalAchieved": false,
+  "candidateAdoption": false,
+  "remainingBlocker": "No justified next bounded parameter experiment identified after the reviewed families, and no sufficient new independent confirmation data available in the inspected local sources. Reusing searched history until a5/5 appears would not verify the requested benefit.",
+  "neededToResume": "New evidence supporting a materially different mechanism, or an independent evaluation cohort with candidates fixed before its outcomes. Newly acquired historical closing prices alone do not restore independence.",
+  "scopeLimits": [
+    "This is a bounded local evidence audit, not an exhaustive proof that no parameter configuration can improve all leagues.",
+    "No model or feature was chosen using the newly acquired source result columns.",
+    "No empirical rejection of the unrun one-step Newton hypothesis is claimed."
+  ],
+  "evidence": {
+    "originalLeagueDiagnosis": {
+      "path": "docs/performance/evidence/c-tree-weight-research-2026-11-08/diagnosis.json",
+      "sha256": "384e3ccf8b51fb2387796a979e4ce061127de4ac4d11acad6669f134897a0805"
+    },
+    "latestPlan": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/plan.json",
+      "sha256": "9c3243479fc915a8ec10425a3445c1bf33d3ada8a93b0af838d03677f5b98f3f"
+    },
+    "latestSelection": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/selection.json",
+      "sha256": "c266ee483b9cb06471f2520332363ea9765d310f6b90efbca1d8cca9327f87b0"
+    },
+    "latestVerification": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/selection-verification.json",
+      "sha256": "1a0960367c289bf4e2b9dcab60e0dec916c27c2b599e5a582c4a2cc9d0f0e71a"
+    },
+    "latestSummary": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/summary.json",
+      "sha256": "1379fe9eeb37f79187f22467192381a659532aed3ef1bd0d70177fae3322e5aa"
+    },
+    "additionalMechanismAssessment": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/newton-semantics-audit.json",
+      "sha256": "866f139abed7e1a242b0dd8e9ea83980dd0c6c016d8c8cc554b4f5bf28354122"
+    },
+    "newIndependentEvidenceInventory": {
+      "path": "docs/performance/evidence/c-tree-ignored-samples-research-2026-11-08/independent-evidence-audit.json",
+      "sha256": "66e1e774b17ecda383fd63ac664fa5def8a0b2b22e26af629b6a40920611618c"
+    },
+    "initialIndependentEvidenceInventory": {
+      "path": "docs/performance/evidence/c-tree-weight-research-2026-11-08/unseen-odds-inventory.json",
+      "sha256": "6f9b3c2732c8fa4774796ad2339033153d630c6e3ccf04b682a8084eacf9cbf3"
+    },
+    "incumbent": {
+      "path": "backend/current-models/challenger.json",
+      "sha256": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2"
+    }
+  },
+  "pinnedSourcesRechecked": 65
+}

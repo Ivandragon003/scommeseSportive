@@ -1,0 +1,18 @@
+{
+  "recordedAt": "2026-11-08T16:03:00.089130+00:00",
+  "stage": "input_reconstruction_before_any_model_fit",
+  "inputsPlanHash": "7af94406e4829ddd8bf40fd1f90af9de03a4390fa96907024d23838d4b4dc156",
+  "processSessionId": 92212,
+  "terminalState": "Stopped exact task parent20884 and children36912/36764 after checking their command lines",
+  "reason": "Mock-only wrapper test missed runtime rejection of blocks[]; controlled ML validator also requires both versioned feature blocks.",
+  "actualPreflightErrors": {
+    "javascript": "invalid_challenger_feature_blocks",
+    "python": "controlled_challenger_requires_both_versioned_feature_blocks"
+  },
+  "correctiveAction": "New wrapper using the unchanged canonical56-feature builder; both model arms explicitly select the original40features. Actual runtime preflight and new frozen input plan required before another reconstruction.",
+  "modelFitsPerformed": 0,
+  "datasetOutputExists": false,
+  "partialFiles": [],
+  "pinnedSourcesChanged": false,
+  "currentModelChanged": false
+}

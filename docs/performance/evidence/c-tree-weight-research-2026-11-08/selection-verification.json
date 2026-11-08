@@ -1,0 +1,21 @@
+{
+  "verifiedAt": "2026-11-08T14:15:37.917624+00:00",
+  "scriptHash": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+  "planHash": "acd4e01698d5a61a70843192cdb6e156997c0d7da81c865e2aac8380c910c483",
+  "selectionHash": "a629e65a71ae5bd0fa3882b17d7b6db2962b7e781bc57afa072068c3774f5cee",
+  "nativeDevelopmentRowsPerFit": 317,
+  "fitsChecked": 4,
+  "nativeProbabilityMaximumError": 5.551115123125783e-16,
+  "independentMetricsMaximumError": 4.440892098500626e-16,
+  "deterministicSelectionReproduced": true,
+  "decision": {
+    "acceptedNonIdentity": true,
+    "selectedFitIndex": 3,
+    "selectedRidge": 0.01,
+    "frozenAt": "2026-11-08T14:15:22.156652Z"
+  },
+  "originalDevelopmentIdsAndChronologyVerified": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

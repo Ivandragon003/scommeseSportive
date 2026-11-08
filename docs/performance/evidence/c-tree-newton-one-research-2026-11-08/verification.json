@@ -1,0 +1,69 @@
+{
+  "verifiedAt": "2026-11-08T15:27:28.547611+00:00",
+  "scriptHash": "9ee08beb7c3081c36a148756166818fa6f29cdb4a5a465801d6b944bd53249ef",
+  "planHash": "f073f545685a147607e5fd05bb25e49d25f0a461e15952bae8908aaff06e09d1",
+  "candidateHash": "493de4f2da8af6f1995b578529cbb7102c4aee70982fd157077067b9401c3928",
+  "comparisonHash": "9774bae3667e3102caee8a42720b730ac401c18a42a011727fb1e4b60eb545d5",
+  "frozenDiagnosticInputsFile": "C:\\Users\\ACER\\Desktop\\scommeseSportive\\backend\\artifacts\\research\\c-tree-newton-one-research-20261108\\verification-inputs.json",
+  "frozenDiagnosticInputsHash": "f4a6c27b071360c0b52d7e436e4c2ef52b72f0dbcfe2ffb5bf1499c6f878e2d5",
+  "nativeSourceRowsPerRegressor": 6577,
+  "nativeTrainingRowsPerRegressor": 5293,
+  "nativeDevelopmentRowsPerPair": 317,
+  "nativeCalibrationRowsPerModel": 358,
+  "nativeFullDiagnosticRowsPerModel": 652,
+  "rebuiltForecastCoreInputs": 43,
+  "sourceTypeScriptVerification": {
+    "sourceHash": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "compiledHash": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "buildParity": {
+      "backend/src/models/value/ValueBettingEngine.ts": true,
+      "backend/src/models/value/EnhancedMarketAnalysis.ts": true,
+      "backend/src/research/CatBoostModel.ts": true,
+      "backend/src/research/GoalSettlement.ts": true,
+      "backend/src/research/CoherentProbabilityPipeline.ts": true,
+      "backend/src/research/ResearchProbabilityPipeline.ts": true,
+      "backend/src/research/ForecastCore.ts": true,
+      "backend/src/config/PredictionEngineConfig.ts": true
+    },
+    "baselineHashBefore": "c8551e61fb49a99df87156b056d9b985a99c1ea29d249cf76d6ff0229f4d7ff5",
+    "baselineHashAfter": "c8551e61fb49a99df87156b056d9b985a99c1ea29d249cf76d6ff0229f4d7ff5",
+    "inputHash": "6a89c857d0391f7410a47a83e7f97d3b4396af8cf23067375e2897d11c4c380d",
+    "outputHash": "d276087bbd9c207c135f966563363657b0ae13833bcf701683e152e7e67fe7df"
+  },
+  "dependencyHashes": {
+    "C:\\Users\\ACER\\Desktop\\scommeseSportive\\backend\\experiments\\c-tree-weight-research\\verify.py": "183637d34924e871c1a958bb64491d980d4b9eea8059f7abab5130613459fc9d",
+    "C:\\Users\\ACER\\Desktop\\scommeseSportive\\backend\\experiments\\c-tree-ignored-samples-research\\verify_selection.py": "9fae195e7873739abae3ca0e3a0c8760efca2a6fcc2ab2b7e20e45aa12cfb551"
+  },
+  "errors": {
+    "nativePython": 4.440892098500626e-16,
+    "nativeTypeScriptSource": 4.440892098500626e-16,
+    "control": 1.2212453270876722e-15,
+    "development": 1.6653345369377348e-16,
+    "calibrationMatrix": 8.326672684688674e-17,
+    "rawDiagnostic": 9.992007221626409e-16,
+    "calibratedDiagnostic": 1.2212453270876722e-15,
+    "decisionReplay": 6.661338147750939e-16,
+    "metrics": 1.4432899320127035e-15,
+    "bootstrap": 2.7755575615628914e-17
+  },
+  "fixedVariantComparedRegardlessOfDevelopment": true,
+  "all31GateFlagsReproduced": true,
+  "stagedToFinalSerializationChecks": {
+    "home": {
+      "normalizationApplied": true,
+      "stagedCounter": 18446744073709551615,
+      "finalCounter": 18446744073709552000,
+      "allOtherModelValuesExactlyUnchanged": true
+    },
+    "away": {
+      "normalizationApplied": true,
+      "stagedCounter": 18446744073709551615,
+      "finalCounter": 18446744073709552000,
+      "allOtherModelValuesExactlyUnchanged": true
+    }
+  },
+  "sameRealBet365Quotes": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

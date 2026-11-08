@@ -1,0 +1,130 @@
+{
+  "createdAt": "2026-11-08T16:10:16.400432+00:00",
+  "phase": "metadata_only_before_CatBoost_fits",
+  "historyHash": "968d7990a966d2c06c28845f8ecfdd05961d6bd0a548330df16af786e2e6a50e",
+  "quoteHash": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+  "eligibleTestRowsExpected": 8541,
+  "realClosingQuotedRowsExpected": 8541,
+  "excludedByRuntimePolicy": {
+    "quarantined": 14,
+    "protected": 351
+  },
+  "sourceConflictExclusionsAlreadyApplied": [
+    "understat_17955",
+    "understat_17503"
+  ],
+  "bySeasonAndLeague": {
+    "2021/2022": {
+      "Bundesliga": {
+        "n": 306,
+        "quoted": 306
+      },
+      "La Liga": {
+        "n": 379,
+        "quoted": 379
+      },
+      "Ligue 1": {
+        "n": 379,
+        "quoted": 379
+      },
+      "Premier League": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Serie A": {
+        "n": 380,
+        "quoted": 380
+      }
+    },
+    "2022/2023": {
+      "Bundesliga": {
+        "n": 306,
+        "quoted": 306
+      },
+      "La Liga": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Ligue 1": {
+        "n": 379,
+        "quoted": 379
+      },
+      "Premier League": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Serie A": {
+        "n": 380,
+        "quoted": 380
+      }
+    },
+    "2023/2024": {
+      "Bundesliga": {
+        "n": 306,
+        "quoted": 306
+      },
+      "La Liga": {
+        "n": 379,
+        "quoted": 379
+      },
+      "Ligue 1": {
+        "n": 304,
+        "quoted": 304
+      },
+      "Premier League": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Serie A": {
+        "n": 378,
+        "quoted": 378
+      }
+    },
+    "2024/2025": {
+      "Bundesliga": {
+        "n": 304,
+        "quoted": 304
+      },
+      "La Liga": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Ligue 1": {
+        "n": 306,
+        "quoted": 306
+      },
+      "Premier League": {
+        "n": 380,
+        "quoted": 380
+      },
+      "Serie A": {
+        "n": 379,
+        "quoted": 379
+      }
+    },
+    "2025/2026": {
+      "Bundesliga": {
+        "n": 250,
+        "quoted": 250
+      },
+      "La Liga": {
+        "n": 293,
+        "quoted": 293
+      },
+      "Ligue 1": {
+        "n": 241,
+        "quoted": 241
+      },
+      "Premier League": {
+        "n": 309,
+        "quoted": 309
+      },
+      "Serie A": {
+        "n": 303,
+        "quoted": 303
+      }
+    }
+  },
+  "expectedTestIdsHash": "3c9a6b4a153e0d727b4456bd4ccf5ed5e4f3c6fb25f511e2195332def2eed666",
+  "probabilityMetricsComputed": false
+}

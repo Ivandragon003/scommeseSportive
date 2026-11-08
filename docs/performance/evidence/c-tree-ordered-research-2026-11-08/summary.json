@@ -1,0 +1,132 @@
+{
+  "createdAt": "2026-11-08T14:33:14.331684Z",
+  "completedAt": "2026-11-08T14:33:19.853200Z",
+  "planHash": "ea15f84c26feeab1c2fb7e3b01d7943d51f0071de97698a4b866cf19b5bac56d",
+  "scriptHash": "1bb0a854a4334199585ec4b283079bec0a3bd08e6a872b7397fd3653fa120e92",
+  "identity": {
+    "variant": "Plain",
+    "validationMetrics": {
+      "logLoss": 0.9649557449785277,
+      "brier": 0.5737485405774304,
+      "n": 317,
+      "byLeague": {
+        "Bundesliga": {
+          "logLoss": 0.8480774436443165,
+          "brier": 0.4904353740907514,
+          "n": 55
+        },
+        "La Liga": {
+          "logLoss": 0.961670748123516,
+          "brier": 0.568843807046088,
+          "n": 69
+        },
+        "Ligue 1": {
+          "logLoss": 1.0131935584298517,
+          "brier": 0.6102312573126356,
+          "n": 63
+        },
+        "Premier League": {
+          "logLoss": 0.9581557841515964,
+          "brier": 0.5674581943366679,
+          "n": 60
+        },
+        "Serie A": {
+          "logLoss": 1.022441270100812,
+          "brier": 0.6166008318711131,
+          "n": 70
+        }
+      }
+    }
+  },
+  "fits": [
+    {
+      "variant": "Ordered",
+      "validationMetrics": {
+        "logLoss": 0.9716472778939498,
+        "brier": 0.5786774023004417,
+        "n": 317,
+        "byLeague": {
+          "Bundesliga": {
+            "logLoss": 0.8480691322248815,
+            "brier": 0.49179607537865716,
+            "n": 55
+          },
+          "La Liga": {
+            "logLoss": 0.9775322671157946,
+            "brier": 0.5800189585559364,
+            "n": 69
+          },
+          "Ligue 1": {
+            "logLoss": 1.0106846792514481,
+            "brier": 0.608358998215221,
+            "n": 63
+          },
+          "Premier League": {
+            "logLoss": 0.9694028437972474,
+            "brier": 0.5744475396605295,
+            "n": 60
+          },
+          "Serie A": {
+            "logLoss": 1.0297336138335376,
+            "brier": 0.6225310710837655,
+            "n": 70
+          }
+        }
+      },
+      "models": {
+        "home": {
+          "file": "models/ordered-home.json",
+          "sha256": "0d919b6eae0d230bf40546dc896e9201172d13a14e6e84ecd98c502cf5ce4c5b"
+        },
+        "away": {
+          "file": "models/ordered-away.json",
+          "sha256": "dc6921c72ed3b80fd07b1400e4bfe07b362908efde47ab09a8fefe697e1ac8a0"
+        }
+      },
+      "effectiveParametersOnlyOrderedChanged": true
+    }
+  ],
+  "control": {
+    "variant": "Plain",
+    "sourceSelection": "backend/artifacts/research/c-tree-l2-research-20261108/prepared-v2/selection.json",
+    "models": {
+      "home": {
+        "file": "backend/artifacts/research/c-tree-l2-research-20261108/prepared-v2/models/control-home.json",
+        "sha256": "3a8fa71eb0dc4448b9f62a3fcf3435ebb2123f7c9a768fe04b1e8616ebde2dc9"
+      },
+      "away": {
+        "file": "backend/artifacts/research/c-tree-l2-research-20261108/prepared-v2/models/control-away.json",
+        "sha256": "b7b379bf57c5949ea072d28e51e151fe8973305d68ca923944b1c21bd2bdfe88"
+      }
+    },
+    "verification": {
+      "home": {
+        "nonLeafInferenceExactlyEqual": true,
+        "leafMaximumError": 6.938893903907228e-17,
+        "effectiveParametersOnlyL2AfterDocumentedMetadataNormalization": true,
+        "nativeRows": 6577,
+        "nativeMaximumError": 1.1657341758564144e-15
+      },
+      "away": {
+        "nonLeafInferenceExactlyEqual": true,
+        "leafMaximumError": 9.71445146547012e-17,
+        "effectiveParametersOnlyL2AfterDocumentedMetadataNormalization": true,
+        "nativeRows": 6577,
+        "nativeMaximumError": 1.2212453270876722e-15
+      }
+    }
+  },
+  "decision": {
+    "acceptedNonIdentity": false,
+    "selectedVariant": null,
+    "frozenAt": "2026-11-08T14:33:19.851206Z"
+  },
+  "diagnosticOnly": true,
+  "productionAdoptionEligible": false,
+  "selectionHash": "dc8992227d7e897a383c196ded2d6bc6223aa2ec4191f286f588a7d5f1efc5eb",
+  "trainingRows": 5293,
+  "selectionRows": 317,
+  "calibrationConsumed": false,
+  "diagnosticOutcomesScored": false,
+  "independentPredictiveEvidence": false
+}

@@ -1,0 +1,18 @@
+{
+  "recordedAt": "2026-11-08T15:55:07.568549+00:00",
+  "stage": "input_reconstruction_before_any_model_fit",
+  "inputsPlanHash": "89d5b5a03b143125acbcc0beb14918903303fa39f9f7dd67c3e0864c9fb5c5fe",
+  "processSessionId": 40982,
+  "terminalState": "Stopped after verifying exact identities of task parent26560 and children32600/24996; no automatic restart",
+  "reason": "Review found totalShots counts in archived2019-2021 shots included OwnGoal unlike current UnderstatScraper semantics.",
+  "readOnlyFinding": {
+    "ownGoalRecords": 448,
+    "matchesWithOwnGoal": 433,
+    "affectedSideFieldsInFrozenHistory": 443
+  },
+  "correctiveAction": "New repair script and new archive/merge/input-plan/dataset paths; preserve the82pinned sources and previous files. No match outcome or probability result used to choose the correction.",
+  "modelFitsPerformed": 0,
+  "datasetOutputExists": false,
+  "partialFiles": [],
+  "currentModelChanged": false
+}

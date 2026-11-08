@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readFileSync, mkdtempSync, rmSync } = require('node:fs');
+const { readFileSync, readdirSync, mkdtempSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
@@ -18,6 +18,7 @@ const { ORIGINAL_HOLDOUT_POLICY } = require('../dist/research/ResearchHoldoutPol
 const artifact = JSON.parse(readFileSync(join(__dirname, '../current-models/challenger.json'), 'utf8'));
 
 test('the sole packaged challenger matches the current baseline, configuration and release hashes', () => {
+  assert.deepEqual(readdirSync(join(__dirname, '../current-models')).filter(file => file.endsWith('.json')), ['challenger.json']);
   validateArtifact(artifact);
   assert.equal(artifact.version, CURRENT_CHALLENGER_RELEASE.modelVersion);
   assert.equal(artifact.baselineVersion, baselineManifest().version);
@@ -29,11 +30,28 @@ test('the sole packaged challenger matches the current baseline, configuration a
   assert.deepEqual(INITIAL_CHALLENGER_DEPLOYMENT, CURRENT_CHALLENGER_RELEASE);
   assert.deepEqual(FALLBACK_CHALLENGER_DEPLOYMENT, CURRENT_CHALLENGER_RELEASE);
   assert.equal(artifact.productionValidated, false);
+  assert.equal(artifact.independentEvidence, false);
+  assert.equal(artifact.parentVersion, 'C-f6d4ac23de48fbfa');
+  assert.equal(artifact.releaseAdoption.authorization, 'explicit_user_instruction');
+  assert.equal(artifact.diagnosticOnly, undefined);
+  assert.equal(artifact.productionAdoptionEligible, undefined);
   assert.equal(artifact.holdoutProtection.protectedRowsUsed, 0);
   assert.equal(artifact.dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
   const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
   assert.equal(artifact.calibrationPredictions.length, 358);
   assert.ok(artifact.calibrationPredictions.every(row => !protectedIds.has(row.matchId) && !challengerDataQualityReason(row.matchId)));
+});
+
+test('packaged release preserves the exact selected trees, features and calibration evidence', () => {
+  // These hashes pin the selected candidate without requiring ignored research files in CI.
+  assert.equal(researchHash(artifact.models), '632b2e0e68416d930f2023e7ac01ab6c18f2fdc04c0134b3ccc2b12cbbf2d528');
+  assert.equal(researchHash(artifact.calibrationPredictions), '72984a5aa5af01a894fcf18325ecaef0003586b886405820eaab34fc65f451e8');
+  assert.equal(researchHash(artifact.calibrationProfilesV2), 'bae9f21054192d87502909d21d6811e0b447a297d270eadc34f3b8f2f48518a6');
+  const candidate = JSON.parse(JSON.stringify(artifact));
+  const metadata = candidate.releaseAdoption.originalCandidateMetadata;
+  delete candidate.releaseAdoption;
+  Object.assign(candidate, metadata);
+  assert.equal(researchHash(candidate), 'ae5382b1ee7b55f8e6e802d8c557a653b0a359c157db60f764a2597f7af3272b');
 });
 
 test('the actual current model infers from shared A code and rejects an obsolete baseline', () => {

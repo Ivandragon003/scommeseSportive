@@ -1,0 +1,72 @@
+{
+  "planHash": "f073f545685a147607e5fd05bb25e49d25f0a461e15952bae8908aaff06e09d1",
+  "inputHashes": {
+    "artifact.json": "bfac22192fd4a3e14901753f484978739aeab641894c128fe964ac65aa08d2c3",
+    "audit.json": "0218643e8eae05bb54c67b86df23f7b79d5656e2aff172f3cddde901deaa762f",
+    "parity.json": "4916d9c89ef28b4c996945b2303ea08986526631dd82946e9f615edb279b33c0",
+    "development.json": "895e7d3f52b840f338e9da6378e1b6bd2afacb3b6318413e41bea2faca380a49"
+  },
+  "identity": {
+    "protocol": "c-tree-newton-one-research-v1",
+    "planHash": "f073f545685a147607e5fd05bb25e49d25f0a461e15952bae8908aaff06e09d1",
+    "sourceHashes": {
+      "evaluate.cjs": "c31a8ae128c7fd8da4b5e9d21b71813e50716da8c7ffd17ca9dd4fc558efbff4",
+      "prepare.py": "51dc1e1081df1ce42306d62caa26611c013cf108a1aebcf6a7f50818e6699039",
+      "test_evaluate.cjs": "637835e816304714523aa441cb3e3d3d0f718ebd2dce4560e7d4261e9d0af574"
+    },
+    "inputHashes": {
+      "artifact.json": "bfac22192fd4a3e14901753f484978739aeab641894c128fe964ac65aa08d2c3",
+      "audit.json": "0218643e8eae05bb54c67b86df23f7b79d5656e2aff172f3cddde901deaa762f",
+      "parity.json": "4916d9c89ef28b4c996945b2303ea08986526631dd82946e9f615edb279b33c0",
+      "development.json": "895e7d3f52b840f338e9da6378e1b6bd2afacb3b6318413e41bea2faca380a49"
+    },
+    "parentVersion": "C-75fd74eb875e9d0e",
+    "parentArtifactHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "modelsHash": "2a549dcb194e0f0b972fa4a42600cef48ca651352d8abf456ac2d4ed1150bc05",
+    "calibrationHash": "fe1c13622a2e76bff0666846cd2efe315a290b82e1cd871b64c4ecec06a1c3cd"
+  },
+  "candidateHash": "493de4f2da8af6f1995b578529cbb7102c4aee70982fd157077067b9401c3928",
+  "candidateFrozenAt": "2026-11-08T15:23:20.782Z",
+  "buildParity": {
+    "backend/src/models/value/ValueBettingEngine.ts": true,
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": true,
+    "backend/src/research/CatBoostModel.ts": true,
+    "backend/src/research/GoalSettlement.ts": true,
+    "backend/src/research/CoherentProbabilityPipeline.ts": true,
+    "backend/src/research/ResearchProbabilityPipeline.ts": true,
+    "backend/src/research/ForecastCore.ts": true,
+    "backend/src/config/PredictionEngineConfig.ts": true
+  },
+  "adapterIdentity": {
+    "version": "current-c-retrospective-math-v1",
+    "sourceHashes": {
+      "ChallengerTeamRecommendation": "697d09f994a13fe12d9df01b9d26c709a6be34cedea95f0a15404ccbd186f632",
+      "CoherentProbabilityPipeline": "4f0d9b05ea453ab6b016569953f6750eccb55daa539506a351a84b73226e77f3",
+      "ResearchRecommendationRuntime": "016e993148e9e65a5ec6d219e702c4a8358944c05e2f67f90cf333bcb7562298"
+    },
+    "distHashes": {
+      "ChallengerTeamRecommendation": "fc2f536a303e8b2e1e7b25dd03cbcb3cff50822c1845195450b3439581246fbc",
+      "CoherentProbabilityPipeline": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+      "ResearchRecommendationRuntime": "6aaa8ebe498b106075aeb493c1f364124f9dcd1b7333d6f0201721094a39da7c"
+    },
+    "extracts": {
+      "selectorPrelude": "e88e57016ad8f1630bd4cf8e2fee524306d13de003686a0adfcc4121a457f152",
+      "resultBlock": "1858f859710b350054adb9ba8468fa738ef67086e6e95b16ac846843ccfb720f",
+      "goalBlock": "d41f3fbd1ecf33c913de79c3ebe11cfee1b938f39fabb8e41268ae616d109f39",
+      "blendBlock": "607a8caaaf51f480de325d5efb05007b5694823ee668c8c4fa249529942d16e6",
+      "candidateBlock": "77c632e850dbc592a1f7c3ad01bf85747da8865d72ee0ce912f4880b34537864",
+      "eligibilityBlock": "c395e90ac43382368d25f2af6d01f8ae29faec8129978a9e39ccaac849bbc95c",
+      "dynamicBlock": "1da19a309df31ffb0929da17cd61c392e428bfbb32d2d03d6f35b7fe206b47a3"
+    },
+    "buildParity": {
+      "ChallengerTeamRecommendation": true,
+      "CoherentProbabilityPipeline": true,
+      "ResearchRecommendationRuntime": true
+    },
+    "adapterHash": "6979ebf7286a3d6c58630cdc2096c9abf5b59ee1fb1b8ea61768e71d8e360703",
+    "probabilityPipelineHash": "f4f24c0cabc4c3e855230757bb3745d78db93ca28d2dde35f7e747166153b5b7"
+  },
+  "nativeRawParityMaximum": 2.220446049250313e-16,
+  "developmentMetricsRecomputed": true,
+  "originalAProfileReproduced": true
+}

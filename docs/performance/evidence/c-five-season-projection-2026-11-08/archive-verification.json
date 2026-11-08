@@ -1,0 +1,283 @@
+{
+  "format": "archive-final-normalization-verification-v1",
+  "verifiedAt": "2026-11-08T15:49:37.077807+00:00",
+  "matchesSha256": "71e9681decd606dc870dbb2edb470edbaa45fd669049913c56182c43564c1513",
+  "manifestV3Sha256": "825399a4b42e301c74d134c55f21f7e55bb3050b97045738da04bd9ee4146e20",
+  "unchangedOriginalFailureManifestSha256": "b9316e9f21892482c8a7f65588a99b02486b6de7052244a89a2becf2a4bd4613",
+  "scriptSha256": "05dc25bc55c8227d7d4f2081ecc88aee7733aeeef91554e8167e9df3b1f07b98",
+  "sourceSha256AndPinnedGitBlobFilesVerified": 25,
+  "uniqueMatchIds": 7202,
+  "coverage": [
+    {
+      "season": "2018/2019",
+      "competition": "Bundesliga",
+      "rows": 306
+    },
+    {
+      "season": "2018/2019",
+      "competition": "La Liga",
+      "rows": 380
+    },
+    {
+      "season": "2018/2019",
+      "competition": "Ligue 1",
+      "rows": 380
+    },
+    {
+      "season": "2018/2019",
+      "competition": "Premier League",
+      "rows": 379
+    },
+    {
+      "season": "2018/2019",
+      "competition": "Serie A",
+      "rows": 380
+    },
+    {
+      "season": "2019/2020",
+      "competition": "Bundesliga",
+      "rows": 306
+    },
+    {
+      "season": "2019/2020",
+      "competition": "La Liga",
+      "rows": 380
+    },
+    {
+      "season": "2019/2020",
+      "competition": "Ligue 1",
+      "rows": 279
+    },
+    {
+      "season": "2019/2020",
+      "competition": "Premier League",
+      "rows": 380
+    },
+    {
+      "season": "2019/2020",
+      "competition": "Serie A",
+      "rows": 380
+    },
+    {
+      "season": "2020/2021",
+      "competition": "Bundesliga",
+      "rows": 306
+    },
+    {
+      "season": "2020/2021",
+      "competition": "La Liga",
+      "rows": 380
+    },
+    {
+      "season": "2020/2021",
+      "competition": "Ligue 1",
+      "rows": 380
+    },
+    {
+      "season": "2020/2021",
+      "competition": "Premier League",
+      "rows": 380
+    },
+    {
+      "season": "2020/2021",
+      "competition": "Serie A",
+      "rows": 380
+    },
+    {
+      "season": "2021/2022",
+      "competition": "Bundesliga",
+      "rows": 306
+    },
+    {
+      "season": "2021/2022",
+      "competition": "La Liga",
+      "rows": 380
+    },
+    {
+      "season": "2021/2022",
+      "competition": "Ligue 1",
+      "rows": 380
+    },
+    {
+      "season": "2021/2022",
+      "competition": "Premier League",
+      "rows": 380
+    },
+    {
+      "season": "2021/2022",
+      "competition": "Serie A",
+      "rows": 380
+    }
+  ],
+  "xgSumShotsAdmittedAsMatchTotals": false,
+  "officialTeamHistoryValidation": {
+    "zipFile": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/team-history-archive.zip",
+    "sha256": "54e5f240b61b425e55c83102e3c803135e28199d97dd6778b59e8721b576828f",
+    "exactDuplicateWholeFilesRemoved": [
+      {
+        "copy": "football_data_csv/La_liga_2018_Leganes 2.csv",
+        "original": "football_data_csv/La_liga_2018_Leganes.csv",
+        "sha256": "0090384b4b523640b4a9eb6c5ae92aeb305ea3c2cbd4d388d8b37d6b119c2f31"
+      },
+      {
+        "copy": "football_data_csv/La_liga_2021_Celta Vigo 2.csv",
+        "original": "football_data_csv/La_liga_2021_Celta Vigo.csv",
+        "sha256": "d6083dac761bd1103c7411bbe56370ccdf2c5f83ff775c10997089c507d9bf07"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2018_Caen 2.csv",
+        "original": "football_data_csv/Ligue_1_2018_Caen.csv",
+        "sha256": "551ce699bc6fe8c659dcbc9a2afd27a27aefc638515d11c603f158053923643d"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2020_Lens 2.csv",
+        "original": "football_data_csv/Ligue_1_2020_Lens.csv",
+        "sha256": "2e662a7d253888d06a3ea3e828594ccb86014444c3eb1b90d2ad53e40c1eaf75"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2021_Lens 2.csv",
+        "original": "football_data_csv/Ligue_1_2021_Lens.csv",
+        "sha256": "9887ac1d288c24987b4cc815a3549a2dc6623c6d02d262fce55f4f8329c659fe"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Chievo 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Chievo.csv",
+        "sha256": "690bf0feda993f8216598c30f795970c1e44613f693fcc87950db7d56e26796b"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Genoa 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Genoa.csv",
+        "sha256": "4ba668df0aa33485dfa8137688134866105951a25ad0ad8a2d5e04720b33ece5"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Napoli 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Napoli.csv",
+        "sha256": "f0e93340ef236a80cfd00a59b12f84923b87af1e550d2f6c9ae6ea6f0428899a"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2021_Roma 2.csv",
+        "original": "football_data_csv/Serie_A_2021_Roma.csv",
+        "sha256": "208c572eafc59bd3104ae4e40a29c628f51a018dbaad64d08f89d71490d500e0"
+      }
+    ],
+    "matchedFixturesByLeagueSeason": [
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2018,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2019,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2020,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2021,
+        "matches": 306
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2019,
+        "matches": 279
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2018,
+        "matches": 379
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2021,
+        "matches": 380
+      }
+    ],
+    "officialMatchTotalComparisons2018_2019": 3550,
+    "officialMatchTotalMaximumGap": 0.0,
+    "excludedWarmupFixtures": [
+      {
+        "matchId": "understat_9220",
+        "competition": "Premier League",
+        "archivedKickoffAt": "2018-08-25T17:00:00.000Z",
+        "reason": "conflicting_or_unmatched_historical_fixture_date_not_corrected"
+      }
+    ],
+    "licenseEvidence": "No explicit repository license in GitHub metadata; do not infer a data reuse license."
+  },
+  "teamIdentitySources": {
+    "existing_local_team_identity_exact_name": 106,
+    "numeric_understat_team_id_from_archived_match_results": 18,
+    "internal_deterministic_name_identity_not_numeric_provider_id": 5
+  },
+  "noProbabilityMetricsOrFits": true
+}

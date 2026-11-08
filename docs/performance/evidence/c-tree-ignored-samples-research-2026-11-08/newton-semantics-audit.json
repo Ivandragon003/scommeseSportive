@@ -1,0 +1,22 @@
+{
+  "createdAt": "2026-11-08T15:10:36.011511+00:00",
+  "catboostVersion": "1.2.8",
+  "supportAudit": {
+    "path": "next-mechanism-audit.json",
+    "sha256": "01fb67d0dcc41c921a74b8b1aa6302f776654d3ca58f38d2a5af608a449df36c"
+  },
+  "confirmedSourceSemantics": [
+    {
+      "fact": "Poisson uses Newton and ten Newton iterations by default in version1.2.8. Both currentC75 regressors match those effective parameters.",
+      "url": "https://github.com/catboost/catboost/blob/v1.2.8/catboost/private/libs/options/catboost_options.cpp#L145-L149"
+    },
+    {
+      "fact": "Backtracking is active only if leavesEstimationIterations>1 and the chosen backtracking mode is not No. At one iteration it is inactive even if metadata retains AnyImprovement.",
+      "url": "https://github.com/catboost/catboost/blob/v1.2.8/catboost/private/libs/algo_helpers/approx_calcer_helpers.cpp#L12-L13"
+    }
+  ],
+  "assessedHypothesis": "Lower leaf_estimation_iterations to1 to reduce sensitivity of rare training leaves.",
+  "decision": "Not pursued as another predictive candidate: contribution magnitudes and support do not demonstrate an instability caused by the current estimator. The proposed change removes iterative estimation and operative backtracking together, and is not monotone shrinkage.",
+  "performanceConclusion": "No predictive conclusion for one-step estimation; no real-data fit or new selection/diagnostic scoring was performed.",
+  "productionReplacement": false
+}

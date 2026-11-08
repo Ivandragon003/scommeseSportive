@@ -1,0 +1,41 @@
+{
+  "recordedAt": "2026-11-08T14:24:25.784774+00:00",
+  "failedCheck": "control_inference_structure_mismatch",
+  "candidateFitsExecuted": 0,
+  "selectionScored": false,
+  "calibrationScored": false,
+  "diagnosticScored": false,
+  "originalPlanHash": "529f4d2dfc8bdb366c47d7c1e2d83e9b9ab18e13836c0e57480a68bd83e6bc9d",
+  "scriptHash": "7c67c5f2851e47162367f0714ef032e9deb8f855c2672c0fdc4ad218f8fc00ea",
+  "incumbentHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "models": {
+    "home": {
+      "controlFileHash": "08640ac0b03cd80065ac2427ee5c996ab329a4c449a1283d4ed438cb41222f66",
+      "allNonLeafInferenceFieldsExactlyEqual": true,
+      "parameterDifference": {
+        "explicitL2": 3,
+        "unusedCategoricalUint64Original": 18446744073709552000,
+        "unusedCategoricalUint64New": 18446744073709551615,
+        "allOtherParametersExactlyEqual": true,
+        "categoricalFeatures": 0
+      },
+      "maximumLeafAbsoluteDifference": 6.938893903907228e-17,
+      "nativeRows": 6577,
+      "nativeMaximumAbsoluteDifference": 1.1657341758564144e-15
+    },
+    "away": {
+      "controlFileHash": "3533685d0aac1b403eaeac0716762d0e7e077e7e2a2f30fb9e1670d97568b97f",
+      "allNonLeafInferenceFieldsExactlyEqual": true,
+      "parameterDifference": {
+        "explicitL2": 3,
+        "unusedCategoricalUint64Original": 18446744073709552000,
+        "unusedCategoricalUint64New": 18446744073709551615,
+        "allOtherParametersExactlyEqual": true,
+        "categoricalFeatures": 0
+      },
+      "maximumLeafAbsoluteDifference": 9.71445146547012e-17,
+      "nativeRows": 6577,
+      "nativeMaximumAbsoluteDifference": 1.2212453270876722e-15
+    }
+  }
+}

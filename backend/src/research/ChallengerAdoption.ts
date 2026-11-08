@@ -382,6 +382,22 @@ export class ChallengerAdoptionStore {
         return row.success === 1 || row.success === true
           || !['inference', 'calibrationCompatible', 'finiteProbabilities', 'coherentProbabilities'].some((key) => checks?.[key] === false);
       })) return { rolledBack: false, reason: 'no_repeated_model_failure', state };
+      const adoptionEvidence = parse(latest.evidence_json);
+      if (adoptionEvidence?.protocol === 'explicit-current-challenger-replacement-v1'
+        && adoptionEvidence.manualReplacement === true && adoptionEvidence.independentEvidence === false
+        && adoptionEvidence.retirePrevious === true) {
+        // An explicitly retired release must never become operational again.
+        // Manual replacement records an operator decision, not prospective approval.
+        const report = { protocol: adoptionEvidence.protocol, manualReplacement: true, independentEvidence: false,
+          retirePrevious: true, reason: 'three_independent_model_failures', failedRevision: state.revision,
+          runTimes: matching.map((row) => row.started_at) };
+        const id = randomUUID();
+        await tx.execute({ sql: `INSERT INTO challenger_adoption_events(id,action,candidate_id,deployment_json,previous_json,evidence_json,evidence_hash,created_at)
+          VALUES (?,'SUSPEND',?,?,?,?,?,?)`, args: [id, latest.candidate_id, researchJson(state.deployment),
+          researchJson(state.deployment), researchJson(report), researchHash(report), at] });
+        return { rolledBack: false, suspended: true,
+          state: { deployment: state.deployment, revision: id, source: 'suspended' } };
+      }
       const previous = parse(latest.previous_json) as ChallengerDeployment;
       const previousArtifact = await this.model(tx, previous.modelVersion);
       if (!same(deployment(previousArtifact, previous.selectorPolicy), previous)) throw new Error('rollback_deployment_unavailable');

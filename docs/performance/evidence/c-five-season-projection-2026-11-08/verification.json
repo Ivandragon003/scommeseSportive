@@ -1,0 +1,184 @@
+{
+  "verifiedAt": "2026-11-08T16:29:39.635109+00:00",
+  "scriptHash": "bfcf798ba6f8569898bd2618a055573328883e074d5da6c5eb1693e9c3f9c88a",
+  "planHash": "74ec9d44b133b26fbf4f599578b4ae1fd8f167252f12f70c74f2c3b7dcce380c",
+  "comparisonHash": "3bba0856de737f58ca436c3ea50b5604357908af7a6d8635cd7198913d64d2ee",
+  "datasetHash": "028fb60da21ac6985e70ef8cb910ae48f5f7292fe053b410302db825f80dbcca",
+  "quotesHash": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+  "catboostVersion": "1.2.8",
+  "featureProjection": {
+    "sourceFeatures": 56,
+    "modelFeatures": 40,
+    "modelFeatureNames": [
+      "home_elo",
+      "home_sample",
+      "home_goals_for",
+      "home_goals_against",
+      "home_xg_for",
+      "home_xg_against",
+      "home_xg_coverage",
+      "home_shots_for",
+      "home_shots_against",
+      "home_recent_points",
+      "home_recent_goal_diff",
+      "home_venue_goals_for",
+      "home_venue_goals_against",
+      "home_rest_days",
+      "home_season_goals_for",
+      "home_season_goals_against",
+      "away_elo",
+      "away_sample",
+      "away_goals_for",
+      "away_goals_against",
+      "away_xg_for",
+      "away_xg_against",
+      "away_xg_coverage",
+      "away_shots_for",
+      "away_shots_against",
+      "away_recent_points",
+      "away_recent_goal_diff",
+      "away_venue_goals_for",
+      "away_venue_goals_against",
+      "away_rest_days",
+      "away_season_goals_for",
+      "away_season_goals_against",
+      "elo_difference",
+      "lambda_home_A",
+      "lambda_away_A",
+      "league_0",
+      "league_1",
+      "league_2",
+      "league_3",
+      "league_4"
+    ],
+    "unusedSourceFeatures": [
+      "home_recent_xg_for",
+      "home_recent_xg_against",
+      "home_recent_adjusted_xg_for",
+      "home_recent_adjusted_xg_against",
+      "home_recent_xg_coverage",
+      "away_recent_xg_for",
+      "away_recent_xg_against",
+      "away_recent_adjusted_xg_for",
+      "away_recent_adjusted_xg_against",
+      "away_recent_xg_coverage",
+      "home_observed_rest_days",
+      "home_observed_matches_7d",
+      "home_observed_matches_14d",
+      "away_observed_rest_days",
+      "away_observed_matches_7d",
+      "away_observed_matches_14d"
+    ],
+    "baselineUsesCanonicalPerMatchFit": true
+  },
+  "nativeRowsAcrossFoldsPerArmRegressor": 42372,
+  "projectionChecks": {
+    "2021": {
+      "home": {
+        "maximumProjectionError": 1.3877787807814457e-17,
+        "maximumWeightedTreeMeanError": 8.673617379884035e-19,
+        "changedLeaves": 993,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      },
+      "away": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 8.673617379884035e-19,
+        "changedLeaves": 818,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      }
+    },
+    "2022": {
+      "home": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 3.469446951953614e-18,
+        "changedLeaves": 743,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      },
+      "away": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 8.673617379884035e-19,
+        "changedLeaves": 813,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      }
+    },
+    "2023": {
+      "home": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 3.469446951953614e-18,
+        "changedLeaves": 1070,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      },
+      "away": {
+        "maximumProjectionError": 1.3877787807814457e-17,
+        "maximumWeightedTreeMeanError": 1.3010426069826053e-18,
+        "changedLeaves": 820,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      }
+    },
+    "2024": {
+      "home": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 8.673617379884035e-19,
+        "changedLeaves": 913,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      },
+      "away": {
+        "maximumProjectionError": 3.469446951953614e-18,
+        "maximumWeightedTreeMeanError": 1.734723475976807e-18,
+        "changedLeaves": 860,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      }
+    },
+    "2025": {
+      "home": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 4.336808689942018e-19,
+        "changedLeaves": 802,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      },
+      "away": {
+        "maximumProjectionError": 6.938893903907228e-18,
+        "maximumWeightedTreeMeanError": 1.734723475976807e-18,
+        "changedLeaves": 648,
+        "onlyLeafValuesChanged": true,
+        "noLaterLabelsInProjection": true
+      }
+    }
+  },
+  "errors": {
+    "nativeRaw": 4.440892098500626e-16,
+    "projection": 1.3877787807814457e-17,
+    "calibrationCurve": 3.3306690738754696e-16,
+    "rawForecast": 1.2212453270876722e-15,
+    "calibratedForecast": 1.3322676295501878e-15,
+    "decisionReplay": 6.661338147750939e-16,
+    "metricsAndIntervals": 5.218048215738236e-15
+  },
+  "fiveCompleteSeasonsAndLeaguesVerified": true,
+  "chronologicalMembershipsAndUnusedReservedRowsVerified": true,
+  "allModelsFrozenBeforeTestScoring": true,
+  "noSyntheticQuotesOrDecisionFallbacks": true,
+  "noFitsOrOptimizerCalls": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false,
+  "dependencyHashes": {
+    "backend\\experiments\\c-tree-weight-research\\verify.py": "183637d34924e871c1a958bb64491d980d4b9eea8059f7abab5130613459fc9d",
+    "backend\\experiments\\c-tree-newton-one-research\\verify.py": "9ee08beb7c3081c36a148756166818fa6f29cdb4a5a465801d6b944bd53249ef",
+    "backend\\experiments\\c-tree-ignored-samples-research\\verify_selection.py": "9fae195e7873739abae3ca0e3a0c8760efca2a6fcc2ab2b7e20e45aa12cfb551",
+    "backend\\experiments\\c-tree-hierarchical-research\\verify_selection.py": "d5378a4ba5a730f84e068c8dc738781ae2b8821dbeaff3d74dd8edb5d08ce1c3",
+    "backend\\experiments\\c-tree-l2-research\\verify_selection.py": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+    "backend\\experiments\\c-tree-weight-research\\verify_selection.py": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "backend\\experiments\\c-tree-sample-projection\\verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b",
+    "backend\\ml\\train.py": "929d22cf763394b2201e045fee22b173681e223b54eb1e229e19d7384b6f1af1"
+  }
+}

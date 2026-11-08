@@ -120,7 +120,7 @@ prepartita, configurazione/versione del modello, idempotenza e budget API.
 I mercati disabilitati e i player props non diventano automaticamente ammessi.
 Per la copertura squadra della release corrente C e la registrazione esplicita
 dei mercati vedi [Modello C](../models/MODEL-C.md) e
-[Research](../research-platform.md#registrare-la-copertura-squadra-c).
+[Research](../research-platform.md#copertura-squadra-c-e-registro-di-ricerca).
 La modalità finanziata sopprime la registrazione prospettica opzionale delle sue
 inferenze aggiuntive: non avvia né modifica il pilot scientifico.
 
@@ -141,12 +141,10 @@ esplicitamente sintetiche; solo il callback HTTP viene sostituito nel budget
 store. I calcoli ordinari della baseline congelata avvengono in RAM, senza
 riaddestrare CatBoost C o aggiornare parametri/calibrazioni operativi.
 
-Il default usa un piccolo artefatto C di test. Con `FP_REAL_C_ARTIFACT` riferito
-a una copia privata esistente di C-906, il test controlla versione e hash
-approvati prima/dopo e percorre anche l'inferenza di quell'artefatto. Il file non
-viene distribuito con i test né modificato. Il test non è prova della copertura,
-licenza, disponibilità live, redditività o attivazione della Nightly; i controlli
-su servizi reali e il consenso alle scritture restano separati.
+Il test usa fixture isolate e un piccolo artefatto C dedicato. Rientra in
+`npm --prefix backend test`; dati sintetici e database temporaneo non attestano
+copertura, licenza, disponibilità live, redditività o attivazione della Nightly.
+La verifica dell'installazione reale resta distinta.
 
 La regressione temporale esclude dal forecast C una partita di fixture
 successiva all'istante della previsione. I parametri A sono fissi e sintetici:
