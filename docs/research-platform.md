@@ -15,9 +15,13 @@ operazioni diverse.
 | `research-challenger-development.js dataset/evaluate` | File locali; nessun provider, database o adozione |
 | `ml/train.py` | Fit CatBoost e output locali; non registra modelli |
 | `ml/prepare_current_challenger.py` | Un solo rifit locale della ricetta corrente, su input e ultimo fold congelato verificati; nessuna registrazione |
+| `ml/prepare_refreshed_challenger.py` | Un solo rifit locale a ricetta fissa con piano temporale esplicito, training più recente e calibrazione disgiunta; nessuna ricerca di parametri, registrazione o adozione |
+| `ml/prepare_seed_ensemble_challenger.py` | Cinque repliche con seed e pesi fissati nel piano, un solo ensemble delle log-intensità, gate di sviluppo prima di ulteriori diagnostiche; nessuna adozione |
 | `research-lifecycle.js finalize-coherent` | Nuovi artefatti locali con calibrazione coerente |
 | `research-experiments.js` | Registro diagnostico su SQLite locale esplicito; rifiuta URL remoti |
-| `research-lifecycle.js register/register-candidate/review-challenger/rollback-health` | Accede al database e può modificare registro o deployment C |
+| `research-lifecycle.js register/register-candidate/review-challenger/rollback-health` | Accede al database e può modificare registro o stato C; la review scientifica conserva il proprio gate |
+| `prepare-current-challenger-release.js` | Clona la candidata esatta con metadata di scelta operativa esplicita; non allena e non scrive sul database |
+| `replace-current-challenger.js` | Piano senza scritture oppure applicazione esplicita con backup, hash e controllo concorrenza; registra e attiva la sola release corrente |
 | `research.js register-market` | Registra benchmark e stato del mercato sul database |
 | `enable-challenger-team-markets.js` | Piano in sola lettura; applicazione esplicita e separata per registrare i mercati C mancanti come sperimentali |
 
@@ -114,8 +118,14 @@ dataset` costruisce input research T−15 e non sostituisce il builder Nightly.
 I bracci controllati sono dichiarati nel trainer; scelta e risultati di sviluppo
 non costituiscono adozione.
 
-Il percorso ripetibile della release corrente usa invece una sola ricetta
-fissa e l'ultimo fold del piano già congelato, senza selezionare iperparametri:
+## Preparazione della ricetta e della release
+
+La ricetta di base usa 40 feature, due regressori Poisson, 120 alberi per lato,
+profondità 5, learning rate 0,05, seed 20261027, 10 iterazioni Newton, peso ML
+0,75 e temperatura 0,8. La release `C-271c9573ba485956` applica inoltre la
+proiezione delle foglie descritta sotto e la calibrazione coerente ristimata.
+`prepare_current_challenger.py` prepara il fit di base: da solo non riproduce
+la release proiettata.
 
 ```powershell
 python backend/ml/prepare_current_challenger.py --input <nuovo-dataset.json> --split-plan <season-plan.json> --output <nuova-cartella-training>
@@ -124,17 +134,152 @@ node --test backend/test/current-baseline-core.test.js backend/test/current-chal
 ```
 
 Il manifest del dataset deve coincidere integralmente con la build corrente;
-la qualità e le esclusioni vengono ricontrollate. Timestamp e provenienza
-entrano nella nuova identità: un rifit non deve sovrascrivere o rietichettare
-l'artefatto distribuito. I test della release verificano il file canonico in
-`backend/current-models`, non registrano il nuovo output. Registrazione,
-adozione, deploy e validazione prospettica restano passaggi separati.
+qualità ed esclusioni vengono ricontrollate. Timestamp e provenienza entrano
+nella nuova identità. Conservare dataset, piano, report e artefatti con hash:
+non sovrascrivere o rietichettare il file distribuito. I test della release
+verificano il JSON canonico in `backend/current-models`, senza registrare nuovi
+output. Registrazione, attivazione operativa e review scientifica restano
+operazioni distinte.
 
-Un nuovo esperimento deve cambiare soltanto il fattore dichiarato, mantenendo
-ricetta, condizioni, campione e calibrazione comparabili. Cambiare insieme
-feature, modello, peso e temperatura non isola l'effetto della feature.
-`--include-c906-recipe`, disponibile con piano congelato, è un rifit diagnostico:
-non retrodata C906, non partecipa alla selezione e non è registrabile per l'adozione.
+Un esperimento cambia soltanto il fattore dichiarato, con ricetta, campione e
+calibrazione comparabili. `--include-c906-recipe` è un rifit diagnostico
+supportato dal trainer controllato: non retrodata un artefatto storico e non
+lo rende adottabile.
+
+### Attivazione operativa esplicita
+
+La release `C-271c9573ba485956` deriva dalla candidata esatta
+`C-f6d4ac23de48fbfa`: alberi, calibrazione e probabilità restano identici.
+`prepare-current-challenger-release.js` richiede sorgente e candidata con gli
+hash previsti, controlla la pipeline corrente e scrive un nuovo pacchetto con
+identità deterministica e metadata `releaseAdoption`. L'artefatto mantiene
+`productionValidated: false` e `independentEvidence: false`. Non è un nuovo fit
+e non trasforma una diagnostica in validazione scientifica.
+
+`replace-current-challenger.js` separa piano e applicazione. Prima di scrivere
+verifica il backup JSON mirato del registro, hash del piano e stato persistente;
+ricontrolla la concorrenza nella transazione. Registra l'evento `ADOPT` con
+`candidate_id` nullo ed evidenza `explicit-current-challenger-replacement-v1`:
+questa provenienza dichiara la scelta dell'utente senza simulare un GO
+prospettico. Lo stato remoto si verifica dopo l'applicazione, non dalla presenza
+del JSON nel pacchetto. Procedura nella
+[guida hosting](operations/hostless-deployment.md#compatibilità-del-modello-registrato-prima-del-rilascio).
+
+Il pacchetto contiene un solo C. I record storici restano nel database per le
+relazioni con giocate ed evidenze, senza ruolo operativo o di rollback.
+Tre errori tecnici indipendenti sospendono il nuovo deployment; non riattivano
+una release precedente. Le candidature sottoposte a review scientifica mantengono
+il gate prospettico descritto sotto.
+
+### Proiezione delle foglie della release corrente
+
+La trasformazione elimina dagli alberi l'effetto diretto di `home_sample` e
+`away_sample`, senza rifare il training. Per ogni albero raggruppa le foglie
+che differiscono soltanto nelle condizioni dei due contatori e assegna la
+media dei valori originali pesata dai supporti del training. I supporti delle
+5.293 righe sono verificati contro CatBoost nativo e `leaf_weights`.
+I gruppi senza supporto devono avere tutti i valori originali zero; in caso
+contrario la preparazione si arresta. Split, scala/bias, altre feature e media
+training del contributo di ogni albero restano invariati.
+
+Il preparatore isolato è
+[`c-tree-sample-projection/prepare.py`](../backend/experiments/c-tree-sample-projection/prepare.py).
+Il valutatore ricostruisce la calibrazione C con lo stesso stimatore e le stesse
+358 gare della ricetta di riferimento, usando le probabilità proiettate.
+Il profilo A viene mantenuto; la variante dei plateau non viene applicata.
+La verifica indipendente controlla supporti, proiezione, parità nativa/TypeScript,
+matrici di calibrazione, metriche e invarianza rispetto ai soli contatori.
+
+Conservare il piano e gli input originali congelati per riprodurre l'artefatto;
+una nuova build o nuovi dati richiedono un nuovo piano, non la modifica degli
+hash di una prova immutabile. Usare cartelle di output inizialmente assenti:
+
+```powershell
+python backend/experiments/c-tree-sample-projection/prepare.py --plan <piano-proiezione.json> --out <nuova-preparazione>
+node backend/experiments/c-tree-sample-projection/evaluate.cjs --plan <piano-proiezione.json> --prepared <nuova-preparazione> --out <nuova-valutazione>
+python backend/experiments/c-tree-sample-projection/verify.py --plan <piano-proiezione.json> --run <nuova-valutazione> --out <nuova-verifica.json>
+```
+
+Questi strumenti producono file locali. Non registrano il modello, non cambiano
+il deployment, non usano provider o credenziali. La verifica tecnica della
+trasformazione non dimostra un beneficio predittivo. Il runtime legge il JSON
+canonico già trasformato, senza Python, supporti training o fit durante le
+richieste. Il [piano originale](performance/evidence/c-tree-sample-projection-2026-11-08/plan.json)
+e la [verifica](performance/evidence/c-tree-sample-projection-2026-11-08/verification.json)
+restano prove immutabili con le identità e le restrizioni diagnostiche originarie;
+non sono una ricevuta dell'attivazione operativa corrente.
+
+### Evidenza sulla proiezione
+
+Il confronto cronologico applica la stessa regola a cinque coppie di ricette
+riaddestrate, una per anno dal 2021 al 2025. I pesi della release corrente non
+sono retrodatati. Per ogni fold, il training usa forecast e risultati disponibili
+prima del primo marzo; marzo–aprile restano riservati; maggio–giugno calibrano
+entrambi i bracci con label disponibili prima del primo luglio. Il test copre
+la stagione successiva. I test annuali sono disgiunti; gli esiti possono entrare
+nel training degli anni successivi soltanto dopo la disponibilità.
+
+Ogni fold allena una sola coppia di regressori della ricetta fissa; il secondo
+braccio ne proietta i valori con i supporti del proprio training. Metodo e gare
+di calibrazione coincidono, ma ogni braccio ristima il proprio profilo.
+Il dataset intermedio ha 56 variabili: entrambi i modelli selezionano per nome
+le stesse 40 feature. La baseline segue il confine Nightly 03:07 Europe/Rome.
+Understat è primaria; football-data.co.uk integra soltanto i mancanti e le quote
+reali, con matching non ambiguo e provenienza separata. Holdout, quarantena e
+ulteriori esclusioni di qualità dello studio restano applicati.
+
+| Misura finale 1X2 | Ricetta di riferimento | Con proiezione |
+|---|---:|---:|
+| Log Loss | 0,976551 | 0,976116 |
+| Brier multiclass | 0,581335 | 0,580939 |
+| ECE top-label, 10 fasce | 0,007329 | 0,012342 |
+
+Le 8.541 gare appaiate hanno tutte le stesse quote reali Bet365 di chiusura.
+Migliorano LL e Brier in 3/5 leghe (La Liga, Ligue 1 e Premier League), 4/5
+finestre e 13/25 celle lega/stagione; Bundesliga è mista e Serie A peggiora.
+Gli IC95% descrittivi delle differenze comprendono zero: LL
+[−0,001130; +0,000215], Brier [−0,000865; +0,000054]. Il bootstrap appaiato
+usa blocchi stagione/settimana UTC, 2.000 repliche e seed 20261108, condizionato
+ai modelli già stimati e senza correzione della precedente ricerca.
+
+Sono cinque finestre, non cinque calendari completi: il 2025/26 termina il
+4 aprile 2026. Disponibilità kickoff + due ore e archivi acquisiti a posteriori
+sono proxy; i prezzi closing non provano la disponibilità Nightly. La regola è
+stata scelta su sviluppo già consultato: gli errori medi inferiori non
+dimostrano superiorità futura, beneficio stabile nelle cinque leghe o ROI/CLV.
+L'adozione operativa è la scelta esplicita dell'utente e non il superamento di
+un gate scientifico.
+
+I controlli conservati verificano parità CatBoost nativa su 42.372 righe lungo
+i fold, supporti, curve, probabilità e metriche. Le ripetizioni di training e
+calibrazione fra anni non sono altrettante partite indipendenti. Queste prove
+non sostituiscono i test dell'applicazione.
+
+Dati di prova: [riepilogo e provenienza](performance/evidence/c-five-season-projection-2026-11-08/summary.json),
+[confronti stagionali](performance/evidence/c-five-season-projection-2026-11-08/season-comparison.csv),
+[confronti lega/stagione](performance/evidence/c-five-season-projection-2026-11-08/season-league-comparison.csv),
+[verifica indipendente](performance/evidence/c-five-season-projection-2026-11-08/verification.json).
+Per rigenerare il confronto servono gli input locali e i piani con gli hash
+originali, oltre agli strumenti in `backend/experiments/c-five-season-projection-research/`:
+`build_dataset_v3.cjs`, `freeze_execution.py`, `train.py`, `evaluate.cjs` e
+`verify.py`. Il wrapper v3 seleziona il contratto dati corretto; i riepiloghi
+versionati non sostituiscono dataset, piani e modelli.
+
+### Altri strumenti di preparazione
+
+- `prepare_refreshed_challenger.py` prepara un solo rifit a ricetta fissa con
+  finestre più recenti definite dal piano. Training e calibrazione sono
+  disgiunti; un vecchio test usato per calibrare perde il ruolo di test.
+- `prepare_seed_ensemble_challenger.py` combina cinque seed e pesi fissati
+  prima del fit. La media delle log-intensità è una media geometrica delle
+  intensità; non è la media delle probabilità e non seleziona il seed migliore.
+
+Entrambi richiedono piani che leghino hash degli input, riferimento, baseline,
+ricetta e partizioni. Non modificano la release corrente. I filtri di sviluppo
+vanno rispettati prima delle diagnostiche successive; nessun output locale
+costituisce adozione. Esiti e prove degli strumenti sperimentali restano nel
+[catalogo](FORMULARIO-scelte-scartate.md#varianti-c-non-adottate), senza creare
+una seconda descrizione del modello operativo.
 
 ## Verificare gli archivi operativi prima di un backtest
 
@@ -162,6 +307,23 @@ Le quote normalizzate come tiri senza una prova indipendente del mercato
 originario del provider sono escluse. Una linea elevata di `totals` o
 `alternate_totals` non dimostra che il prezzo riguardi i tiri. L'audit non
 corregge il mapping operativo né convalida automaticamente gli archivi legacy.
+
+### Replay del selettore C con prezzi reali di chiusura
+
+L'[esperimento locale](../backend/experiments/current-c-real-odds-backtest/README.md)
+congela dati e identità in sola lettura e applica la matematica corrente di C
+ai prezzi closing Bet365 presenti nei CSV verificati. Riusa inferenza,
+calibrazione, blending e blocchi effettivi del selettore, con parità contro il
+codice operativo e hash degli estratti. Conta tutte le opportunità dinamiche
+qualificate, conserva astensioni e verifica gli esiti contro le righe CSV.
+
+È uno scenario retrospettivo, non la riproduzione delle esecuzioni Nightly:
+l'orario storico del prezzo non è noto e la creazione dell'artefatto resta
+successiva alle partite. Non si inventano timestamp o provenienza `odds_api`.
+Restano esclusi target protetti/quarantena e periodi precedenti alla calibrazione
+del modello; i test già consultati non diventano indipendenti. I soli mercati
+valutabili sono quelli con prezzi reali presenti nel CSV. Il replay non cambia
+modello, soglie, registro o portafogli e non dimostra redditività reale.
 
 ## Metriche e decisione
 
@@ -212,6 +374,7 @@ python backend/scripts/audit-challenger-metrics.py --bundle docs/performance/evi
 Il ripristino estrae sette file di dati, non i pesi dei modelli. Gli output devono
 essere nuovi. Rileggere le fonti via HTTP è un'acquisizione
 diversa dal riprodurre l'archivio: non prova la prima disponibilità storica.
+
 ## Controlli tecnici
 
 Il [README ML](../backend/ml/README.md) indica i test. Le fixture

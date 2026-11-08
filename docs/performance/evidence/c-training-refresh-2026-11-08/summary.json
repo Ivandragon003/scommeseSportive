@@ -1,0 +1,142 @@
+{
+  "protocol": "fixed-refresh-probability-evidence-v1",
+  "decision": "NOT_ADOPTED",
+  "independentEvidence": false,
+  "productionAdoption": false,
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "candidateVersion": "C-ef19ab22179e3fe2",
+  "candidateParentVersion": "C-af486e762dffd1ec",
+  "datasetSha256": "8940f6468741a5fe7485efef1f1e5662faabb3df0f6e0c3ac264b7e175d8ca8a",
+  "planSha256": "e89ad7bf0a44b604606f62becc7c7a8b62e348028dd10ca2fab162260396dbaa",
+  "comparisonSha256": "8fbbaf6adb266be16b445cc752d8a24cd3728d59d8f7ff539e033b8eaf658c80",
+  "recipe": {
+    "kind": "calibrated_ensemble",
+    "iterations": 120,
+    "depth": 5,
+    "learningRate": 0.05,
+    "seed": 20261027,
+    "threadCount": 2,
+    "weight": 0.75,
+    "temperature": 0.8
+  },
+  "train": {
+    "n": 5968,
+    "from": "2022-08-27T01:07:00.000Z",
+    "to": "2025-12-30T02:07:00.000Z",
+    "availableThrough": "2025-12-30T22:15:00.000Z",
+    "matchIdsHash": "7b2e0f9622812ee3abc215e82d6994ca760b864fa0d0df14c27f6853bc76052e"
+  },
+  "calibration": {
+    "n": 595,
+    "from": "2026-01-01T02:07:00.000Z",
+    "to": "2026-04-04T01:07:00.000Z",
+    "availableThrough": "2026-04-04T20:45:00.000Z",
+    "matchIdsHash": "77508f45e84439e8e47071454208bf43996b6119632f49827b84907f83c3049c"
+  },
+  "diagnostic": {
+    "n": 57,
+    "from": "2026-10-27T17:30:00.000Z",
+    "to": "2026-11-02T20:00:00.000Z",
+    "alreadyConsulted": true,
+    "independent": false
+  },
+  "metrics": {
+    "raw": {
+      "incumbent": {
+        "n": 57,
+        "logLoss": 0.9447434637191425,
+        "brier": 0.5529747053556254,
+        "eceTopLabel10Bins": 0.1387811334050688,
+        "accuracy": 0.6491228070175439,
+        "over25LogLoss": 0.7314790094258976,
+        "over25Brier": 0.2687472332469411
+      },
+      "candidate": {
+        "n": 57,
+        "logLoss": 0.9448327262915786,
+        "brier": 0.5511418191052769,
+        "eceTopLabel10Bins": 0.16640111846793043,
+        "accuracy": 0.6491228070175439,
+        "over25LogLoss": 0.7360871314385553,
+        "over25Brier": 0.2708718461079742
+      },
+      "deltaCandidateMinusIncumbent": {
+        "logLoss": 8.926257243602187e-05,
+        "brier": -0.0018328862503484977,
+        "eceTopLabel10Bins": 0.02761998506286162,
+        "accuracy": 0,
+        "over25LogLoss": 0.0046081220126577005,
+        "over25Brier": 0.002124612861033104
+      }
+    },
+    "calibrated": {
+      "incumbent": {
+        "n": 57,
+        "logLoss": 0.948802254754272,
+        "brier": 0.5542802678471899,
+        "eceTopLabel10Bins": 0.1613984596770267,
+        "accuracy": 0.6491228070175439,
+        "over25LogLoss": 0.7313477653669622,
+        "over25Brier": 0.2686912427075627
+      },
+      "candidate": {
+        "n": 57,
+        "logLoss": 0.9609506267283277,
+        "brier": 0.5614682469198219,
+        "eceTopLabel10Bins": 0.2072755727609827,
+        "accuracy": 0.6491228070175439,
+        "over25LogLoss": 0.7362849866162354,
+        "over25Brier": 0.2709476828832748
+      },
+      "deltaCandidateMinusIncumbent": {
+        "logLoss": 0.012148371974055605,
+        "brier": 0.0071879790726320225,
+        "eceTopLabel10Bins": 0.045877113083956006,
+        "accuracy": 0,
+        "over25LogLoss": 0.004937221249273205,
+        "over25Brier": 0.0022564401757120822
+      }
+    },
+    "decision": {
+      "incumbent": {
+        "n": 57,
+        "logLoss": 0.9411710899411135,
+        "brier": 0.5493774147800109,
+        "eceTopLabel10Bins": 0.10597468992490013,
+        "accuracy": 0.631578947368421,
+        "over25LogLoss": 0.7299516382897944,
+        "over25Brier": 0.2680272717460884
+      },
+      "candidate": {
+        "n": 57,
+        "logLoss": 0.9511030962720083,
+        "brier": 0.5553955507902757,
+        "eceTopLabel10Bins": 0.13482226142206732,
+        "accuracy": 0.6140350877192983,
+        "over25LogLoss": 0.7345633970110371,
+        "over25Brier": 0.2701334835664664
+      },
+      "deltaCandidateMinusIncumbent": {
+        "logLoss": 0.00993200633089475,
+        "brier": 0.006018136010264796,
+        "eceTopLabel10Bins": 0.0288475714971672,
+        "accuracy": -0.01754385964912275,
+        "over25LogLoss": 0.0046117587212427535,
+        "over25Brier": 0.0021062118203779567
+      }
+    }
+  },
+  "checks": {
+    "nativeVsTypeScriptParityRows": 24,
+    "maximumRawParityError": 0,
+    "futureDiagnosticLabelsExcludedFromFitAndCalibration": true,
+    "inputsUnchanged": true
+  },
+  "limitations": [
+    "One fixed candidate, no hyperparameter search.",
+    "The old 595-game test is now calibration and is not test evidence for this candidate.",
+    "57 current-season games were previously consulted; no independent improvement can be claimed.",
+    "Actual creation dates are preserved; closing prices are not historical Nightly observations.",
+    "No database, registry, deployed model or wallet changes."
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "createdAt": "2026-11-08T15:09:24.443917+00:00",
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "incumbentHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "source": "backend/current-models/challenger.json",
+  "sides": {
+    "home": {
+      "treeCount": 120,
+      "effectiveParameters": {
+        "loss": {
+          "params": {},
+          "type": "Poisson"
+        },
+        "taskType": "CPU",
+        "leaf_estimation_method": "Newton",
+        "leaf_estimation_iterations": 10,
+        "leaf_estimation_backtracking": "AnyImprovement",
+        "l2_leaf_reg": 3,
+        "depth": 5
+      },
+      "supportBins": {
+        "empty": {
+          "leaves": 805,
+          "trainingTreeVisits": 0,
+          "absoluteLogContributionMedian": 0.0,
+          "absoluteLogContributionP95": 0.0,
+          "absoluteLogContributionMaximum": 0.0
+        },
+        "1_to_4": {
+          "leaves": 534,
+          "trainingTreeVisits": 1157,
+          "absoluteLogContributionMedian": 0.021495825856369468,
+          "absoluteLogContributionP95": 0.08269704646903438,
+          "absoluteLogContributionMaximum": 0.12599155774885518
+        },
+        "5_to_19": {
+          "leaves": 548,
+          "trainingTreeVisits": 5857,
+          "absoluteLogContributionMedian": 0.01194523117082156,
+          "absoluteLogContributionP95": 0.037504060377119654,
+          "absoluteLogContributionMaximum": 0.0548611099586677
+        },
+        "20_or_more": {
+          "leaves": 1953,
+          "trainingTreeVisits": 628146,
+          "absoluteLogContributionMedian": 0.004298862476243178,
+          "absoluteLogContributionP95": 0.02282426620217667,
+          "absoluteLogContributionMaximum": 0.04830773163597538
+        }
+      },
+      "allTrainingTreeVisits": 635160,
+      "emptyLeavesAllZero": true
+    },
+    "away": {
+      "treeCount": 120,
+      "effectiveParameters": {
+        "loss": {
+          "params": {},
+          "type": "Poisson"
+        },
+        "taskType": "CPU",
+        "leaf_estimation_method": "Newton",
+        "leaf_estimation_iterations": 10,
+        "leaf_estimation_backtracking": "AnyImprovement",
+        "l2_leaf_reg": 3,
+        "depth": 5
+      },
+      "supportBins": {
+        "empty": {
+          "leaves": 838,
+          "trainingTreeVisits": 0,
+          "absoluteLogContributionMedian": 0.0,
+          "absoluteLogContributionP95": 0.0,
+          "absoluteLogContributionMaximum": 0.0
+        },
+        "1_to_4": {
+          "leaves": 551,
+          "trainingTreeVisits": 1150,
+          "absoluteLogContributionMedian": 0.022160226299151164,
+          "absoluteLogContributionP95": 0.07920536718917587,
+          "absoluteLogContributionMaximum": 0.12229636349038964
+        },
+        "5_to_19": {
+          "leaves": 602,
+          "trainingTreeVisits": 6479,
+          "absoluteLogContributionMedian": 0.012687547265613722,
+          "absoluteLogContributionP95": 0.0394842414215094,
+          "absoluteLogContributionMaximum": 0.09306591017141627
+        },
+        "20_or_more": {
+          "leaves": 1849,
+          "trainingTreeVisits": 627531,
+          "absoluteLogContributionMedian": 0.003959933299412689,
+          "absoluteLogContributionP95": 0.019702840785716373,
+          "absoluteLogContributionMaximum": 0.0476069521817425
+        }
+      },
+      "allTrainingTreeVisits": 635160,
+      "emptyLeavesAllZero": true
+    }
+  },
+  "trainingOnly": true,
+  "labelsRead": false,
+  "newRealDataFits": 0,
+  "newValidationOrDiagnosticPredictions": 0,
+  "assessedChange": "leaf_estimation_iterations 10 -> 1; not executed on study data",
+  "decision": "No new predictive experiment: support/contribution association alone does not establish a harmful estimation mechanism or a justified remedy distinct in purpose from already rejected regularization searches.",
+  "limitations": [
+    "Contributions are per-tree log intensities, not prediction errors. Leaf support correlates with many structural and residual properties.",
+    "Ten iterations is an optimization/backtracking budget, not proof that ten full Newton steps are always taken.",
+    "One Newton step need not be smaller, more accurate or more stable; lowering the parameter is not monotonic shrinkage.",
+    "This is not an empirical rejection of leaf_estimation_iterations=1 and does not prove every possible tree modification cannot help."
+  ],
+  "references": [
+    "https://catboost.ai/docs/en/references/training-parameters/common#leaf_estimation_iterations",
+    "https://catboost.ai/docs/en/references/training-parameters/common#leaf_estimation_backtracking"
+  ]
+}

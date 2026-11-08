@@ -1,6 +1,10 @@
 # Current challenger
 
-`challenger.json` is the sole packaged C artifact. Its model, baseline,
+`challenger.json` is the sole packaged C artifact, `C-271c9573ba485956`.
+Its projected leaf values and calibration match the explicitly selected candidate.
+Operational adoption is a user decision, not a claim of independent statistical
+validation (`productionValidated` and `independentEvidence` remain false).
+Its model, baseline,
 configuration and content hashes are pinned by
 [`CurrentChallengerRelease.ts`](../src/research/CurrentChallengerRelease.ts).
 The runtime still requires explicit registry registration and a compatible

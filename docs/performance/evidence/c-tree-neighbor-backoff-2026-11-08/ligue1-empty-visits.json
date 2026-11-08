@@ -1,0 +1,2500 @@
+[
+  {
+    "matchId": "understat_29726",
+    "competition": "Ligue 1",
+    "season": "2025/2026",
+    "kickoffAt": "2026-02-08T19:45:00.000Z",
+    "forecastAt": "2026-02-08T02:07:00.000Z",
+    "homeGoals": 5,
+    "awayGoals": 0,
+    "quoteEvidence": [
+      {
+        "selection": "homeWin",
+        "market": "1x2",
+        "side": "home",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 1.44
+      },
+      {
+        "selection": "draw",
+        "market": "1x2",
+        "side": "draw",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 5
+      },
+      {
+        "selection": "awayWin",
+        "market": "1x2",
+        "side": "away",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 6
+      }
+    ],
+    "quoteTiming": "closing_download_observation_not_forecast_capture",
+    "forecasts": {
+      "incumbent": {
+        "raw": {
+          "homeWin": 0.5751562560857855,
+          "draw": 0.22371340848532795,
+          "awayWin": 0.2011303354288866,
+          "over25": 0.6110322873183447,
+          "under25": 0.3889677126816553,
+          "btts": 0.6184853097438947,
+          "bttsNo": 0.3815146902561053
+        },
+        "calibrated": {
+          "homeWin": 0.5995456444853182,
+          "draw": 0.21699064053385886,
+          "awayWin": 0.18346371498082276,
+          "over25": 0.6140633126251247,
+          "under25": 0.3859366873748753,
+          "btts": 0.6152558066466649,
+          "bttsNo": 0.3847441933533351
+        },
+        "decision": {
+          "homeWin": 0.6126322654080015,
+          "draw": 0.21019735164119624,
+          "awayWin": 0.17717038295080256,
+          "over25": 0.6166554657227576,
+          "under25": 0.38334453427724235,
+          "btts": 0.612740048084211,
+          "bttsNo": 0.387259951915789
+        }
+      },
+      "candidate": {
+        "raw": {
+          "homeWin": 0.5759291563508014,
+          "draw": 0.2233861427132411,
+          "awayWin": 0.20068470093595706,
+          "over25": 0.6118349515131001,
+          "under25": 0.3881650484868999,
+          "btts": 0.6187907786892622,
+          "bttsNo": 0.38120922131073776
+        },
+        "calibrated": {
+          "homeWin": 0.6003951602843726,
+          "draw": 0.21662777089452434,
+          "awayWin": 0.1829770688211032,
+          "over25": 0.6148828976288301,
+          "under25": 0.3851171023711699,
+          "btts": 0.6155431795559229,
+          "bttsNo": 0.38445682044407714
+        },
+        "decision": {
+          "homeWin": 0.613279562148927,
+          "draw": 0.20992066349800764,
+          "awayWin": 0.17679977435306546,
+          "over25": 0.6174419314760266,
+          "under25": 0.38255806852397345,
+          "btts": 0.6130599771983085,
+          "bttsNo": 0.3869400228016915
+        }
+      }
+    },
+    "inputDiagnostics": {
+      "home": {
+        "incumbent": 2.088649425381199,
+        "candidate": 2.093098300954324,
+        "delta": 0.004448875573125122,
+        "deltaLog": 0.002127759751541114,
+        "sample": 126,
+        "outsideTrainingRange": true
+      },
+      "away": {
+        "incumbent": 1.161864129227368,
+        "candidate": 1.161864129227368,
+        "delta": 0.0,
+        "deltaLog": 0.0,
+        "sample": 126,
+        "outsideTrainingRange": true
+      }
+    },
+    "emptyVisits": [
+      {
+        "side": "home",
+        "tree": 83,
+        "leaf": 31,
+        "originalSupport": 0,
+        "originalValue": 0,
+        "backoffValue": 0.002127759751541153,
+        "prefixLength": 4,
+        "prefixBits": 15,
+        "ancestorSupport": 7,
+        "retainedConditions": [
+          {
+            "bit": 0,
+            "feature": "home_xg_for",
+            "operator": ">",
+            "border": 2.3570518493652344,
+            "targetValue": 2.3902596825396825
+          },
+          {
+            "bit": 1,
+            "feature": "away_season_goals_for",
+            "operator": ">",
+            "border": 2.2768197059631348,
+            "targetValue": 2.3
+          },
+          {
+            "bit": 2,
+            "feature": "away_venue_goals_for",
+            "operator": ">",
+            "border": 1.3820855617523193,
+            "targetValue": 1.6666666666666667
+          },
+          {
+            "bit": 3,
+            "feature": "away_venue_goals_for",
+            "operator": ">",
+            "border": 0.711309552192688,
+            "targetValue": 1.6666666666666667
+          }
+        ],
+        "discardedConditions": [
+          {
+            "bit": 4,
+            "feature": "home_sample",
+            "operator": ">",
+            "border": 76.5,
+            "targetValue": 126
+          }
+        ],
+        "intensityMultiplier": 1.0021300250386986,
+        "ancestorTrainingExamples": [
+          {
+            "matchId": "understat_19046",
+            "competition": "La Liga",
+            "season": "2022/2023",
+            "forecastAt": "2022-10-16T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 1,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.414575,
+              "away_season_goals_for": 2.5,
+              "away_venue_goals_for": 3,
+              "home_sample": 8
+            }
+          },
+          {
+            "matchId": "understat_18688",
+            "competition": "Serie A",
+            "season": "2022/2023",
+            "forecastAt": "2022-10-23T01:07:00.000Z",
+            "homeGoals": 0,
+            "awayGoals": 1,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.4770726,
+              "away_season_goals_for": 2.5,
+              "away_venue_goals_for": 2.6,
+              "home_sample": 10
+            }
+          },
+          {
+            "matchId": "understat_23082",
+            "competition": "Bundesliga",
+            "season": "2023/2024",
+            "forecastAt": "2023-08-27T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 1,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.514720685714286,
+              "away_season_goals_for": 4,
+              "away_venue_goals_for": 1.5294117647058822,
+              "home_sample": 35
+            }
+          },
+          {
+            "matchId": "understat_23092",
+            "competition": "Bundesliga",
+            "season": "2023/2024",
+            "forecastAt": "2023-09-15T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.513180378378378,
+              "away_season_goals_for": 3.6666666666666665,
+              "away_venue_goals_for": 1.3888888888888888,
+              "home_sample": 37
+            }
+          },
+          {
+            "matchId": "understat_23191",
+            "competition": "Bundesliga",
+            "season": "2023/2024",
+            "forecastAt": "2023-12-17T02:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.6726592340425537,
+              "away_season_goals_for": 2.4285714285714284,
+              "away_venue_goals_for": 1.434782608695652,
+              "home_sample": 47
+            }
+          },
+          {
+            "matchId": "understat_27784",
+            "competition": "Bundesliga",
+            "season": "2024/2025",
+            "forecastAt": "2024-09-28T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.65001988888889,
+              "away_season_goals_for": 3.25,
+              "away_venue_goals_for": 1.9722222222222223,
+              "home_sample": 72
+            }
+          },
+          {
+            "matchId": "understat_27797",
+            "competition": "Bundesliga",
+            "season": "2024/2025",
+            "forecastAt": "2024-10-19T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 15,
+            "leafValue": 0.002127759751541153,
+            "splitFeatures": {
+              "home_xg_for": 2.6327998918918927,
+              "away_season_goals_for": 2.5,
+              "away_venue_goals_for": 1.5135135135135136,
+              "home_sample": 74
+            }
+          }
+        ]
+      }
+    ],
+    "metricDelta": {
+      "raw": {
+        "logLoss": -0.001342907090680412,
+        "brier": -0.000981509329508301
+      },
+      "calibrated": {
+        "logLoss": -0.0014159297485465405,
+        "brier": -0.0010153368832925003
+      },
+      "decision": {
+        "logLoss": -0.0010560250525851744,
+        "brier": -0.000748490808379465
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "rawInput": {
+        "logLoss": -0.0019526988756685681,
+        "brier": -0.0014001494354808214
+      },
+      "calibrationProfile": {
+        "logLoss": 0.0005367691271230268,
+        "brier": 0.00038481255218898724
+      }
+    }
+  },
+  {
+    "matchId": "understat_29742",
+    "competition": "Ligue 1",
+    "season": "2025/2026",
+    "kickoffAt": "2026-02-21T20:05:00.000Z",
+    "forecastAt": "2026-02-21T02:07:00.000Z",
+    "homeGoals": 3,
+    "awayGoals": 0,
+    "quoteEvidence": [
+      {
+        "selection": "homeWin",
+        "market": "1x2",
+        "side": "home",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 1.13
+      },
+      {
+        "selection": "draw",
+        "market": "1x2",
+        "side": "draw",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 9
+      },
+      {
+        "selection": "awayWin",
+        "market": "1x2",
+        "side": "away",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 15
+      }
+    ],
+    "quoteTiming": "closing_download_observation_not_forecast_capture",
+    "forecasts": {
+      "incumbent": {
+        "raw": {
+          "homeWin": 0.7895118463475813,
+          "draw": 0.14447138605412863,
+          "awayWin": 0.0660167675982903,
+          "over25": 0.6070094920137801,
+          "under25": 0.39299050798621993,
+          "btts": 0.4556917557245531,
+          "bttsNo": 0.5443082442754469
+        },
+        "calibrated": {
+          "homeWin": 0.8148874614600525,
+          "draw": 0.12555624144771604,
+          "awayWin": 0.059556297092230974,
+          "over25": 0.6163047142783826,
+          "under25": 0.3836952857216174,
+          "btts": 0.4479479445741209,
+          "bttsNo": 0.5520520554258791
+        },
+        "decision": {
+          "homeWin": 0.8192072313907007,
+          "draw": 0.12045450226681054,
+          "awayWin": 0.06033826634248889,
+          "over25": 0.6184351596810238,
+          "under25": 0.3815648403189762,
+          "btts": 0.4461497150604242,
+          "bttsNo": 0.5538502849395758
+        }
+      },
+      "candidate": {
+        "raw": {
+          "homeWin": 0.7573183292450281,
+          "draw": 0.16425268697670398,
+          "awayWin": 0.07842898377826772,
+          "over25": 0.5611691696293623,
+          "under25": 0.43883083037063775,
+          "btts": 0.4470114701286584,
+          "bttsNo": 0.5529885298713416
+        },
+        "calibrated": {
+          "homeWin": 0.7899209316844926,
+          "draw": 0.13895403975830076,
+          "awayWin": 0.07112502855720691,
+          "over25": 0.5730802584407603,
+          "under25": 0.42691974155923973,
+          "btts": 0.43729010620302067,
+          "bttsNo": 0.5627098937969793
+        },
+        "decision": {
+          "homeWin": 0.8002850940810471,
+          "draw": 0.13061310232376683,
+          "awayWin": 0.06910180359518636,
+          "over25": 0.5769522448676708,
+          "under25": 0.4230477551323292,
+          "btts": 0.43412186210359105,
+          "bttsNo": 0.565878137896409
+        }
+      }
+    },
+    "inputDiagnostics": {
+      "home": {
+        "incumbent": 2.4519022533983694,
+        "candidate": 2.2141851744962118,
+        "delta": -0.23771707890215765,
+        "deltaLog": -0.10197968447652517,
+        "sample": 128,
+        "outsideTrainingRange": true
+      },
+      "away": {
+        "incumbent": 0.7528174000892285,
+        "candidate": 0.7528174000892285,
+        "delta": 0.0,
+        "deltaLog": 0.0,
+        "sample": 55,
+        "outsideTrainingRange": false
+      }
+    },
+    "emptyVisits": [
+      {
+        "side": "home",
+        "tree": 112,
+        "leaf": 29,
+        "originalSupport": 0,
+        "originalValue": 0,
+        "backoffValue": -0.10197968447652521,
+        "prefixLength": 4,
+        "prefixBits": 13,
+        "ancestorSupport": 1,
+        "retainedConditions": [
+          {
+            "bit": 0,
+            "feature": "lambda_home_A",
+            "operator": ">",
+            "border": 1.9746856689453125,
+            "targetValue": 2.76960680392945
+          },
+          {
+            "bit": 1,
+            "feature": "home_rest_days",
+            "operator": "<=",
+            "border": 7.348610877990723,
+            "targetValue": 7.3381944444444445
+          },
+          {
+            "bit": 2,
+            "feature": "home_rest_days",
+            "operator": ">",
+            "border": 7.332985877990723,
+            "targetValue": 7.3381944444444445
+          },
+          {
+            "bit": 3,
+            "feature": "away_season_goals_against",
+            "operator": ">",
+            "border": 0.9183333516120911,
+            "targetValue": 2.3333333333333335
+          }
+        ],
+        "discardedConditions": [
+          {
+            "bit": 4,
+            "feature": "away_venue_goals_for",
+            "operator": ">",
+            "border": 0.9425824284553528,
+            "targetValue": 1.0714285714285714
+          }
+        ],
+        "intensityMultiplier": 0.9030478973732828,
+        "ancestorTrainingExamples": [
+          {
+            "matchId": "understat_18877",
+            "competition": "Serie A",
+            "season": "2022/2023",
+            "forecastAt": "2023-04-15T01:07:00.000Z",
+            "homeGoals": 0,
+            "awayGoals": 0,
+            "leaf": 13,
+            "leafValue": -0.10197968447652521,
+            "splitFeatures": {
+              "lambda_home_A": 2.0331068823450433,
+              "home_rest_days": 7.3381944444444445,
+              "away_season_goals_against": 1.4827586206896552,
+              "away_venue_goals_for": 0.5
+            }
+          }
+        ]
+      }
+    ],
+    "metricDelta": {
+      "raw": {
+        "logLoss": 0.041631159216206665,
+        "brier": 0.022488986175451517
+      },
+      "calibrated": {
+        "logLoss": 0.031117165631524973,
+        "brier": 0.014922235582207767
+      },
+      "decision": {
+        "logLoss": 0.023369049842124234,
+        "brier": 0.010884866721984889
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "rawInput": {
+        "logLoss": 0.031032623915789065,
+        "brier": 0.014882318722617981
+      },
+      "calibrationProfile": {
+        "logLoss": 8.454171573687996e-05,
+        "brier": 3.991685959008409e-05
+      }
+    }
+  },
+  {
+    "matchId": "understat_29746",
+    "competition": "Ligue 1",
+    "season": "2025/2026",
+    "kickoffAt": "2026-03-01T16:15:00.000Z",
+    "forecastAt": "2026-03-01T02:07:00.000Z",
+    "homeGoals": 1,
+    "awayGoals": 0,
+    "quoteEvidence": [
+      {
+        "selection": "homeWin",
+        "market": "1x2",
+        "side": "home",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 1.5
+      },
+      {
+        "selection": "draw",
+        "market": "1x2",
+        "side": "draw",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 4.2
+      },
+      {
+        "selection": "awayWin",
+        "market": "1x2",
+        "side": "away",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 6.5
+      }
+    ],
+    "quoteTiming": "closing_download_observation_not_forecast_capture",
+    "forecasts": {
+      "incumbent": {
+        "raw": {
+          "homeWin": 0.6463133788369302,
+          "draw": 0.21647210801145952,
+          "awayWin": 0.13721451315161023,
+          "over25": 0.5101845661586532,
+          "under25": 0.48981543384134685,
+          "btts": 0.4961689509558209,
+          "bttsNo": 0.5038310490441791
+        },
+        "calibrated": {
+          "homeWin": 0.6802540650010801,
+          "draw": 0.19736564223640768,
+          "awayWin": 0.12238029276251212,
+          "over25": 0.5186706163945763,
+          "under25": 0.48132938360542366,
+          "btts": 0.48866540649260937,
+          "bttsNo": 0.5113345935073906
+        },
+        "decision": {
+          "homeWin": 0.6682781915191466,
+          "draw": 0.20384906128260716,
+          "awayWin": 0.12787274719824665,
+          "over25": 0.5157523659331325,
+          "under25": 0.48424763406686755,
+          "btts": 0.4912441859957786,
+          "bttsNo": 0.5087558140042214
+        }
+      },
+      "candidate": {
+        "raw": {
+          "homeWin": 0.6513927188671527,
+          "draw": 0.21379977545710005,
+          "awayWin": 0.13480750567574704,
+          "over25": 0.5161466837883005,
+          "under25": 0.48385331621169947,
+          "btts": 0.49797201050387346,
+          "bttsNo": 0.5020279894961266
+        },
+        "calibrated": {
+          "homeWin": 0.6861143263734228,
+          "draw": 0.19330506533260877,
+          "awayWin": 0.12058060829396808,
+          "over25": 0.5251656091334748,
+          "under25": 0.47483439086652524,
+          "btts": 0.4899970394051899,
+          "bttsNo": 0.5100029605948101
+        },
+        "decision": {
+          "homeWin": 0.6727500887415696,
+          "draw": 0.200745929136732,
+          "awayWin": 0.12650398212169842,
+          "over25": 0.5218261472774395,
+          "under25": 0.4781738527225605,
+          "btts": 0.4929475830776218,
+          "bttsNo": 0.5070524169223782
+        }
+      }
+    },
+    "inputDiagnostics": {
+      "home": {
+        "incumbent": 2.009323443948462,
+        "candidate": 2.0392142024503612,
+        "delta": 0.02989075850189904,
+        "deltaLog": 0.014766468412608535,
+        "sample": 127,
+        "outsideTrainingRange": true
+      },
+      "away": {
+        "incumbent": 0.8899660725334989,
+        "candidate": 0.8899660725334989,
+        "delta": 0.0,
+        "deltaLog": 0.0,
+        "sample": 128,
+        "outsideTrainingRange": true
+      }
+    },
+    "emptyVisits": [
+      {
+        "side": "home",
+        "tree": 43,
+        "leaf": 12,
+        "originalSupport": 0,
+        "originalValue": 0,
+        "backoffValue": 0.01476646841260858,
+        "prefixLength": 4,
+        "prefixBits": 12,
+        "ancestorSupport": 37,
+        "retainedConditions": [
+          {
+            "bit": 0,
+            "feature": "lambda_home_A",
+            "operator": "<=",
+            "border": 1.9593039751052856,
+            "targetValue": 1.9157717252872424
+          },
+          {
+            "bit": 1,
+            "feature": "away_shots_for",
+            "operator": "<=",
+            "border": 11.061553001403809,
+            "targetValue": 11.0390625
+          },
+          {
+            "bit": 2,
+            "feature": "home_goals_for",
+            "operator": ">",
+            "border": 1.299350619316101,
+            "targetValue": 1.6062992125984252
+          },
+          {
+            "bit": 3,
+            "feature": "away_sample",
+            "operator": ">",
+            "border": 61.5,
+            "targetValue": 128
+          }
+        ],
+        "discardedConditions": [
+          {
+            "bit": 4,
+            "feature": "home_shots_against",
+            "operator": "<=",
+            "border": 9.816497802734375,
+            "targetValue": 9.51968503937008
+          }
+        ],
+        "intensityMultiplier": 1.0148760313288145,
+        "ancestorTrainingExamples": [
+          {
+            "matchId": "understat_22932",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-02-16T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6192191160129628,
+              "away_shots_for": 10.435483870967742,
+              "home_goals_for": 1.5,
+              "away_sample": 62,
+              "home_shots_against": 13.596774193548388
+            }
+          },
+          {
+            "matchId": "understat_22970",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-15T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3916693567229996,
+              "away_shots_for": 10.151515151515152,
+              "home_goals_for": 1.378787878787879,
+              "away_sample": 66,
+              "home_shots_against": 10.696969696969697
+            }
+          },
+          {
+            "matchId": "understat_22181",
+            "competition": "Premier League",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-16T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6259330637454446,
+              "away_shots_for": 10.242424242424242,
+              "home_goals_for": 1.4642857142857142,
+              "away_sample": 66,
+              "home_shots_against": 17.428571428571427
+            }
+          },
+          {
+            "matchId": "understat_23598",
+            "competition": "Ligue 1",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-17T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8754050427482751,
+              "away_shots_for": 10.158730158730158,
+              "home_goals_for": 1.8253968253968254,
+              "away_sample": 63,
+              "home_shots_against": 12.73015873015873
+            }
+          },
+          {
+            "matchId": "understat_22596",
+            "competition": "Serie A",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-01T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.784789084224597,
+              "away_shots_for": 10.417910447761194,
+              "home_goals_for": 1.4179104477611941,
+              "away_sample": 67,
+              "home_shots_against": 11.91044776119403
+            }
+          },
+          {
+            "matchId": "understat_23621",
+            "competition": "Ligue 1",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-07T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.746547131515855,
+              "away_shots_for": 10.2,
+              "home_goals_for": 1.5076923076923077,
+              "away_sample": 65,
+              "home_shots_against": 14.415384615384616
+            }
+          },
+          {
+            "matchId": "understat_22615",
+            "competition": "Serie A",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-12T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7471525859371992,
+              "away_shots_for": 10.304347826086957,
+              "home_goals_for": 1.4057971014492754,
+              "away_sample": 69,
+              "home_shots_against": 12.652173913043478
+            }
+          },
+          {
+            "matchId": "understat_23002",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-20T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.893743774329571,
+              "away_shots_for": 10.289855072463768,
+              "home_goals_for": 1.7536231884057971,
+              "away_sample": 69,
+              "home_shots_against": 13.173913043478262
+            }
+          },
+          {
+            "matchId": "understat_26982",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2024-08-15T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6604096304086162,
+              "away_shots_for": 10.868421052631579,
+              "home_goals_for": 1.4266666666666667,
+              "away_sample": 76,
+              "home_shots_against": 10.56
+            }
+          },
+          {
+            "matchId": "understat_26650",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-09-22T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6475972154612342,
+              "away_shots_for": 10.9875,
+              "home_goals_for": 1.6625,
+              "away_sample": 80,
+              "home_shots_against": 11.275
+            }
+          },
+          {
+            "matchId": "understat_26667",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-10-05T01:07:00.000Z",
+            "homeGoals": 5,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8110658969116438,
+              "away_shots_for": 11.012195121951219,
+              "home_goals_for": 1.4878048780487805,
+              "away_sample": 82,
+              "home_shots_against": 14.890243902439025
+            }
+          },
+          {
+            "matchId": "understat_27080",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2024-10-20T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8512911050945673,
+              "away_shots_for": 11.023529411764706,
+              "home_goals_for": 1.6588235294117648,
+              "away_sample": 85,
+              "home_shots_against": 13.905882352941177
+            }
+          },
+          {
+            "matchId": "understat_27498",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-11-30T02:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7989753500347556,
+              "away_shots_for": 10.955056179775282,
+              "home_goals_for": 1.8181818181818181,
+              "away_sample": 89,
+              "home_shots_against": 11.738636363636363
+            }
+          },
+          {
+            "matchId": "understat_26746",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-09T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.92644291216717,
+              "away_shots_for": 10.933333333333334,
+              "home_goals_for": 1.3333333333333333,
+              "away_sample": 90,
+              "home_shots_against": 15.311111111111112
+            }
+          },
+          {
+            "matchId": "understat_27519",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-15T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7826244136199847,
+              "away_shots_for": 10.989010989010989,
+              "home_goals_for": 1.4,
+              "away_sample": 91,
+              "home_shots_against": 16.533333333333335
+            }
+          },
+          {
+            "matchId": "understat_27532",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-30T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.941669184389792,
+              "away_shots_for": 11.043010752688172,
+              "home_goals_for": 1.4130434782608696,
+              "away_sample": 93,
+              "home_shots_against": 11.554347826086957
+            }
+          },
+          {
+            "matchId": "understat_27571",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-01-18T02:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7754882210216187,
+              "away_shots_for": 11,
+              "home_goals_for": 1.431578947368421,
+              "away_sample": 96,
+              "home_shots_against": 11.505263157894737
+            }
+          },
+          {
+            "matchId": "understat_27178",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-01-20T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.722411821745336,
+              "away_shots_for": 9.873684210526315,
+              "home_goals_for": 1.6631578947368422,
+              "away_sample": 95,
+              "home_shots_against": 13.547368421052632
+            }
+          },
+          {
+            "matchId": "understat_27192",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-01T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8327921304102153,
+              "away_shots_for": 9.927835051546392,
+              "home_goals_for": 1.8041237113402062,
+              "away_sample": 97,
+              "home_shots_against": 11.350515463917526
+            }
+          },
+          {
+            "matchId": "understat_27582",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-02T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6263766749144148,
+              "away_shots_for": 10.928571428571429,
+              "home_goals_for": 1.4795918367346939,
+              "away_sample": 98,
+              "home_shots_against": 11.53061224489796
+            }
+          },
+          {
+            "matchId": "understat_27601",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-09T02:07:00.000Z",
+            "homeGoals": 5,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7950885824270622,
+              "away_shots_for": 10.848484848484848,
+              "home_goals_for": 1.505050505050505,
+              "away_sample": 99,
+              "home_shots_against": 12.181818181818182
+            }
+          },
+          {
+            "matchId": "understat_27617",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-24T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7846952469454247,
+              "away_shots_for": 10.742574257425742,
+              "home_goals_for": 1.49,
+              "away_sample": 101,
+              "home_shots_against": 11.68
+            }
+          },
+          {
+            "matchId": "understat_27243",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-09T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8076343236929113,
+              "away_shots_for": 10.049019607843137,
+              "home_goals_for": 1.495049504950495,
+              "away_sample": 102,
+              "home_shots_against": 10
+            }
+          },
+          {
+            "matchId": "understat_28269",
+            "competition": "Ligue 1",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-09T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6821938043550344,
+              "away_shots_for": 9.85483870967742,
+              "home_goals_for": 1.368421052631579,
+              "away_sample": 62,
+              "home_shots_against": 11.905263157894737
+            }
+          },
+          {
+            "matchId": "understat_27659",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-29T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6066748354304374,
+              "away_shots_for": 10.671641791044776,
+              "home_goals_for": 1.4761904761904763,
+              "away_sample": 67,
+              "home_shots_against": 11.561904761904762
+            }
+          },
+          {
+            "matchId": "understat_27680",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-14T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7755500713107362,
+              "away_shots_for": 10.850467289719626,
+              "home_goals_for": 1.6822429906542056,
+              "away_sample": 107,
+              "home_shots_against": 10.065420560747663
+            }
+          },
+          {
+            "matchId": "understat_27690",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-19T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.817046484357362,
+              "away_shots_for": 10.99074074074074,
+              "home_goals_for": 1.4953271028037383,
+              "away_sample": 108,
+              "home_shots_against": 11.560747663551401
+            }
+          },
+          {
+            "matchId": "understat_27692",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7895812594412421,
+              "away_shots_for": 10.623853211009175,
+              "home_goals_for": 1.4587155963302751,
+              "away_sample": 109,
+              "home_shots_against": 11.504587155963304
+            }
+          },
+          {
+            "matchId": "understat_27694",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3900711281165778,
+              "away_shots_for": 10.549295774647888,
+              "home_goals_for": 1.303030303030303,
+              "away_sample": 71,
+              "home_shots_against": 10.121212121212121
+            }
+          },
+          {
+            "matchId": "understat_27695",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.5531627653261064,
+              "away_shots_for": 10.862385321100918,
+              "home_goals_for": 1.5,
+              "away_sample": 109,
+              "home_shots_against": 10.231481481481481
+            }
+          },
+          {
+            "matchId": "understat_27699",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7674194140762354,
+              "away_shots_for": 11.045871559633028,
+              "home_goals_for": 1.688073394495413,
+              "away_sample": 109,
+              "home_shots_against": 10.064220183486238
+            }
+          },
+          {
+            "matchId": "understat_27312",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-05T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3327183629269157,
+              "away_shots_for": 10.01834862385321,
+              "home_goals_for": 1.6788990825688073,
+              "away_sample": 109,
+              "home_shots_against": 12.770642201834862
+            }
+          },
+          {
+            "matchId": "understat_27718",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-11T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.745473149775392,
+              "away_shots_for": 10.479452054794521,
+              "home_goals_for": 1.6846846846846846,
+              "away_sample": 73,
+              "home_shots_against": 10.045045045045045
+            }
+          },
+          {
+            "matchId": "understat_28345",
+            "competition": "Ligue 1",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-17T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8773237656505877,
+              "away_shots_for": 10.895522388059701,
+              "home_goals_for": 1.3653846153846154,
+              "away_sample": 67,
+              "home_shots_against": 12.471153846153847
+            }
+          },
+          {
+            "matchId": "understat_27354",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-23T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6157962324431951,
+              "away_shots_for": 10.991150442477876,
+              "home_goals_for": 1.3274336283185841,
+              "away_sample": 113,
+              "home_shots_against": 11.805309734513274
+            }
+          },
+          {
+            "matchId": "understat_27734",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-24T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6794816256488958,
+              "away_shots_for": 10.445945945945946,
+              "home_goals_for": 1.4424778761061947,
+              "away_sample": 74,
+              "home_shots_against": 10.725663716814159
+            }
+          },
+          {
+            "matchId": "understat_29863",
+            "competition": "Serie A",
+            "season": "2025/2026",
+            "forecastAt": "2025-08-31T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.76758600757299,
+              "away_shots_for": 10.808695652173913,
+              "home_goals_for": 1.4782608695652173,
+              "away_sample": 115,
+              "home_shots_against": 11.826086956521738
+            }
+          }
+        ]
+      }
+    ],
+    "metricDelta": {
+      "raw": {
+        "logLoss": -0.007828222396627449,
+        "brier": -0.005371778125248278
+      },
+      "calibrated": {
+        "logLoss": -0.00857791696995408,
+        "brier": -0.0057368482525637365
+      },
+      "decision": {
+        "logLoss": -0.0066693803021213305,
+        "brier": -0.004550547507367442
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "rawInput": {
+        "logLoss": -0.008877511820809897,
+        "brier": -0.00594090972072675
+      },
+      "calibrationProfile": {
+        "logLoss": 0.00029959485085548354,
+        "brier": 0.0002040614681628472
+      }
+    }
+  },
+  {
+    "matchId": "understat_29757",
+    "competition": "Ligue 1",
+    "season": "2025/2026",
+    "kickoffAt": "2026-03-08T16:15:00.000Z",
+    "forecastAt": "2026-03-08T02:07:00.000Z",
+    "homeGoals": 1,
+    "awayGoals": 1,
+    "quoteEvidence": [
+      {
+        "selection": "homeWin",
+        "market": "1x2",
+        "side": "home",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 1.53
+      },
+      {
+        "selection": "draw",
+        "market": "1x2",
+        "side": "draw",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 4.1
+      },
+      {
+        "selection": "awayWin",
+        "market": "1x2",
+        "side": "away",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-01T09:11:15.388Z",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 6
+      }
+    ],
+    "quoteTiming": "closing_download_observation_not_forecast_capture",
+    "forecasts": {
+      "incumbent": {
+        "raw": {
+          "homeWin": 0.5508705951924215,
+          "draw": 0.24486693239443977,
+          "awayWin": 0.2042624724131385,
+          "over25": 0.514113421949421,
+          "under25": 0.485886578050579,
+          "btts": 0.5497344726330712,
+          "bttsNo": 0.4502655273669288
+        },
+        "calibrated": {
+          "homeWin": 0.5626468202774868,
+          "draw": 0.24887565990363622,
+          "awayWin": 0.18847751981887717,
+          "over25": 0.5134769466329735,
+          "under25": 0.4865230533670265,
+          "btts": 0.5502414536719831,
+          "bttsNo": 0.44975854632801693
+        },
+        "decision": {
+          "homeWin": 0.57488071032737,
+          "draw": 0.24426104410842533,
+          "awayWin": 0.18085824556420424,
+          "over25": 0.5154787633779639,
+          "under25": 0.48452123662203606,
+          "btts": 0.5483931400546296,
+          "bttsNo": 0.4516068599453704
+        }
+      },
+      "candidate": {
+        "raw": {
+          "homeWin": 0.5560652728790333,
+          "draw": 0.24272508697907824,
+          "awayWin": 0.20120964014188833,
+          "over25": 0.519469483378722,
+          "under25": 0.480530516621278,
+          "btts": 0.5520866541852778,
+          "bttsNo": 0.4479133458147222
+        },
+        "calibrated": {
+          "homeWin": 0.5702489496192877,
+          "draw": 0.2456953434642795,
+          "awayWin": 0.1840557069164329,
+          "over25": 0.5192816964905693,
+          "under25": 0.4807183035094307,
+          "btts": 0.5521699253719049,
+          "bttsNo": 0.4478300746280951
+        },
+        "decision": {
+          "homeWin": 0.5806789712919861,
+          "draw": 0.24182739187614713,
+          "awayWin": 0.17749363683186728,
+          "over25": 0.5209792996976604,
+          "under25": 0.47902070030233956,
+          "btts": 0.550599900959181,
+          "bttsNo": 0.449400099040819
+        }
+      }
+    },
+    "inputDiagnostics": {
+      "home": {
+        "incumbent": 1.8101325702609625,
+        "candidate": 1.8370601590854723,
+        "delta": 0.02692758882450974,
+        "deltaLog": 0.014766468412608535,
+        "sample": 128,
+        "outsideTrainingRange": true
+      },
+      "away": {
+        "incumbent": 1.103326658766259,
+        "candidate": 1.103326658766259,
+        "delta": 0.0,
+        "deltaLog": 0.0,
+        "sample": 95,
+        "outsideTrainingRange": false
+      }
+    },
+    "emptyVisits": [
+      {
+        "side": "home",
+        "tree": 43,
+        "leaf": 12,
+        "originalSupport": 0,
+        "originalValue": 0,
+        "backoffValue": 0.01476646841260858,
+        "prefixLength": 4,
+        "prefixBits": 12,
+        "ancestorSupport": 37,
+        "retainedConditions": [
+          {
+            "bit": 0,
+            "feature": "lambda_home_A",
+            "operator": "<=",
+            "border": 1.9593039751052856,
+            "targetValue": 1.7551071248024241
+          },
+          {
+            "bit": 1,
+            "feature": "away_shots_for",
+            "operator": "<=",
+            "border": 11.061553001403809,
+            "targetValue": 11.031578947368422
+          },
+          {
+            "bit": 2,
+            "feature": "home_goals_for",
+            "operator": ">",
+            "border": 1.299350619316101,
+            "targetValue": 1.6015625
+          },
+          {
+            "bit": 3,
+            "feature": "away_sample",
+            "operator": ">",
+            "border": 61.5,
+            "targetValue": 95
+          }
+        ],
+        "discardedConditions": [
+          {
+            "bit": 4,
+            "feature": "home_shots_against",
+            "operator": "<=",
+            "border": 9.816497802734375,
+            "targetValue": 9.46875
+          }
+        ],
+        "intensityMultiplier": 1.0148760313288145,
+        "ancestorTrainingExamples": [
+          {
+            "matchId": "understat_22932",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-02-16T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6192191160129628,
+              "away_shots_for": 10.435483870967742,
+              "home_goals_for": 1.5,
+              "away_sample": 62,
+              "home_shots_against": 13.596774193548388
+            }
+          },
+          {
+            "matchId": "understat_22970",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-15T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3916693567229996,
+              "away_shots_for": 10.151515151515152,
+              "home_goals_for": 1.378787878787879,
+              "away_sample": 66,
+              "home_shots_against": 10.696969696969697
+            }
+          },
+          {
+            "matchId": "understat_22181",
+            "competition": "Premier League",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-16T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6259330637454446,
+              "away_shots_for": 10.242424242424242,
+              "home_goals_for": 1.4642857142857142,
+              "away_sample": 66,
+              "home_shots_against": 17.428571428571427
+            }
+          },
+          {
+            "matchId": "understat_23598",
+            "competition": "Ligue 1",
+            "season": "2023/2024",
+            "forecastAt": "2024-03-17T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8754050427482751,
+              "away_shots_for": 10.158730158730158,
+              "home_goals_for": 1.8253968253968254,
+              "away_sample": 63,
+              "home_shots_against": 12.73015873015873
+            }
+          },
+          {
+            "matchId": "understat_22596",
+            "competition": "Serie A",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-01T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.784789084224597,
+              "away_shots_for": 10.417910447761194,
+              "home_goals_for": 1.4179104477611941,
+              "away_sample": 67,
+              "home_shots_against": 11.91044776119403
+            }
+          },
+          {
+            "matchId": "understat_23621",
+            "competition": "Ligue 1",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-07T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.746547131515855,
+              "away_shots_for": 10.2,
+              "home_goals_for": 1.5076923076923077,
+              "away_sample": 65,
+              "home_shots_against": 14.415384615384616
+            }
+          },
+          {
+            "matchId": "understat_22615",
+            "competition": "Serie A",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-12T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7471525859371992,
+              "away_shots_for": 10.304347826086957,
+              "home_goals_for": 1.4057971014492754,
+              "away_sample": 69,
+              "home_shots_against": 12.652173913043478
+            }
+          },
+          {
+            "matchId": "understat_23002",
+            "competition": "La Liga",
+            "season": "2023/2024",
+            "forecastAt": "2024-04-20T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.893743774329571,
+              "away_shots_for": 10.289855072463768,
+              "home_goals_for": 1.7536231884057971,
+              "away_sample": 69,
+              "home_shots_against": 13.173913043478262
+            }
+          },
+          {
+            "matchId": "understat_26982",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2024-08-15T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6604096304086162,
+              "away_shots_for": 10.868421052631579,
+              "home_goals_for": 1.4266666666666667,
+              "away_sample": 76,
+              "home_shots_against": 10.56
+            }
+          },
+          {
+            "matchId": "understat_26650",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-09-22T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6475972154612342,
+              "away_shots_for": 10.9875,
+              "home_goals_for": 1.6625,
+              "away_sample": 80,
+              "home_shots_against": 11.275
+            }
+          },
+          {
+            "matchId": "understat_26667",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-10-05T01:07:00.000Z",
+            "homeGoals": 5,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8110658969116438,
+              "away_shots_for": 11.012195121951219,
+              "home_goals_for": 1.4878048780487805,
+              "away_sample": 82,
+              "home_shots_against": 14.890243902439025
+            }
+          },
+          {
+            "matchId": "understat_27080",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2024-10-20T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8512911050945673,
+              "away_shots_for": 11.023529411764706,
+              "home_goals_for": 1.6588235294117648,
+              "away_sample": 85,
+              "home_shots_against": 13.905882352941177
+            }
+          },
+          {
+            "matchId": "understat_27498",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-11-30T02:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7989753500347556,
+              "away_shots_for": 10.955056179775282,
+              "home_goals_for": 1.8181818181818181,
+              "away_sample": 89,
+              "home_shots_against": 11.738636363636363
+            }
+          },
+          {
+            "matchId": "understat_26746",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-09T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.92644291216717,
+              "away_shots_for": 10.933333333333334,
+              "home_goals_for": 1.3333333333333333,
+              "away_sample": 90,
+              "home_shots_against": 15.311111111111112
+            }
+          },
+          {
+            "matchId": "understat_27519",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-15T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7826244136199847,
+              "away_shots_for": 10.989010989010989,
+              "home_goals_for": 1.4,
+              "away_sample": 91,
+              "home_shots_against": 16.533333333333335
+            }
+          },
+          {
+            "matchId": "understat_27532",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2024-12-30T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.941669184389792,
+              "away_shots_for": 11.043010752688172,
+              "home_goals_for": 1.4130434782608696,
+              "away_sample": 93,
+              "home_shots_against": 11.554347826086957
+            }
+          },
+          {
+            "matchId": "understat_27571",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-01-18T02:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7754882210216187,
+              "away_shots_for": 11,
+              "home_goals_for": 1.431578947368421,
+              "away_sample": 96,
+              "home_shots_against": 11.505263157894737
+            }
+          },
+          {
+            "matchId": "understat_27178",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-01-20T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.722411821745336,
+              "away_shots_for": 9.873684210526315,
+              "home_goals_for": 1.6631578947368422,
+              "away_sample": 95,
+              "home_shots_against": 13.547368421052632
+            }
+          },
+          {
+            "matchId": "understat_27192",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-01T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8327921304102153,
+              "away_shots_for": 9.927835051546392,
+              "home_goals_for": 1.8041237113402062,
+              "away_sample": 97,
+              "home_shots_against": 11.350515463917526
+            }
+          },
+          {
+            "matchId": "understat_27582",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-02T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6263766749144148,
+              "away_shots_for": 10.928571428571429,
+              "home_goals_for": 1.4795918367346939,
+              "away_sample": 98,
+              "home_shots_against": 11.53061224489796
+            }
+          },
+          {
+            "matchId": "understat_27601",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-09T02:07:00.000Z",
+            "homeGoals": 5,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7950885824270622,
+              "away_shots_for": 10.848484848484848,
+              "home_goals_for": 1.505050505050505,
+              "away_sample": 99,
+              "home_shots_against": 12.181818181818182
+            }
+          },
+          {
+            "matchId": "understat_27617",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-02-24T02:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7846952469454247,
+              "away_shots_for": 10.742574257425742,
+              "home_goals_for": 1.49,
+              "away_sample": 101,
+              "home_shots_against": 11.68
+            }
+          },
+          {
+            "matchId": "understat_27243",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-09T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8076343236929113,
+              "away_shots_for": 10.049019607843137,
+              "home_goals_for": 1.495049504950495,
+              "away_sample": 102,
+              "home_shots_against": 10
+            }
+          },
+          {
+            "matchId": "understat_28269",
+            "competition": "Ligue 1",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-09T02:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6821938043550344,
+              "away_shots_for": 9.85483870967742,
+              "home_goals_for": 1.368421052631579,
+              "away_sample": 62,
+              "home_shots_against": 11.905263157894737
+            }
+          },
+          {
+            "matchId": "understat_27659",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-03-29T02:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6066748354304374,
+              "away_shots_for": 10.671641791044776,
+              "home_goals_for": 1.4761904761904763,
+              "away_sample": 67,
+              "home_shots_against": 11.561904761904762
+            }
+          },
+          {
+            "matchId": "understat_27680",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-14T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7755500713107362,
+              "away_shots_for": 10.850467289719626,
+              "home_goals_for": 1.6822429906542056,
+              "away_sample": 107,
+              "home_shots_against": 10.065420560747663
+            }
+          },
+          {
+            "matchId": "understat_27690",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-19T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.817046484357362,
+              "away_shots_for": 10.99074074074074,
+              "home_goals_for": 1.4953271028037383,
+              "away_sample": 108,
+              "home_shots_against": 11.560747663551401
+            }
+          },
+          {
+            "matchId": "understat_27692",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7895812594412421,
+              "away_shots_for": 10.623853211009175,
+              "home_goals_for": 1.4587155963302751,
+              "away_sample": 109,
+              "home_shots_against": 11.504587155963304
+            }
+          },
+          {
+            "matchId": "understat_27694",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3900711281165778,
+              "away_shots_for": 10.549295774647888,
+              "home_goals_for": 1.303030303030303,
+              "away_sample": 71,
+              "home_shots_against": 10.121212121212121
+            }
+          },
+          {
+            "matchId": "understat_27695",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.5531627653261064,
+              "away_shots_for": 10.862385321100918,
+              "home_goals_for": 1.5,
+              "away_sample": 109,
+              "home_shots_against": 10.231481481481481
+            }
+          },
+          {
+            "matchId": "understat_27699",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-04-27T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.7674194140762354,
+              "away_shots_for": 11.045871559633028,
+              "home_goals_for": 1.688073394495413,
+              "away_sample": 109,
+              "home_shots_against": 10.064220183486238
+            }
+          },
+          {
+            "matchId": "understat_27312",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-05T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.3327183629269157,
+              "away_shots_for": 10.01834862385321,
+              "home_goals_for": 1.6788990825688073,
+              "away_sample": 109,
+              "home_shots_against": 12.770642201834862
+            }
+          },
+          {
+            "matchId": "understat_27718",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-11T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 2,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.745473149775392,
+              "away_shots_for": 10.479452054794521,
+              "home_goals_for": 1.6846846846846846,
+              "away_sample": 73,
+              "home_shots_against": 10.045045045045045
+            }
+          },
+          {
+            "matchId": "understat_28345",
+            "competition": "Ligue 1",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-17T01:07:00.000Z",
+            "homeGoals": 2,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.8773237656505877,
+              "away_shots_for": 10.895522388059701,
+              "home_goals_for": 1.3653846153846154,
+              "away_sample": 67,
+              "home_shots_against": 12.471153846153847
+            }
+          },
+          {
+            "matchId": "understat_27354",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-23T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 1,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6157962324431951,
+              "away_shots_for": 10.991150442477876,
+              "home_goals_for": 1.3274336283185841,
+              "away_sample": 113,
+              "home_shots_against": 11.805309734513274
+            }
+          },
+          {
+            "matchId": "understat_27734",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-24T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 3,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.6794816256488958,
+              "away_shots_for": 10.445945945945946,
+              "home_goals_for": 1.4424778761061947,
+              "away_sample": 74,
+              "home_shots_against": 10.725663716814159
+            }
+          },
+          {
+            "matchId": "understat_29863",
+            "competition": "Serie A",
+            "season": "2025/2026",
+            "forecastAt": "2025-08-31T01:07:00.000Z",
+            "homeGoals": 4,
+            "awayGoals": 0,
+            "leaf": 28,
+            "leafValue": 0.01476646841260858,
+            "splitFeatures": {
+              "lambda_home_A": 1.76758600757299,
+              "away_shots_for": 10.808695652173913,
+              "home_goals_for": 1.4782608695652173,
+              "away_sample": 115,
+              "home_shots_against": 11.826086956521738
+            }
+          }
+        ]
+      }
+    ],
+    "metricDelta": {
+      "raw": {
+        "logLoss": 0.008785456310334006,
+        "brier": 0.00775168080354216
+      },
+      "calibrated": {
+        "logLoss": 0.012861086699143875,
+        "brier": 0.011752888531240457
+      },
+      "decision": {
+        "logLoss": 0.010013291353853315,
+        "brier": 0.00917885697869647
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "rawInput": {
+        "logLoss": 0.013292755338705997,
+        "brier": 0.012181580341223852
+      },
+      "calibrationProfile": {
+        "logLoss": -0.00043166863956212165,
+        "brier": -0.00042869180998350576
+      }
+    }
+  },
+  {
+    "matchId": "understat_32018",
+    "competition": "Ligue 1",
+    "season": "2026/2027",
+    "kickoffAt": "2026-11-01T16:15:00.000Z",
+    "forecastAt": "2026-11-01T02:07:00.000Z",
+    "homeGoals": 3,
+    "awayGoals": 1,
+    "quoteEvidence": [
+      {
+        "selection": "homeWin",
+        "market": "1x2",
+        "side": "home",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-08T11:49:15.493067+00:00",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 2.5
+      },
+      {
+        "selection": "draw",
+        "market": "1x2",
+        "side": "draw",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-08T11:49:15.493067+00:00",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 3.5
+      },
+      {
+        "selection": "awayWin",
+        "market": "1x2",
+        "side": "away",
+        "bookmaker": "Bet365",
+        "source": "football_data_csv",
+        "priceType": "closing",
+        "capturedAt": "2026-11-08T11:49:15.493067+00:00",
+        "timestampEvidence": "observed_snapshot",
+        "odds": 2.75
+      }
+    ],
+    "quoteTiming": "closing_download_observation_not_forecast_capture",
+    "forecasts": {
+      "incumbent": {
+        "raw": {
+          "homeWin": 0.38332032790367976,
+          "draw": 0.28425405549211685,
+          "awayWin": 0.33242561660420333,
+          "over25": 0.44109801451377306,
+          "under25": 0.5589019854862269,
+          "btts": 0.5289820821874024,
+          "bttsNo": 0.4710179178125976
+        },
+        "calibrated": {
+          "homeWin": 0.38131996839328247,
+          "draw": 0.27398858169766366,
+          "awayWin": 0.3446914499090536,
+          "over25": 0.44434775256229836,
+          "under25": 0.5556522474377017,
+          "btts": 0.5260851903769325,
+          "bttsNo": 0.47391480962306753
+        },
+        "decision": {
+          "homeWin": 0.38128900000000043,
+          "draw": 0.2735850000000001,
+          "awayWin": 0.3451260000000001,
+          "over25": 0.4444755537306759,
+          "under25": 0.5555244462693241,
+          "btts": 0.5259707464939206,
+          "bttsNo": 0.4740292535060794
+        }
+      },
+      "candidate": {
+        "raw": {
+          "homeWin": 0.3850128331013214,
+          "draw": 0.2837977885344121,
+          "awayWin": 0.33118937836426665,
+          "over25": 0.4427324277283835,
+          "under25": 0.5572675722716165,
+          "btts": 0.530187075108208,
+          "bttsNo": 0.46981292489179205
+        },
+        "calibrated": {
+          "homeWin": 0.38278027881908805,
+          "draw": 0.27379017877412304,
+          "awayWin": 0.34342954240678925,
+          "over25": 0.4459006816680374,
+          "under25": 0.5540993183319626,
+          "btts": 0.5273685102480276,
+          "bttsNo": 0.47263148975197244
+        },
+        "decision": {
+          "homeWin": 0.3824050000000001,
+          "draw": 0.27343300000000004,
+          "awayWin": 0.3441619999999999,
+          "over25": 0.4460134202242254,
+          "under25": 0.5539865797757746,
+          "btts": 0.5272714824774796,
+          "bttsNo": 0.47272851752252043
+        }
+      }
+    },
+    "inputDiagnostics": {
+      "home": {
+        "incumbent": 1.3523576093320964,
+        "candidate": 1.359929257825712,
+        "delta": 0.00757164849361569,
+        "deltaLog": 0.005583235500812633,
+        "sample": 42,
+        "outsideTrainingRange": false
+      },
+      "away": {
+        "incumbent": 1.214770936566436,
+        "candidate": 1.214770936566436,
+        "delta": 0.0,
+        "deltaLog": 0.0,
+        "sample": 147,
+        "outsideTrainingRange": true
+      }
+    },
+    "emptyVisits": [
+      {
+        "side": "home",
+        "tree": 3,
+        "leaf": 11,
+        "originalSupport": 0,
+        "originalValue": 0,
+        "backoffValue": 0.005583235500812754,
+        "prefixLength": 4,
+        "prefixBits": 11,
+        "ancestorSupport": 6,
+        "retainedConditions": [
+          {
+            "bit": 0,
+            "feature": "home_elo",
+            "operator": ">",
+            "border": 1517.465087890625,
+            "targetValue": 1548.5113655138514
+          },
+          {
+            "bit": 1,
+            "feature": "away_venue_goals_against",
+            "operator": ">",
+            "border": 1.2299679517745972,
+            "targetValue": 1.5205479452054795
+          },
+          {
+            "bit": 2,
+            "feature": "lambda_home_A",
+            "operator": "<=",
+            "border": 1.523805856704712,
+            "targetValue": 1.518470637282161
+          },
+          {
+            "bit": 3,
+            "feature": "away_sample",
+            "operator": ">",
+            "border": 110.5,
+            "targetValue": 147
+          }
+        ],
+        "discardedConditions": [
+          {
+            "bit": 4,
+            "feature": "home_sample",
+            "operator": "<=",
+            "border": 109.5,
+            "targetValue": 42
+          }
+        ],
+        "intensityMultiplier": 1.0055988508079274,
+        "ancestorTrainingExamples": [
+          {
+            "matchId": "understat_26953",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-10T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 3,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1518.4189609743564,
+              "away_venue_goals_against": 1.509090909090909,
+              "lambda_home_A": 1.4350299007528933,
+              "away_sample": 111,
+              "home_sample": 111
+            }
+          },
+          {
+            "matchId": "understat_27344",
+            "competition": "La Liga",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-18T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 2,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1518.298347773272,
+              "away_venue_goals_against": 1.2678571428571428,
+              "lambda_home_A": 1.503006977817568,
+              "away_sample": 112,
+              "home_sample": 112
+            }
+          },
+          {
+            "matchId": "understat_27723",
+            "competition": "Serie A",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-18T01:07:00.000Z",
+            "homeGoals": 3,
+            "awayGoals": 2,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1567.468401741489,
+              "away_venue_goals_against": 1.4464285714285714,
+              "lambda_home_A": 1.3061251856327507,
+              "away_sample": 112,
+              "home_sample": 111
+            }
+          },
+          {
+            "matchId": "understat_26972",
+            "competition": "Premier League",
+            "season": "2024/2025",
+            "forecastAt": "2025-05-25T01:07:00.000Z",
+            "homeGoals": 0,
+            "awayGoals": 1,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1538.3632302931496,
+              "away_venue_goals_against": 1.6071428571428572,
+              "lambda_home_A": 1.4369459089671994,
+              "away_sample": 113,
+              "home_sample": 113
+            }
+          },
+          {
+            "matchId": "understat_29847",
+            "competition": "Serie A",
+            "season": "2025/2026",
+            "forecastAt": "2025-08-23T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1637.6111748030905,
+              "away_venue_goals_against": 1.4736842105263157,
+              "lambda_home_A": 1.485726191656295,
+              "away_sample": 114,
+              "home_sample": 113
+            }
+          },
+          {
+            "matchId": "understat_29172",
+            "competition": "La Liga",
+            "season": "2025/2026",
+            "forecastAt": "2025-08-24T01:07:00.000Z",
+            "homeGoals": 1,
+            "awayGoals": 0,
+            "leaf": 27,
+            "leafValue": 0.005583235500812753,
+            "splitFeatures": {
+              "home_elo": 1519.2107070924349,
+              "away_venue_goals_against": 1.5964912280701755,
+              "lambda_home_A": 1.28622512319093,
+              "away_sample": 115,
+              "home_sample": 115
+            }
+          }
+        ]
+      }
+    ],
+    "metricDelta": {
+      "raw": {
+        "logLoss": -0.004405661557112639,
+        "brier": -0.0031641720468297274
+      },
+      "calibrated": {
+        "logLoss": -0.003822305277515148,
+        "brier": -0.002781823244446424
+      },
+      "decision": {
+        "logLoss": -0.002922638633768293,
+        "brier": -0.0021273378639997675
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "rawInput": {
+        "logLoss": -0.003871721288029928,
+        "brier": -0.002814554299703509
+      },
+      "calibrationProfile": {
+        "logLoss": 4.941601051555722e-05,
+        "brier": 3.273105525741782e-05
+      }
+    }
+  }
+]

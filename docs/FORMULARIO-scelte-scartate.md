@@ -70,6 +70,53 @@ Nel confronto A/C iniziale, il test finale di 745 partite aveva dopo calibrazion
 
 L'esperimento non usa quote Nightly reali per blending e non misura ROI. L'as-of locale non certifica l'assenza di sovrapposizione fra pretraining del modello e storico; checkpoint e scelte sono successivi a parte dei periodi valutati. L'errore massimo rispetto alle probabilità pubblicate della ricetta C rifit è 5,55×10⁻¹⁶. Codice e risultati sperimentali locali sono stati ritirati su richiesta; questo esito resta per evitare ripetizioni. Il [report storico](https://github.com/Ivandragon003/scommeseSportive/blob/03db58dc38076891e2fe8b2ba73ef89afad0e8ee/docs/performance/timesfm-c-2026-11-03.md) è consultabile nel commit immutabile precedente alla rimozione.
 
+## Varianti C non adottate
+
+Le prove seguenti confrontano varianti isolate con la ricetta di riferimento
+senza proiezione. Non sono nuovi confronti contro la release operativa corrente.
+Le coorti sono già state consultate: i criteri diagnostici servono a scartare
+varianti, non a certificare capacità predittiva futura. LL e Brier inferiori
+sono preferibili. Salvo diversa indicazione, il confronto finale usa 652 gare
+appaiate, calibrazione coerente e le stesse quote reali Bet365 di chiusura;
+non riproduce le esecuzioni Nightly e non misura ROI/CLV.
+
+| Variante | Criterio ed esito | Prova immutabile |
+|---|---|---|
+| Rifit con dati più recenti | Ricetta fissa; training 5.968 gare e calibrazione 595 successive. Sulle 57 diagnostiche dopo blending LL 0,941171→0,951103 e Brier 0,549377→0,555396, con ECE peggiore. Non adottato; campione piccolo e già osservato, nessuna bocciatura generale del riaddestramento. | [Riepilogo](performance/evidence/c-training-refresh-2026-11-08/summary.json) |
+| Ensemble di cinque seed, pesi uguali | Criterio sviluppo: LL e Brier migliori sulle 317 gare e in almeno 4/5 leghe. LL 0,964956→0,968120 e Brier 0,573749→0,576032; peggiorano in 5/5 leghe. Arresto prima delle diagnostiche successive. | [Riepilogo](performance/evidence/c-seed-ensemble-2026-11-08/summary.json) |
+| Estremi dei plateau isotonici | Difetto di rappresentazione riprodotto; la correzione migliora il fitting. Dopo blending LL 0,985187→0,984515 e Brier 0,586461→0,585904, ma solo 3/5 leghe migliori contro almeno 4/5 richieste e IC comprendenti zero. Non adottata; miglior fitting non equivale a migliore previsione. | [Riepilogo](performance/evidence/c-parameter-audit-2026-11-08/summary.json) |
+| Foglie vuote: media del primo antenato supportato | Training grezzo invariato; sul confronto finale 4/5 leghe migliori, Ligue 1 peggiore. Fallisce criterio 5/5; IC globali comprendenti zero. | [Riepilogo](performance/evidence/c-tree-empty-leaf-backoff-2026-11-08/summary.json) |
+| Foglie vuote: vicini a minima distanza Hamming | Training grezzo invariato; dopo blending migliorano entrambe le metriche in 3/5 leghe, peggiorano La Liga e Premier League. Fallisce criterio 5/5. | [Riepilogo](performance/evidence/c-tree-neighbor-backoff-2026-11-08/summary.json) |
+| Sei pesi per blocchi di alberi | Scelta su sviluppo cronologico e refit sui 317 esempi. Dopo blending LL 0,985187→0,985817 e Brier 0,586461→0,587068; migliorano solo Bundesliga e La Liga. Fallisce criterio finale 5/5, ECE peggiore. | [Risultati](performance/evidence/c-tree-weight-research-2026-11-08/summary.json), [selezione](performance/evidence/c-tree-weight-research-2026-11-08/selection.json) |
+| Regolarizzazione L2=10 o 30 | Prima verificata la riproduzione della ricetta. Nessuna variante migliora LL e Brier di sviluppo in 5/5 leghe: arresto prima di candidata finale e calibrazione. | [Riepilogo](performance/evidence/c-tree-l2-research-2026-11-08/summary.json) |
+| Ordered boosting | Variante unica contro Plain, altri parametri fissi. Non migliora entrambe le metriche in 5/5 leghe sullo sviluppo; arresto prima del replay. | [Riepilogo](performance/evidence/c-tree-ordered-research-2026-11-08/summary.json) |
+| Shrinkage gerarchico | Tre intensità prefissate; beneficio congiunto in 2/5, 3/5 e 3/5 leghe. Nessuna supera il filtro 5/5 sullo sviluppo. | [Riepilogo](performance/evidence/c-tree-hierarchical-research-2026-11-08/summary.json) |
+| Sei pesi minimax fra leghe | Quattro regolarizzazioni, fit solo training; tutte migliorano il training ma soltanto 2/5 leghe nella selezione successiva. Nessuna candidata finale. Non estendere la ricerca sullo stesso campione già consultato. | [Riepilogo](performance/evidence/c-tree-minimax-research-2026-11-08/summary.json) |
+| Rifit senza contatori negli split | `ignored_features` conserva schema di 40 input. Sulle 317 gare migliorano LL e Brier in 3/5 leghe, peggiorano Premier League e Serie A. Fallisce criterio 5/5; niente calibrazione o replay successivo. Non è la proiezione post-fit adottata. | [Riepilogo](performance/evidence/c-tree-ignored-samples-research-2026-11-08/summary.json) |
+| Una iterazione Newton invece di dieci | Variante fissa valutata comunque dopo calibrazione; beneficio congiunto solo Premier League e Serie A. LL finale 0,985187→0,985306, Brier 0,586461→0,586719; IC comprendenti zero. ECE aggregata migliore non compensa il mancato beneficio primario. | [Riepilogo](performance/evidence/c-tree-newton-one-research-2026-11-08/summary.json), [verifica](performance/evidence/c-tree-newton-one-research-2026-11-08/verification.json) |
+
+Le verifiche native e indipendenti associate alle prove attestano calcoli e
+compatibilità tecnica, non generalizzazione. Una variante respinta non dimostra
+che ogni possibile metodo della stessa famiglia sia inutile; non giustifica
+però ripetere microvarianti sugli stessi test fino a ottenere un vincitore.
+
+## Confini delle prove sulla proiezione adottata
+
+La proiezione dei valori delle foglie è una scelta operativa esplicita
+attualmente adottata; non va elencata come variante ancora esclusa dal prodotto.
+Il confronto diagnostico su 652 gare migliorava LL e Brier in 4/5 leghe,
+peggiorando La Liga: falliva il criterio prefissato 5/5.
+Il confronto cronologico su 8.541 gare con nuovi fit annuali mostra un
+miglioramento medio piccolo, in 3/5 leghe, 4/5 finestre e 13/25 celle
+lega/stagione. ECE aggregata peggiora e gli IC delle differenze includono zero.
+Non costituisce validazione scientifica o prova di redditività; il 2025/26 si
+ferma al 4 aprile. La scelta operativa non modifica questi esiti.
+
+Prove: [diagnostica](performance/evidence/c-tree-sample-projection-2026-11-08/summary.json),
+[cinque finestre](performance/evidence/c-five-season-projection-2026-11-08/summary.json),
+[CSV lega/stagione](performance/evidence/c-five-season-projection-2026-11-08/season-league-comparison.csv).
+Meccanismo corrente e limiti sono nel [modello C](models/MODEL-C.md).
+
 ## Non sono bocciature empiriche da ripetere
 
 - **Corner B2, concessi dall'avversario:** il documento luglio lo indicava come bloccato; la verifica successiva e il codice corrente mostrano che il dato di corner concessi è già collegato. Il vecchio studio riportava LL 5/5 leghe migliore, ma non dimostrava impatto economico. Non riproporlo come assente. Corner e falli rimangono comunque disabilitati per le giocate finché non esistono quote reali sufficienti e un backtest di mercato favorevole; quote sintetiche non dimostrano value.
@@ -83,59 +130,27 @@ Non emerge una modifica ad alta priorità o con beneficio C dimostrato. La dispo
 
 Per ogni eventuale studio futuro: identificare il modello e il mercato; congelare in anticipo ipotesi, confronto e metriche; rispettare disponibilità as-of e ritardo risultati; escludere i 745 target protetti e applicare la quarantena dei 22 ID anche alla storia richiesta dalle nuove feature; non confondere la baseline canonica già congelata con una sua riscrittura. Separare training, selezione, calibrazione e test; confrontare le stesse partite su LL, Brier e calibrazione dopo l'intera pipeline, aggiungendo quote solo se reali e disponibili all'istante corretto. Le coorti storiche già consultate restano sviluppo, non una nuova conferma indipendente. Per un'eventuale adozione si applicano le regole prospettiche già esistenti: candidati congelati prima degli esiti, primi 500 `FUTURE_TEST`, almeno quattro leghe, quattro mesi e quattro periodi, confronto appaiato e valutazione unica. Questo catalogo non registra candidati e non riserva un nuovo campione.
 
-## Modello A — Fase 3: xG/xGA distinti per sede
+## Modello A: xG/xGA distinti per sede
 
-**Decisione: Fase 3 conclusa — variante xG/xGA casa/trasferta non adottata.** Questa implementazione non ha dimostrato un miglioramento sufficiente nel replay; ciò non dimostra che le informazioni per sede siano inutili in assoluto.
+**Non adottati:** ramo Poisson-xG con quattro indici per squadra (xG fatti e
+concessi in casa e trasferta), shrinkage fisso di otto gare e scala dei gol
+stimata dal training. Replay grezzo su 6.022 ID, cinque leghe e stagioni
+2022/23–2026/27, storico minimo 300 gare, refit ogni 60, risultati disponibili
+con proxy kickoff + due ore; stesso Dixon–Coles e peso ensemble 0,5.
 
-Obiettivo: confrontare il ramo Poisson-xG aggregato con un ramo a quattro indici per squadra: xG fatti e concessi in casa e in trasferta. Il riferimento usa le medie della lega per sede; lo shrinkage fisso equivale a otto partite per sede, verso indice 1. Per squadre senza storia nella sede si usa il riferimento di lega. Le medie separate incorporano il vantaggio casa: non si applica un ulteriore moltiplicatore. La scala dei gol usa il rapporto tra gol reali e xG del solo allenamento. Il peso dell’ensemble rimane 0,5.
+| Periodo | N | Brier aggregato / per sede | LL aggregata / per sede |
+|---|---:|---:|---:|
+| Precedente al 2026/27 | 5.574 | 0,24107 / 0,24137 | 0,67501 / 0,67564 |
+| 2026/27 separato | 448 | 0,23540 / 0,23599 | 0,66294 / 0,66426 |
+| Totale | 6.022 | 0,24065 / 0,24097 | 0,67412 / 0,67479 |
 
-Protocollo: 6.022 ID del replay preesistente, cinque campionati, stagioni 2022/23–2026/27; almeno 300 partite storiche per lega, refit ogni 60, disponibilità risultato approssimata a kickoff + 2 ore. Le previsioni usano la stessa matrice Dixon–Coles grezza e gli stessi eventi per entrambe le versioni. Periodo 2026/27 riservato separatamente, ma già consultato nel precedente replay: non è un holdout indipendente mai osservato. Lo shrinkage era fissato prima dell’esecuzione della variante.
+Gli IC95% appaiati del delta Brier sono [−0,000321; +0,000942] nel primo
+periodo e [−0,001920; +0,003057] nel secondo: includono zero. Il periodo
+2026/27 era già consultato; contesto operativo, calibrazione e blending non
+sono riprodotti integralmente. Nessun beneficio robusto o economico dimostrato;
+non trasferire automaticamente l'esito ad altre formule o a C.
 
-| Periodo | N | Brier aggregato | Brier per sede | Log Loss aggregato | Log Loss per sede |
-|---|---:|---:|---:|---:|---:|
-| Precedente al 2026/27 | 5574 | 0.24107 | 0.24137 | 0.67501 | 0.67564 |
-| 2026/27 separato | 448 | 0.23540 | 0.23599 | 0.66294 | 0.66426 |
-| Totale | 6022 | 0.24065 | 0.24097 | 0.67412 | 0.67479 |
-
-| Campionato | Stagione | N | Brier aggregato | Brier per sede | Log Loss aggregato | Log Loss per sede |
-|---|---|---:|---:|---:|---:|---:|
-| Serie A | 2022/2023 | 80 | 0.24517 | 0.24470 | 0.68350 | 0.68217 |
-| Serie A | 2023/2024 | 380 | 0.24324 | 0.24289 | 0.67943 | 0.67861 |
-| Serie A | 2024/2025 | 380 | 0.24796 | 0.24719 | 0.68905 | 0.68753 |
-| Serie A | 2025/2026 | 380 | 0.25251 | 0.25149 | 0.69827 | 0.69624 |
-| Serie A | 2026/2027 | 99 | 0.24796 | 0.25113 | 0.68966 | 0.69578 |
-| Premier League | 2022/2023 | 78 | 0.23496 | 0.24182 | 0.66358 | 0.67754 |
-| Premier League | 2023/2024 | 380 | 0.23049 | 0.23214 | 0.65383 | 0.65703 |
-| Premier League | 2024/2025 | 380 | 0.24422 | 0.24217 | 0.68110 | 0.67698 |
-| Premier League | 2025/2026 | 380 | 0.24671 | 0.24545 | 0.68693 | 0.68418 |
-| Premier League | 2026/2027 | 89 | 0.25245 | 0.24530 | 0.69806 | 0.68324 |
-| La Liga | 2022/2023 | 80 | 0.25233 | 0.25821 | 0.69778 | 0.71000 |
-| La Liga | 2023/2024 | 380 | 0.23355 | 0.23537 | 0.65976 | 0.66355 |
-| La Liga | 2024/2025 | 380 | 0.23990 | 0.23997 | 0.67241 | 0.67277 |
-| La Liga | 2025/2026 | 380 | 0.24625 | 0.24581 | 0.68551 | 0.68461 |
-| La Liga | 2026/2027 | 108 | 0.22912 | 0.23309 | 0.65019 | 0.65850 |
-| Bundesliga | 2023/2024 | 306 | 0.23184 | 0.23254 | 0.65646 | 0.65793 |
-| Bundesliga | 2024/2025 | 306 | 0.23322 | 0.23144 | 0.65924 | 0.65528 |
-| Bundesliga | 2025/2026 | 306 | 0.22862 | 0.23039 | 0.64850 | 0.65234 |
-| Bundesliga | 2026/2027 | 72 | 0.20860 | 0.21098 | 0.60626 | 0.61171 |
-| Ligue 1 | 2022/2023 | 80 | 0.23073 | 0.23564 | 0.65372 | 0.66369 |
-| Ligue 1 | 2023/2024 | 306 | 0.24776 | 0.25025 | 0.68867 | 0.69389 |
-| Ligue 1 | 2024/2025 | 306 | 0.24339 | 0.24392 | 0.67964 | 0.68079 |
-| Ligue 1 | 2025/2026 | 306 | 0.24298 | 0.24325 | 0.67922 | 0.67973 |
-| Ligue 1 | 2026/2027 | 80 | 0.23347 | 0.23335 | 0.65900 | 0.65922 |
-
-Calibrazione complessiva delle fasce: previsto → osservato (numero di partite); le coorti possono differire tra varianti.
-
-| Fascia | Aggregato | Per sede |
-|---|---|---|
-| 30-40% | 36.75% → 37.91% (n=364) | 36.85% → 39.78% (n=538) |
-| 40-50% | 45.62% → 46.66% (n=1648) | 45.51% → 47.28% (n=1859) |
-| 50-60% | 54.98% → 53.91% (n=2235) | 54.81% → 56.80% (n=2234) |
-| 60-70% | 64.25% → 63.78% (n=1491) | 63.85% → 65.42% (n=1206) |
-| 70-80% | 73.19% → 74.60% (n=248) | 73.30% → 72.14% (n=140) |
-
-Bootstrap appaiato per campionato-settimana, 2.000 repliche, seed 14571: IC95% della differenza Brier per-sede meno aggregato [−0,000321; +0,000942] nel periodo precedente e [−0,001920; +0,003057] nel periodo 2026/27. Entrambi comprendono zero; non è dimostrato né un miglioramento né un peggioramento affidabile.
-
-Limiti: replay dell’ensemble grezzo, senza ricostruzione completa di contesto, calibrazione o blending di mercato; tempi di pubblicazione e revisioni storiche degli xG non disponibili; configurazione selezionata in un contesto già esaminato. Nessuna evidenza di redditività o di superiorità operativa. Non trasferire automaticamente questa conclusione ad altre implementazioni o al modello C.
-
-Riproduzione: `backend/experiments/model-a-venue/venue-model.js` e `replay.js`, confrontando lo snapshot di input e `predictions.jsonl` del replay originale. I risultati completi per campionato/stagione/fascia e le previsioni appaiate sono in `artifacts/model-a-venue/summary.json` e `predictions.jsonl`; il riepilogo registra gli SHA-256 degli input. Questi artefatti locali non sono automaticamente versionati: conservarli insieme allo snapshot per una riproduzione esatta.
+Riproduzione: `backend/experiments/model-a-venue/venue-model.js` e `replay.js`.
+Input, `summary.json` con hash e `predictions.jsonl` sono negli artefatti locali
+`artifacts/model-a-venue/`; conservarli insieme, non sono automaticamente
+versionati. Nessuna nuova prova è autorizzata dalla presenza di questo catalogo.

@@ -1,0 +1,18 @@
+{
+  "verifiedAt": "2026-11-08T12:48:28.123376+00:00",
+  "verificationScriptSha256": "620a39ae73ec200a5057f592e6d31c4cd36f683b0d2ac58714af5b28c90670fe",
+  "planHash": "fff2a65be3e551d249b4709783ebd734a145e8950674666ce0d17490be00f2f5",
+  "comparisonHash": "25b1ad5138e88c11962f729d930a5adbdcb624691a3f3315b9757824e0604a1a",
+  "scipyVersion": "1.17.0",
+  "catboostVersion": "1.2.8",
+  "scipyPavaMaximumError": 2.220446049250313e-16,
+  "independentCalibrationMaximumError": 8.881784197001252e-16,
+  "independentMetricsMaximumError": 1.4432899320127035e-15,
+  "nativeCatBoostRows": 595,
+  "nativeRawProbabilityMaximumError": 7.771561172376096e-16,
+  "matchedRows": 652,
+  "onlyPlannedParametersChanged": true,
+  "productionAdoptionEligible": false,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false
+}

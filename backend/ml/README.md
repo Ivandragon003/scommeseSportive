@@ -6,7 +6,7 @@ numerici JSON in TypeScript: non richiede Python o CatBoost nativo.
 Riferimenti canonici:
 
 - [Modello C](../../docs/models/MODEL-C.md): input, inferenza e registro.
-- [Research](../../docs/research-platform.md): cronologia, comandi, calibrazione,
+- [Research](../../docs/research-platform.md): partizioni temporali, comandi, calibrazione,
   metriche, dati di riproduzione e confini delle scritture.
 - [Scelte scartate](../../docs/FORMULARIO-scelte-scartate.md): esperimenti falliti
   e applicabilità al modello corrente.
@@ -22,24 +22,52 @@ npm --prefix backend run build
 node --test backend/test/research-catboost.test.js backend/test/research-forecast.test.js backend/test/research-coherent-pipeline.test.js backend/test/operational-a-regression.test.js
 ```
 
-La release locale [C-75fd74eb875e9d0e](../current-models/challenger.json) usa
-la baseline `A-9227e65a047783bd`, con ricetta fissa e calibrazione coerente
-descritte nella guida del modello. La sua presenza non costituisce registrazione
-o adozione.
+## Release corrente
 
-Il trainer usa CatBoost 1.2.8; i requisiti includono il database di fusi orari
-necessario su Windows. `npm test` backend comprende già la build. Il test
-CatBoost nativo può essere opzionale dove Python non è configurato: uno skip non
-equivale a training verificato.
+La release [C-271c9573ba485956](../current-models/challenger.json) usa la baseline
+`A-9227e65a047783bd`, 40 feature, due regressori Poisson con 120 alberi di
+profondità 5 e 10 iterazioni Newton, peso ML 0,75 e temperatura 0,8.
+I valori delle foglie sono proiettati per eliminare l'effetto diretto dei due
+contatori di storico, usando soltanto i supporti delle 5.293 righe di training.
+La calibrazione C è ristimata sulle 358 gare dedicate con lo stesso metodo.
+Il runtime legge i valori già trasformati dal JSON canonico.
 
-Il target Docker `ml-verification` è separato dal runtime e usa
-[requirements-linux-verification.txt](requirements-linux-verification.txt).
-Serve alla parità Python/TypeScript; non attiva modelli né modifica portafogli.
-Una parità numerica non dimostra un miglioramento predittivo.
+La proiezione è una scelta operativa esplicita dell'utente; il backtest su
+8.541 gare non dimostra superiorità futura: migliorano le metriche primarie
+in 3/5 leghe e 4/5 finestre, peggiora ECE aggregata e gli intervalli comprendono
+zero. [Meccanismo e limiti](../../docs/models/MODEL-C.md).
+La presenza del file non prova registrazione o uso remoto.
+
+Il trainer richiede CatBoost 1.2.8; i requisiti includono il database dei fusi
+orari necessario su Windows. `npm test` backend comprende già la build. Un test
+nativo saltato perché Python non è configurato non equivale a training verificato.
+Il target Docker `ml-verification` usa
+[requirements-linux-verification.txt](requirements-linux-verification.txt):
+verifica parità Python/TypeScript senza attivare modelli o modificare portafogli.
 
 Tenere gli output sotto `backend/artifacts/` o in una destinazione esplicita,
-separati da sorgenti e dati produttivi. Il training non registra modelli: i
-comandi di registrazione e adozione sono documentati in Research.
+separati da sorgenti e dati produttivi. Il training non registra modelli.
+
+## Strumenti e riproduzione
+
+| Strumento | Responsabilità |
+|---|---|
+| `train.py` | Fit controllati CatBoost e artefatti locali |
+| `prepare_current_challenger.py` | Ricetta di base fissa sull'ultimo fold congelato; da sola non riproduce la proiezione |
+| `../experiments/c-tree-sample-projection/prepare.py` | Proiezione dei valori originali usando i supporti del training |
+| `../experiments/c-tree-sample-projection/evaluate.cjs` | Ristima del profilo coerente e diagnostica appaiata |
+| `../experiments/c-tree-sample-projection/verify.py` | Verifica indipendente di supporti, valori, calibrazione e metriche |
+| `prepare_refreshed_challenger.py` | Rifit a ricetta fissa con finestre di training e calibrazione aggiornate |
+| `prepare_seed_ensemble_challenger.py` | Aggregazione di seed e pesi prefissati, con gate di sviluppo |
+
+Piani, prerequisiti e comandi sono in
+[Research](../../docs/research-platform.md#preparazione-della-ricetta-e-della-release).
+Le prove degli altri esperimenti sono nel
+[catalogo](../../docs/FORMULARIO-scelte-scartate.md#varianti-c-non-adottate).
+Le evidenze immutabili mantengono identità e restrizioni originarie; non vengono
+riscritte per rappresentare l'attivazione operativa. Per riprodurre un artefatto
+servono anche dataset, modelli e input locali con gli hash del piano: i soli
+riepiloghi non bastano.
 
 ## Refit per una nuova baseline condivisa
 

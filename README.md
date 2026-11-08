@@ -37,6 +37,11 @@ effettivamente adottato, lo stato remoto, le quote disponibili e il consumo del
 provider richiedono una verifica dell'installazione: non sono dedotti da vecchi
 report o dalla presenza di un flag nel sorgente.
 
+La release C corrente è `C-271c9573ba485956`, con proiezione delle foglie
+basata sui supporti del training e calibrazione coerente ristimata. È una scelta
+operativa autorizzata, senza una superiorità predittiva dimostrata: le prove
+storiche e i loro limiti sono nella [guida C](docs/models/MODEL-C.md).
+
 ## Avvio con Docker
 
 Servono Docker con Compose e una configurazione libSQL/Turso valida. Non esiste

@@ -1,0 +1,37 @@
+{
+  "verifiedAt": "2026-11-08T13:47:50.159459+00:00",
+  "scriptHash": "b217d21a3b9e7549b67e260807bb1f6cb87044e36daae547f1dd4c7d594168c2",
+  "planHash": "74a9f4a1d01d5e7b39ab0671b267775349de563c5f7302a3aced84b68d8d21a6",
+  "comparisonHash": "7e17676370c2309f5aababdee1631d3806de00ae153b02782bc85200f1799f6f",
+  "candidateHash": "4c5f6e5b6dcf5a5b6f7065344330ffcb71e9f92b93eb4c703bb33a74720c0b53",
+  "catboostVersion": "1.2.8",
+  "leafChecks": {
+    "home": {
+      "emptyLeaves": 805,
+      "changedLeaves": 805,
+      "editedTrees": 108,
+      "maximumReplacementError": 6.938893903907228e-18,
+      "supportedLeavesIdentical": true
+    },
+    "away": {
+      "emptyLeaves": 838,
+      "changedLeaves": 838,
+      "editedTrees": 108,
+      "maximumReplacementError": 8.673617379884035e-19,
+      "supportedLeavesIdentical": true
+    }
+  },
+  "nativeOriginalLeafSupportMaximumError": 0.0,
+  "nativeTrainingRawPredictionsExactlyUnchanged": true,
+  "nativeTrainingRows": 5293,
+  "nativeHistoricalRowsPerModel": 595,
+  "nativeRawProbabilityMaximumError": 7.771561172376096e-16,
+  "nativeCalibrationMatrixRows": 358,
+  "nativeCalibrationMatrixMaximumError": 0.0,
+  "independentCalibrationMaximumError": 8.881784197001252e-16,
+  "independentPrimaryMetricsMaximumError": 1.4432899320127035e-15,
+  "sameCohortQuotesAndIncumbentForecastsAsPrevious": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

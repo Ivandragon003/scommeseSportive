@@ -1,0 +1,3413 @@
+{
+  "protocol": "c-tree-empty-leaf-backoff-v1",
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "candidateVersion": "C-feff393275451d01",
+  "decision": "NO_GO: Ligue1 probability scores worsen and overall final ECE worsens; no operational adoption.",
+  "hypothesis": "Replace unsupported zero leaf contributions with a training-support-weighted nearest-supported-ancestor contribution, preserving every supported leaf and all original training raw predictions. Zero is an additive tree contribution, not a zero forecast; this extrapolation assumption may add bias and is not a demonstrated bug fix.",
+  "intervention": {
+    "method": "nearest-supported-prefix-ancestor-original-training-weighted-mean-v1",
+    "maximumCandidates": 1,
+    "hyperparameterSearch": false,
+    "newTreeFits": 0,
+    "leafValueFits": 0,
+    "minimumSupport": 1,
+    "ancestorOrder": "Keep split bits 0..k-1; decrease k from depth-1 to0; first prefix with positive original training support. Never use already-filled values in weighted means.",
+    "onlyOriginallyZeroSupportLeaves": true,
+    "requireOriginalEmptyValueZero": true,
+    "preserveSupportedLeafValuesExactly": true,
+    "sameOriginalSplitsAndScaleBias": true,
+    "calibration": "Mandatory refit using the unchanged current binned isotonic estimator and the same original358 calibration rows after tree edit. No plateau correction, no choice between calibrators.",
+    "kept": [
+      "40feature contract and baseline",
+      "5293training and317selection membership",
+      "ML weight0.75,temperature0.8",
+      "original A profile",
+      "coherent projection and actual closing market blend",
+      "all original feature dependencies on supported leaves",
+      "all 5293 original training raw predictions"
+    ]
+  },
+  "planHash": "74a9f4a1d01d5e7b39ab0671b267775349de563c5f7302a3aced84b68d8d21a6",
+  "originalAudit": {
+    "trainingRows": 5293,
+    "homeEmptyLeaves": 805,
+    "awayEmptyLeaves": 838,
+    "allEmptyLeafValuesZero": true,
+    "geometryOnlyHistoricalRowsVisitingEmptyLeaf": {
+      "La Liga": 8,
+      "Ligue 1": 4,
+      "Bundesliga": 12,
+      "Premier League": 12,
+      "Serie A": 14
+    },
+    "geometryOnlyCurrentRowsVisitingEmptyLeaf": {
+      "La Liga": 3,
+      "Ligue 1": 1,
+      "Bundesliga": 3,
+      "Premier League": 1,
+      "Serie A": 1
+    }
+  },
+  "priorDiagnostic": {
+    "modelsCompared": {
+      "incumbent": "C-75fd74eb875e9d0e",
+      "candidate": "C-f6d4ac23de48fbfa"
+    },
+    "laLiga": {
+      "all": {
+        "n": 133,
+        "outcomes": {
+          "draw": 31,
+          "homeWin": 68,
+          "awayWin": 34
+        },
+        "stages": {
+          "raw": {
+            "incumbent": {
+              "logLoss": 0.957069585144359,
+              "brier": 0.5619898976678299
+            },
+            "candidate": {
+              "logLoss": 0.9546119641550431,
+              "brier": 0.5605945344537935
+            },
+            "delta": {
+              "logLoss": -0.0024576209893159007,
+              "brier": -0.001395363214036438
+            },
+            "probabilities": {
+              "incumbent": {
+                "homeWin": 0.42585723533534364,
+                "draw": 0.26297512569281845,
+                "awayWin": 0.31116763897183786
+              },
+              "candidate": {
+                "homeWin": 0.44004476935042547,
+                "draw": 0.25941729845878003,
+                "awayWin": 0.3005379321907945
+              }
+            },
+            "brierDeltaByClass": {
+              "homeWin": -0.0004675019289113659,
+              "draw": -0.00022599960679382008,
+              "awayWin": -0.000701861678331219
+            },
+            "trueOutcomeProbabilityDelta": 0.001642809928755468
+          },
+          "calibrated": {
+            "incumbent": {
+              "logLoss": 0.9510267127447206,
+              "brier": 0.5582716267983558
+            },
+            "candidate": {
+              "logLoss": 0.9554671387920229,
+              "brier": 0.5609815857565308
+            },
+            "delta": {
+              "logLoss": 0.004440426047302326,
+              "brier": 0.0027099589581749406
+            },
+            "probabilities": {
+              "incumbent": {
+                "homeWin": 0.43145257263072545,
+                "draw": 0.26136007306962505,
+                "awayWin": 0.30718735429964955
+              },
+              "candidate": {
+                "homeWin": 0.44916645616401957,
+                "draw": 0.2508870268514493,
+                "awayWin": 0.2999465169845311
+              }
+            },
+            "brierDeltaByClass": {
+              "homeWin": -0.0008547649308048442,
+              "draw": 0.0014963494426425909,
+              "awayWin": 0.00206837444633715
+            },
+            "trueOutcomeProbabilityDelta": -0.0005005605424231848
+          },
+          "decision": {
+            "incumbent": {
+              "logLoss": 0.9485406365195365,
+              "brier": 0.5574699321426171
+            },
+            "candidate": {
+              "logLoss": 0.9523957037733967,
+              "brier": 0.5597848407214042
+            },
+            "delta": {
+              "logLoss": 0.0038550672538602004,
+              "brier": 0.0023149085787871337
+            },
+            "probabilities": {
+              "incumbent": {
+                "homeWin": 0.4350611434569853,
+                "draw": 0.2613386697049661,
+                "awayWin": 0.30360018683804857
+              },
+              "candidate": {
+                "homeWin": 0.4485893409618395,
+                "draw": 0.25333682645574845,
+                "awayWin": 0.2980738325824121
+              }
+            },
+            "brierDeltaByClass": {
+              "homeWin": -0.0004830047782567025,
+              "draw": 0.0011486759447203662,
+              "awayWin": 0.001649237412323218
+            },
+            "trueOutcomeProbabilityDelta": -0.00038448571193753584
+          }
+        },
+        "lambda": {
+          "home": {
+            "incumbent": 1.431496912304369,
+            "candidate": 1.501081729462663,
+            "delta": 0.06958481715829375,
+            "deltaLog": 0.05303372304730566
+          },
+          "away": {
+            "incumbent": 1.1832725952659784,
+            "candidate": 1.1834776826415128,
+            "delta": 0.00020508737553454935,
+            "deltaLog": 0.00025848796045926193
+          }
+        },
+        "sample": {
+          "home": {
+            "mean": 117.06766917293233,
+            "outsideTrainingRange": 99,
+            "quantiles": [
+              10.0,
+              104.0,
+              135.0,
+              139.0,
+              162.0
+            ]
+          },
+          "away": {
+            "mean": 117.64661654135338,
+            "outsideTrainingRange": 98,
+            "quantiles": [
+              10.0,
+              104.0,
+              135.0,
+              139.0,
+              162.0
+            ]
+          }
+        },
+        "calibrationAlgebraicAttribution": {
+          "rawInput": {
+            "logLoss": -1.543321258749184e-05,
+            "brier": 0.0002926336887559189
+          },
+          "calibrationProfile": {
+            "logLoss": 0.004455859259889731,
+            "brier": 0.002417325269418982
+          }
+        },
+        "rawDrawProbabilityRangeCounts": {
+          "incumbent": 67,
+          "candidate": 71
+        }
+      },
+      "byOutcome": {
+        "homeWin": {
+          "n": 68,
+          "outcomes": {
+            "homeWin": 68
+          },
+          "stages": {
+            "raw": {
+              "incumbent": {
+                "logLoss": 0.7993069516164607,
+                "brier": 0.4466032736751395
+              },
+              "candidate": {
+                "logLoss": 0.7694785542961244,
+                "brier": 0.42730181194207695
+              },
+              "delta": {
+                "logLoss": -0.029828397320336264,
+                "brier": -0.019301461733062575
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.4941351967612171,
+                  "draw": 0.24879400343277844,
+                  "awayWin": 0.25707079980600467
+                },
+                "candidate": {
+                  "homeWin": 0.5056814359650641,
+                  "draw": 0.24519764717241987,
+                  "awayWin": 0.24912091686251597
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": -0.01255236633772044,
+                "draw": -0.0016773344246913246,
+                "awayWin": -0.005071760970650912
+              },
+              "trueOutcomeProbabilityDelta": 0.011546239203847149
+            },
+            "calibrated": {
+              "incumbent": {
+                "logLoss": 0.7918983304853456,
+                "brier": 0.4413679066067638
+              },
+              "candidate": {
+                "logLoss": 0.754012768443213,
+                "brier": 0.41657326892063673
+              },
+              "delta": {
+                "logLoss": -0.03788556204213267,
+                "brier": -0.024794637686127052
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.5052439644121434,
+                  "draw": 0.2438199052003257,
+                  "awayWin": 0.2509361303875311
+                },
+                "candidate": {
+                  "homeWin": 0.5192157886537418,
+                  "draw": 0.2356602927584208,
+                  "awayWin": 0.24512391858783722
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": -0.016463396923097232,
+                "draw": -0.004996403549712576,
+                "awayWin": -0.0033348372133172976
+              },
+              "trueOutcomeProbabilityDelta": 0.013971824241598685
+            },
+            "decision": {
+              "incumbent": {
+                "logLoss": 0.7786857634773653,
+                "brier": 0.4343715817077172
+              },
+              "candidate": {
+                "logLoss": 0.7504003511847995,
+                "brier": 0.41557099936361686
+              },
+              "delta": {
+                "logLoss": -0.02828541229256576,
+                "brier": -0.01880058234410037
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.5059552585201096,
+                  "draw": 0.2438630753280651,
+                  "awayWin": 0.25018166615182535
+                },
+                "candidate": {
+                  "homeWin": 0.5166217953951988,
+                  "draw": 0.23762897922939932,
+                  "awayWin": 0.24574922537540184
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": -0.012458652795083113,
+                "draw": -0.0038029416389454,
+                "awayWin": -0.0025389879100718377
+              },
+              "trueOutcomeProbabilityDelta": 0.010666536875089273
+            }
+          },
+          "lambda": {
+            "home": {
+              "incumbent": 1.6202420122785213,
+              "candidate": 1.6823046634266468,
+              "delta": 0.062062651148125494,
+              "deltaLog": 0.04174590447949704
+            },
+            "away": {
+              "incumbent": 1.0828268851847533,
+              "candidate": 1.0840594078017112,
+              "delta": 0.0012325226169576523,
+              "deltaLog": 0.0014592776518339886
+            }
+          },
+          "sample": {
+            "home": {
+              "mean": 126.98529411764706,
+              "outsideTrainingRange": 60,
+              "quantiles": [
+                10.0,
+                133.0,
+                137.0,
+                141.0,
+                162.0
+              ]
+            },
+            "away": {
+              "mean": 111.88235294117646,
+              "outsideTrainingRange": 45,
+              "quantiles": [
+                10.0,
+                95.75,
+                134.0,
+                140.0,
+                162.0
+              ]
+            }
+          },
+          "calibrationAlgebraicAttribution": {
+            "rawInput": {
+              "logLoss": -0.030655708896974804,
+              "brier": -0.01944086010833143
+            },
+            "calibrationProfile": {
+              "logLoss": -0.007229853145157784,
+              "brier": -0.005353777577795674
+            }
+          },
+          "rawDrawProbabilityRangeCounts": {
+            "incumbent": 29,
+            "candidate": 31
+          }
+        },
+        "draw": {
+          "n": 31,
+          "outcomes": {
+            "draw": 31
+          },
+          "stages": {
+            "raw": {
+              "incumbent": {
+                "logLoss": 1.2533634067134942,
+                "brier": 0.7916421168577092
+              },
+              "candidate": {
+                "logLoss": 1.2656337084946652,
+                "brier": 0.7993044373536489
+              },
+              "delta": {
+                "logLoss": 0.012270301781170945,
+                "brier": 0.007662320495939623
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.38804712318506074,
+                  "draw": 0.2866623827668595,
+                  "awayWin": 0.3252904940480797
+                },
+                "candidate": {
+                  "homeWin": 0.40500232363035366,
+                  "draw": 0.2831284666794456,
+                  "awayWin": 0.31186920969020077
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.012372398239278945,
+                "draw": 0.005020501495947353,
+                "awayWin": -0.009730579239286486
+              },
+              "trueOutcomeProbabilityDelta": -0.0035339160874139674
+            },
+            "calibrated": {
+              "incumbent": {
+                "logLoss": 1.2358413791289835,
+                "brier": 0.7836939358896364
+              },
+              "candidate": {
+                "logLoss": 1.2931865545565857,
+                "brier": 0.8197919026858261
+              },
+              "delta": {
+                "logLoss": 0.0573451754276022,
+                "brier": 0.03609796679618971
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.39004940907605545,
+                  "draw": 0.29217653947014227,
+                  "awayWin": 0.3177740514538025
+                },
+                "candidate": {
+                  "homeWin": 0.4094021693136124,
+                  "draw": 0.2752605199958891,
+                  "awayWin": 0.3153373106904984
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.014208102529917053,
+                "draw": 0.023863196041568478,
+                "awayWin": -0.0019733317752956194
+              },
+              "trueOutcomeProbabilityDelta": -0.016916019474253138
+            },
+            "decision": {
+              "incumbent": {
+                "logLoss": 1.2348352616598126,
+                "brier": 0.7805271376099773
+              },
+              "candidate": {
+                "logLoss": 1.2786581336329792,
+                "brier": 0.8083346620128948
+              },
+              "delta": {
+                "logLoss": 0.04382287197316659,
+                "brier": 0.02780752440291756
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.3935508181853487,
+                  "draw": 0.2921397200048531,
+                  "awayWin": 0.3143094618097981
+                },
+                "candidate": {
+                  "homeWin": 0.4083363952310848,
+                  "draw": 0.27921689980471226,
+                  "awayWin": 0.31244670496420296
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.011026622251022451,
+                "draw": 0.018223692331852916,
+                "awayWin": -0.0014427901799578993
+              },
+              "trueOutcomeProbabilityDelta": -0.012922820200140805
+            }
+          },
+          "lambda": {
+            "home": {
+              "incumbent": 1.2845034134169178,
+              "candidate": 1.357032856696706,
+              "delta": 0.07252944327978833,
+              "deltaLog": 0.05944954395377071
+            },
+            "away": {
+              "incumbent": 1.1672994158950367,
+              "candidate": 1.162191031024043,
+              "delta": -0.005108384870993675,
+              "deltaLog": -0.0032841721054293767
+            }
+          },
+          "sample": {
+            "home": {
+              "mean": 108.09677419354838,
+              "outsideTrainingRange": 19,
+              "quantiles": [
+                17.0,
+                96.0,
+                131.0,
+                138.0,
+                143.0
+              ]
+            },
+            "away": {
+              "mean": 114.2258064516129,
+              "outsideTrainingRange": 22,
+              "quantiles": [
+                16.0,
+                103.0,
+                134.0,
+                137.5,
+                141.0
+              ]
+            }
+          },
+          "calibrationAlgebraicAttribution": {
+            "rawInput": {
+              "logLoss": 0.022526376275339217,
+              "brier": 0.014049924147093601
+            },
+            "calibrationProfile": {
+              "logLoss": 0.03481879915226329,
+              "brier": 0.022048042649096423
+            }
+          },
+          "rawDrawProbabilityRangeCounts": {
+            "incumbent": 23,
+            "candidate": 24
+          }
+        },
+        "awayWin": {
+          "n": 34,
+          "outcomes": {
+            "awayWin": 34
+          },
+          "stages": {
+            "raw": {
+              "incumbent": {
+                "logLoss": 1.0024446031224148,
+                "brier": 0.5833743575683205
+              },
+              "candidate": {
+                "logLoss": 1.0413001346220485,
+                "brier": 0.6095327150685348
+              },
+              "delta": {
+                "logLoss": 0.03885553149963372,
+                "brier": 0.026158357500214335
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.32377523826767857,
+                  "draw": 0.2697401652336255,
+                  "awayWin": 0.4064845964986958
+                },
+                "candidate": {
+                  "homeWin": 0.3407219013365074,
+                  "draw": 0.2662375947126585,
+                  "awayWin": 0.3930405039508341
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.01199525908829797,
+                "draw": -0.002106904505851057,
+                "awayWin": 0.01627000291776738
+              },
+              "trueOutcomeProbabilityDelta": -0.013444092547861644
+            },
+            "calibrated": {
+              "incumbent": {
+                "logLoss": 1.0095995167366434,
+                "brier": 0.5865469618336077
+              },
+              "candidate": {
+                "logLoss": 1.0504552357043062,
+                "brier": 0.6138241069339611
+              },
+              "delta": {
+                "logLoss": 0.040855718967662824,
+                "brier": 0.027277145100353395
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.32161973230891244,
+                  "draw": 0.2683430423842229,
+                  "awayWin": 0.4100372253068647
+                },
+                "candidate": {
+                  "homeWin": 0.3453234644893578,
+                  "draw": 0.25911760422934066,
+                  "awayWin": 0.3955589312813016
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.016628708133709962,
+                "draw": -0.005911445883432446,
+                "awayWin": 0.016559882850075924
+              },
+              "trueOutcomeProbabilityDelta": -0.014478294025563146
+            },
+            "decision": {
+              "incumbent": {
+                "logLoss": 1.0272170479171565,
+                "brier": 0.6002909456745303
+              },
+              "candidate": {
+                "logLoss": 1.058911840549207,
+                "brier": 0.6215935687300314
+              },
+              "delta": {
+                "logLoss": 0.03169479263205055,
+                "brier": 0.021302623055501013
+              },
+              "probabilities": {
+                "incumbent": {
+                  "homeWin": 0.33112056284311137,
+                  "draw": 0.2682065478912242,
+                  "awayWin": 0.40067288926566436
+                },
+                "candidate": {
+                  "homeWin": 0.3492256473202207,
+                  "draw": 0.26115598344321483,
+                  "awayWin": 0.3896183692365644
+                }
+              },
+              "brierDeltaByClass": {
+                "homeWin": 0.01297421955222983,
+                "draw": -0.004516486182098369,
+                "awayWin": 0.012844889685369641
+              },
+              "trueOutcomeProbabilityDelta": -0.011054520029099934
+            }
+          },
+          "lambda": {
+            "home": {
+              "incumbent": 1.1880301966357991,
+              "candidate": 1.2699745396448316,
+              "delta": 0.08194434300903228,
+              "deltaLog": 0.06975964112114597
+            },
+            "away": {
+              "incumbent": 1.3987277966195806,
+              "candidate": 1.4017226499723388,
+              "delta": 0.002994853352758195,
+              "deltaLog": 0.0010869809907259212
+            }
+          },
+          "sample": {
+            "home": {
+              "mean": 105.41176470588235,
+              "outsideTrainingRange": 20,
+              "quantiles": [
+                10.0,
+                87.75,
+                132.0,
+                137.75,
+                162.0
+              ]
+            },
+            "away": {
+              "mean": 132.2941176470588,
+              "outsideTrainingRange": 31,
+              "quantiles": [
+                16.0,
+                132.0,
+                136.0,
+                139.0,
+                162.0
+              ]
+            }
+          },
+          "calibrationAlgebraicAttribution": {
+            "rawInput": {
+              "logLoss": 0.040712291858371615,
+              "brier": 0.027216209394446265
+            },
+            "calibrationProfile": {
+              "logLoss": 0.00014342710929121893,
+              "brier": 6.093570590710331e-05
+            }
+          },
+          "rawDrawProbabilityRangeCounts": {
+            "incumbent": 15,
+            "candidate": 16
+          }
+        }
+      },
+      "byCohort": {
+        "historical": {
+          "all": {
+            "n": 123,
+            "outcomes": {
+              "draw": 31,
+              "homeWin": 62,
+              "awayWin": 30
+            },
+            "stages": {
+              "raw": {
+                "incumbent": {
+                  "logLoss": 0.9685927184429086,
+                  "brier": 0.5702981631583418
+                },
+                "candidate": {
+                  "logLoss": 0.9655302381447578,
+                  "brier": 0.568710413343177
+                },
+                "delta": {
+                  "logLoss": -0.003062480298150816,
+                  "brier": -0.0015877498151648517
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.4243052283795193,
+                    "draw": 0.26408010310886615,
+                    "awayWin": 0.3116146685116145
+                  },
+                  "candidate": {
+                    "homeWin": 0.43863307694879083,
+                    "draw": 0.2604616899527787,
+                    "awayWin": 0.30090523309843054
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -0.00039817213943628676,
+                  "draw": -0.00010604537075800296,
+                  "awayWin": -0.0010835323049703729
+                },
+                "trueOutcomeProbabilityDelta": 0.0017895302913726943
+              },
+              "calibrated": {
+                "incumbent": {
+                  "logLoss": 0.962290362332474,
+                  "brier": 0.5664059957860624
+                },
+                "candidate": {
+                  "logLoss": 0.9677081932716239,
+                  "brier": 0.5700608447304076
+                },
+                "delta": {
+                  "logLoss": 0.005417830939149937,
+                  "brier": 0.0036548489443452015
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.42960571309368667,
+                    "draw": 0.26302377477995836,
+                    "awayWin": 0.307370512126355
+                  },
+                  "candidate": {
+                    "homeWin": 0.447214143687607,
+                    "draw": 0.25225026996215927,
+                    "awayWin": 0.3005355863502339
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -0.0003345518590841651,
+                  "draw": 0.0019957248371877717,
+                  "awayWin": 0.001993675966241685
+                },
+                "trueOutcomeProbabilityDelta": -0.0009313465730845852
+              },
+              "decision": {
+                "incumbent": {
+                  "logLoss": 0.9599722522545792,
+                  "brier": 0.5657275705017736
+                },
+                "candidate": {
+                  "logLoss": 0.9646749229466474,
+                  "brier": 0.5688067454555363
+                },
+                "delta": {
+                  "logLoss": 0.0047026706920682,
+                  "brier": 0.0030791749537627533
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.4334212792520606,
+                    "draw": 0.26349533360949773,
+                    "awayWin": 0.3030833871384417
+                  },
+                  "candidate": {
+                    "homeWin": 0.44686935576726083,
+                    "draw": 0.25526481549093694,
+                    "awayWin": 0.29786582874180223
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -6.46356928538144e-05,
+                  "draw": 0.001528169379652662,
+                  "awayWin": 0.001615641266964091
+                },
+                "trueOutcomeProbabilityDelta": -0.0007157859820546216
+              }
+            },
+            "lambda": {
+              "home": {
+                "incumbent": 1.4228991609857873,
+                "candidate": 1.4927916130852812,
+                "delta": 0.06989245209949388,
+                "deltaLog": 0.053507254634983126
+              },
+              "away": {
+                "incumbent": 1.1786031798410637,
+                "candidate": 1.1790474118251941,
+                "delta": 0.00044423198413078317,
+                "deltaLog": 0.00012792914036561213
+              }
+            },
+            "sample": {
+              "home": {
+                "mean": 117.45528455284553,
+                "outsideTrainingRange": 93,
+                "quantiles": [
+                  17.0,
+                  131.0,
+                  135.0,
+                  139.0,
+                  143.0
+                ]
+              },
+              "away": {
+                "mean": 115.90243902439025,
+                "outsideTrainingRange": 89,
+                "quantiles": [
+                  16.0,
+                  102.5,
+                  134.0,
+                  138.0,
+                  143.0
+                ]
+              }
+            },
+            "calibrationAlgebraicAttribution": {
+              "rawInput": {
+                "logLoss": -0.0004396379646550834,
+                "brier": 0.0001800451017422512
+              },
+              "calibrationProfile": {
+                "logLoss": 0.005857468903804836,
+                "brier": 0.003474803842603054
+              }
+            },
+            "rawDrawProbabilityRangeCounts": {
+              "incumbent": 63,
+              "candidate": 67
+            }
+          },
+          "byOutcome": {
+            "homeWin": {
+              "n": 62,
+              "outcomes": {
+                "homeWin": 62
+              },
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": 0.8090684550117871,
+                    "brier": 0.45258203040336914
+                  },
+                  "candidate": {
+                    "logLoss": 0.7787214298398887,
+                    "brier": 0.4331173049767901
+                  },
+                  "delta": {
+                    "logLoss": -0.030347025171898467,
+                    "brier": -0.019464725426579066
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.4915894278127432,
+                      "draw": 0.24765559663055395,
+                      "awayWin": 0.2607549755567031
+                    },
+                    "candidate": {
+                      "homeWin": 0.5033401976061612,
+                      "draw": 0.2440067080965572,
+                      "awayWin": 0.2526530942972815
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.012630159350503226,
+                    "draw": -0.0016582221082783314,
+                    "awayWin": -0.005176343967797469
+                  },
+                  "trueOutcomeProbabilityDelta": 0.0117507697934182
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": 0.8022646854411194,
+                    "brier": 0.44754370840267416
+                  },
+                  "candidate": {
+                    "logLoss": 0.7652999902442592,
+                    "brier": 0.4237064884573082
+                  },
+                  "delta": {
+                    "logLoss": -0.03696469519686019,
+                    "brier": -0.023837219945365973
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.5027134508299366,
+                      "draw": 0.24269699741119227,
+                      "awayWin": 0.2545895517588712
+                    },
+                    "candidate": {
+                      "homeWin": 0.5162549102671828,
+                      "draw": 0.23456565727884368,
+                      "awayWin": 0.24917943245397348
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.015819263042646938,
+                    "draw": -0.004918812499429002,
+                    "awayWin": -0.0030991444032901884
+                  },
+                  "trueOutcomeProbabilityDelta": 0.013541459437246262
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": 0.7877759226572456,
+                    "brier": 0.4398752714192427
+                  },
+                  "candidate": {
+                    "logLoss": 0.7603175711533737,
+                    "brier": 0.4218447636295294
+                  },
+                  "delta": {
+                    "logLoss": -0.02745835150387188,
+                    "brier": -0.018030507789713324
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.5033316449766327,
+                      "draw": 0.24325371387894743,
+                      "awayWin": 0.2534146411444199
+                    },
+                    "candidate": {
+                      "homeWin": 0.5136678875602072,
+                      "draw": 0.23704219598574736,
+                      "awayWin": 0.2492899164540454
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.011940591334764434,
+                    "draw": -0.0037477722068976304,
+                    "awayWin": -0.00234214424805123
+                  },
+                  "trueOutcomeProbabilityDelta": 0.010336242583574564
+                }
+              },
+              "lambda": {
+                "home": {
+                  "incumbent": 1.6158361878193235,
+                  "candidate": 1.6791528975995993,
+                  "delta": 0.063316709780276,
+                  "deltaLog": 0.042352057256015076
+                },
+                "away": {
+                  "incumbent": 1.093587802918018,
+                  "candidate": 1.094301757017991,
+                  "delta": 0.0007139540999726114,
+                  "deltaLog": 0.0007239165054527376
+                }
+              },
+              "sample": {
+                "home": {
+                  "mean": 126.09677419354838,
+                  "outsideTrainingRange": 55,
+                  "quantiles": [
+                    19.0,
+                    133.0,
+                    136.0,
+                    140.0,
+                    143.0
+                  ]
+                },
+                "away": {
+                  "mean": 110.09677419354838,
+                  "outsideTrainingRange": 40,
+                  "quantiles": [
+                    18.0,
+                    95.25,
+                    133.5,
+                    138.75,
+                    143.0
+                  ]
+                }
+              },
+              "calibrationAlgebraicAttribution": {
+                "rawInput": {
+                  "logLoss": -0.03137596578212241,
+                  "brier": -0.01969756485355914
+                },
+                "calibrationProfile": {
+                  "logLoss": -0.005588729414737961,
+                  "brier": -0.004139655091806991
+                }
+              },
+              "rawDrawProbabilityRangeCounts": {
+                "incumbent": 26,
+                "candidate": 28
+              }
+            },
+            "draw": {
+              "n": 31,
+              "outcomes": {
+                "draw": 31
+              },
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": 1.2533634067134942,
+                    "brier": 0.7916421168577092
+                  },
+                  "candidate": {
+                    "logLoss": 1.2656337084946652,
+                    "brier": 0.7993044373536489
+                  },
+                  "delta": {
+                    "logLoss": 0.012270301781170945,
+                    "brier": 0.007662320495939623
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.38804712318506074,
+                      "draw": 0.2866623827668595,
+                      "awayWin": 0.3252904940480797
+                    },
+                    "candidate": {
+                      "homeWin": 0.40500232363035366,
+                      "draw": 0.2831284666794456,
+                      "awayWin": 0.31186920969020077
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.012372398239278945,
+                    "draw": 0.005020501495947353,
+                    "awayWin": -0.009730579239286486
+                  },
+                  "trueOutcomeProbabilityDelta": -0.0035339160874139674
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": 1.2358413791289835,
+                    "brier": 0.7836939358896364
+                  },
+                  "candidate": {
+                    "logLoss": 1.2931865545565857,
+                    "brier": 0.8197919026858261
+                  },
+                  "delta": {
+                    "logLoss": 0.0573451754276022,
+                    "brier": 0.03609796679618971
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.39004940907605545,
+                      "draw": 0.29217653947014227,
+                      "awayWin": 0.3177740514538025
+                    },
+                    "candidate": {
+                      "homeWin": 0.4094021693136124,
+                      "draw": 0.2752605199958891,
+                      "awayWin": 0.3153373106904984
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.014208102529917053,
+                    "draw": 0.023863196041568478,
+                    "awayWin": -0.0019733317752956194
+                  },
+                  "trueOutcomeProbabilityDelta": -0.016916019474253138
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": 1.2348352616598126,
+                    "brier": 0.7805271376099773
+                  },
+                  "candidate": {
+                    "logLoss": 1.2786581336329792,
+                    "brier": 0.8083346620128948
+                  },
+                  "delta": {
+                    "logLoss": 0.04382287197316659,
+                    "brier": 0.02780752440291756
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.3935508181853487,
+                      "draw": 0.2921397200048531,
+                      "awayWin": 0.3143094618097981
+                    },
+                    "candidate": {
+                      "homeWin": 0.4083363952310848,
+                      "draw": 0.27921689980471226,
+                      "awayWin": 0.31244670496420296
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.011026622251022451,
+                    "draw": 0.018223692331852916,
+                    "awayWin": -0.0014427901799578993
+                  },
+                  "trueOutcomeProbabilityDelta": -0.012922820200140805
+                }
+              },
+              "lambda": {
+                "home": {
+                  "incumbent": 1.2845034134169178,
+                  "candidate": 1.357032856696706,
+                  "delta": 0.07252944327978833,
+                  "deltaLog": 0.05944954395377071
+                },
+                "away": {
+                  "incumbent": 1.1672994158950367,
+                  "candidate": 1.162191031024043,
+                  "delta": -0.005108384870993675,
+                  "deltaLog": -0.0032841721054293767
+                }
+              },
+              "sample": {
+                "home": {
+                  "mean": 108.09677419354838,
+                  "outsideTrainingRange": 19,
+                  "quantiles": [
+                    17.0,
+                    96.0,
+                    131.0,
+                    138.0,
+                    143.0
+                  ]
+                },
+                "away": {
+                  "mean": 114.2258064516129,
+                  "outsideTrainingRange": 22,
+                  "quantiles": [
+                    16.0,
+                    103.0,
+                    134.0,
+                    137.5,
+                    141.0
+                  ]
+                }
+              },
+              "calibrationAlgebraicAttribution": {
+                "rawInput": {
+                  "logLoss": 0.022526376275339217,
+                  "brier": 0.014049924147093601
+                },
+                "calibrationProfile": {
+                  "logLoss": 0.03481879915226329,
+                  "brier": 0.022048042649096423
+                }
+              },
+              "rawDrawProbabilityRangeCounts": {
+                "incumbent": 23,
+                "candidate": 24
+              }
+            },
+            "awayWin": {
+              "n": 30,
+              "outcomes": {
+                "awayWin": 30
+              },
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": 1.0040131516542878,
+                    "brier": 0.5848560853626055
+                  },
+                  "candidate": {
+                    "logLoss": 1.0414948559465829,
+                    "brier": 0.6106556791562224
+                  },
+                  "delta": {
+                    "logLoss": 0.037481704292295026,
+                    "brier": 0.02579959379361696
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.32271792491846407,
+                      "draw": 0.274689060850785,
+                      "awayWin": 0.40259301423075095
+                    },
+                    "candidate": {
+                      "homeWin": 0.33965680601927684,
+                      "draw": 0.2710463165047475,
+                      "awayWin": 0.3892968774759758
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.01168501203876298,
+                    "draw": -0.002195645208811525,
+                    "awayWin": 0.016310226963665606
+                  },
+                  "trueOutcomeProbabilityDelta": -0.013296136754775124
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": 1.0103407105515472,
+                    "brier": 0.5875238516047055
+                  },
+                  "candidate": {
+                    "logLoss": 1.0496908395337166,
+                    "brier": 0.6144710878075481
+                  },
+                  "delta": {
+                    "logLoss": 0.039350128982169386,
+                    "brier": 0.02694723620284256
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.31939123592365565,
+                      "draw": 0.27490792449555157,
+                      "awayWin": 0.40570083958079284
+                    },
+                    "candidate": {
+                      "homeWin": 0.34360226627627727,
+                      "draw": 0.2650212111394908,
+                      "awayWin": 0.391376522584232
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.01663977505164431,
+                    "draw": -0.006310618244997624,
+                    "awayWin": 0.0166180793961961
+                  },
+                  "trueOutcomeProbabilityDelta": -0.014324316996560837
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": 1.0318195570369941,
+                    "brier": 0.6038627692605268
+                  },
+                  "candidate": {
+                    "logLoss": 1.062564132276869,
+                    "brier": 0.6250159941200142
+                  },
+                  "delta": {
+                    "logLoss": 0.03074457523987495,
+                    "brier": 0.02115322485948734
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.33013933319021405,
+                      "draw": 0.2757288151107678,
+                      "awayWin": 0.39413185169901815
+                    },
+                    "candidate": {
+                      "homeWin": 0.3486364492825535,
+                      "draw": 0.26817440867742753,
+                      "awayWin": 0.38318914204001897
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.013018039425089323,
+                    "draw": -0.004820258392083665,
+                    "awayWin": 0.012955443826481809
+                  },
+                  "trueOutcomeProbabilityDelta": -0.010942709658999215
+                }
+              },
+              "lambda": {
+                "home": {
+                  "incumbent": 1.1671715780176442,
+                  "candidate": 1.247929006690551,
+                  "delta": 0.08075742867290657,
+                  "deltaLog": 0.07042096358876988
+                },
+                "away": {
+                  "incumbent": 1.3659821815595843,
+                  "candidate": 1.3716066919212706,
+                  "delta": 0.005624510361686278,
+                  "deltaLog": 0.002422059873173708
+                }
+              },
+              "sample": {
+                "home": {
+                  "mean": 109.26666666666667,
+                  "outsideTrainingRange": 19,
+                  "quantiles": [
+                    21.0,
+                    95.5,
+                    132.5,
+                    137.75,
+                    142.0
+                  ]
+                },
+                "away": {
+                  "mean": 129.63333333333333,
+                  "outsideTrainingRange": 27,
+                  "quantiles": [
+                    16.0,
+                    132.0,
+                    136.0,
+                    138.75,
+                    142.0
+                  ]
+                }
+              },
+              "calibrationAlgebraicAttribution": {
+                "rawInput": {
+                  "logLoss": 0.039763891476783275,
+                  "brier": 0.026928230662502065
+                },
+                "calibrationProfile": {
+                  "logLoss": -0.00041376249461378783,
+                  "brier": 1.900554034067007e-05
+                }
+              },
+              "rawDrawProbabilityRangeCounts": {
+                "incumbent": 14,
+                "candidate": 15
+              }
+            }
+          }
+        },
+        "current": {
+          "all": {
+            "n": 10,
+            "outcomes": {
+              "awayWin": 4,
+              "homeWin": 6
+            },
+            "stages": {
+              "raw": {
+                "incumbent": {
+                  "logLoss": 0.8153350455721992,
+                  "brier": 0.4597982321345341
+                },
+                "candidate": {
+                  "logLoss": 0.8203171940815542,
+                  "brier": 0.4607692241143752
+                },
+                "delta": {
+                  "logLoss": 0.004982148509355078,
+                  "brier": 0.0009709919798411293
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.4449469208919834,
+                    "draw": 0.2493839034754309,
+                    "awayWin": 0.30566917563258567
+                  },
+                  "candidate": {
+                    "homeWin": 0.45740858589053096,
+                    "draw": 0.24657128308259674,
+                    "awayWin": 0.29602013102687236
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -0.001320258339454841,
+                  "draw": -0.0017014367100343705,
+                  "awayWin": 0.003992687029330376
+                },
+                "trueOutcomeProbabilityDelta": -0.00016185053143641658
+              },
+              "calibrated": {
+                "incumbent": {
+                  "logLoss": 0.8124838228153546,
+                  "brier": 0.4582188882495631
+                },
+                "candidate": {
+                  "logLoss": 0.8049021686929327,
+                  "brier": 0.4493067003778421
+                },
+                "delta": {
+                  "logLoss": -0.007581654122421844,
+                  "brier": -0.008912187871720989
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.4541689449363022,
+                    "draw": 0.2408965420325259,
+                    "awayWin": 0.30493451303117197
+                  },
+                  "candidate": {
+                    "homeWin": 0.47317989962389584,
+                    "draw": 0.23411913658971698,
+                    "awayWin": 0.2927009637863872
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -0.0072533857129691934,
+                  "draw": -0.004645967910263139,
+                  "awayWin": 0.002987165751511373
+                },
+                "trueOutcomeProbabilityDelta": 0.004798107634712043
+              },
+              "decision": {
+                "incumbent": {
+                  "logLoss": 0.8079317629785117,
+                  "brier": 0.45590098032499454
+                },
+                "candidate": {
+                  "logLoss": 0.801361307942415,
+                  "brier": 0.4488154124915759
+                },
+                "delta": {
+                  "logLoss": -0.006570455036096656,
+                  "brier": -0.007085567833418627
+                },
+                "probabilities": {
+                  "incumbent": {
+                    "homeWin": 0.45523147317755946,
+                    "draw": 0.2348117036792276,
+                    "awayWin": 0.30995682314321304
+                  },
+                  "candidate": {
+                    "homeWin": 0.46974515885515755,
+                    "draw": 0.22962256132292955,
+                    "awayWin": 0.30063227982191293
+                  }
+                },
+                "brierDeltaByClass": {
+                  "homeWin": -0.005628944528712222,
+                  "draw": -0.0035190933049468742,
+                  "awayWin": 0.0020624700002404785
+                },
+                "trueOutcomeProbabilityDelta": 0.003690507610502619
+              }
+            },
+            "lambda": {
+              "home": {
+                "incumbent": 1.5372492535229243,
+                "candidate": 1.6030501609044563,
+                "delta": 0.06580090738153213,
+                "deltaLog": 0.04720928451887301
+              },
+              "away": {
+                "incumbent": 1.2407064049924328,
+                "candidate": 1.2379700136822336,
+                "delta": -0.0027363913101991267,
+                "deltaLog": 0.0018643614476111562
+              }
+            },
+            "sample": {
+              "home": {
+                "mean": 112.3,
+                "outsideTrainingRange": 6,
+                "quantiles": [
+                  10.0,
+                  57.5,
+                  160.5,
+                  162.0,
+                  162.0
+                ]
+              },
+              "away": {
+                "mean": 139.1,
+                "outsideTrainingRange": 9,
+                "quantiles": [
+                  10.0,
+                  133.25,
+                  162.0,
+                  162.0,
+                  162.0
+                ]
+              }
+            },
+            "calibrationAlgebraicAttribution": {
+              "rawInput": {
+                "logLoss": 0.0052022852378438705,
+                "brier": 0.001677473309024028
+              },
+              "calibrationProfile": {
+                "logLoss": -0.012783939360266056,
+                "brier": -0.010589661180745094
+              }
+            },
+            "rawDrawProbabilityRangeCounts": {
+              "incumbent": 4,
+              "candidate": 4
+            }
+          },
+          "byOutcome": {
+            "homeWin": {
+              "n": 6,
+              "outcomes": {
+                "homeWin": 6
+              },
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": 0.698438083198087,
+                    "brier": 0.38482278748343407
+                  },
+                  "candidate": {
+                    "logLoss": 0.6739688403438958,
+                    "brier": 0.36720838391670707
+                  },
+                  "delta": {
+                    "logLoss": -0.024469242854191164,
+                    "brier": -0.017614403566727
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.5204414758954473,
+                      "draw": 0.2605575403890983,
+                      "awayWin": 0.21900098371545443
+                    },
+                    "candidate": {
+                      "homeWin": 0.5298742323403937,
+                      "draw": 0.25750401762300057,
+                      "awayWin": 0.21262175003660597
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.011748505205631666,
+                    "draw": -0.001874828360958921,
+                    "awayWin": -0.003991070000136491
+                  },
+                  "trueOutcomeProbabilityDelta": 0.009432756444946325
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": 0.6847793292756816,
+                    "brier": 0.3775512880490229
+                  },
+                  "candidate": {
+                    "logLoss": 0.6373781431657359,
+                    "brier": 0.34286333370836575
+                  },
+                  "delta": {
+                    "logLoss": -0.0474011861099457,
+                    "brier": -0.034687954340657134
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.5313926047616117,
+                      "draw": 0.2554232856880378,
+                      "awayWin": 0.2131841095503506
+                    },
+                    "candidate": {
+                      "homeWin": 0.5498115319815187,
+                      "draw": 0.24697152604738504,
+                      "awayWin": 0.2032169419710963
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.023119447021083584,
+                    "draw": -0.0057981777359761635,
+                    "awayWin": -0.005770329583597431
+                  },
+                  "trueOutcomeProbabilityDelta": 0.01841892721990705
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": 0.6847541186186034,
+                    "brier": 0.37750012135528693
+                  },
+                  "candidate": {
+                    "logLoss": 0.6479224115095307,
+                    "brier": 0.350742101949187
+                  },
+                  "delta": {
+                    "logLoss": -0.03683170710907269,
+                    "brier": -0.026758019406099953
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.5330659318027045,
+                      "draw": 0.250159810302281,
+                      "awayWin": 0.21677425789501462
+                    },
+                    "candidate": {
+                      "homeWin": 0.5471455096901123,
+                      "draw": 0.24369240608046983,
+                      "awayWin": 0.20916208422941804
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": -0.01781195455170946,
+                    "draw": -0.004373025770105693,
+                    "awayWin": -0.00457303908428479
+                  },
+                  "trueOutcomeProbabilityDelta": 0.014079577887407916
+                }
+              },
+              "lambda": {
+                "home": {
+                  "incumbent": 1.6657688650235654,
+                  "candidate": 1.7148729103061358,
+                  "delta": 0.04910404528257025,
+                  "deltaLog": 0.03548232578881071
+                },
+                "away": {
+                  "incumbent": 0.9716307352743513,
+                  "candidate": 0.9782217992334878,
+                  "delta": 0.006591063959136408,
+                  "deltaLog": 0.009058009497773575
+                }
+              },
+              "sample": {
+                "home": {
+                  "mean": 136.16666666666666,
+                  "outsideTrainingRange": 5,
+                  "quantiles": [
+                    10.0,
+                    160.25,
+                    161.5,
+                    162.0,
+                    162.0
+                  ]
+                },
+                "away": {
+                  "mean": 130.33333333333334,
+                  "outsideTrainingRange": 5,
+                  "quantiles": [
+                    10.0,
+                    133.5,
+                    162.0,
+                    162.0,
+                    162.0
+                  ]
+                }
+              },
+              "calibrationAlgebraicAttribution": {
+                "rawInput": {
+                  "logLoss": -0.023213054417116363,
+                  "brier": -0.016788244407645106
+                },
+                "calibrationProfile": {
+                  "logLoss": -0.02418813169282927,
+                  "brier": -0.01789970993301206
+                }
+              },
+              "rawDrawProbabilityRangeCounts": {
+                "incumbent": 3,
+                "candidate": 3
+              }
+            },
+            "draw": {
+              "n": 0,
+              "outcomes": {},
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "candidate": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "delta": {},
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    },
+                    "candidate": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": null,
+                    "draw": null,
+                    "awayWin": null
+                  },
+                  "trueOutcomeProbabilityDelta": null
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "candidate": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "delta": {},
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    },
+                    "candidate": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": null,
+                    "draw": null,
+                    "awayWin": null
+                  },
+                  "trueOutcomeProbabilityDelta": null
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "candidate": {
+                    "logLoss": null,
+                    "brier": null
+                  },
+                  "delta": {},
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    },
+                    "candidate": {
+                      "homeWin": null,
+                      "draw": null,
+                      "awayWin": null
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": null,
+                    "draw": null,
+                    "awayWin": null
+                  },
+                  "trueOutcomeProbabilityDelta": null
+                }
+              }
+            },
+            "awayWin": {
+              "n": 4,
+              "outcomes": {
+                "awayWin": 4
+              },
+              "stages": {
+                "raw": {
+                  "incumbent": {
+                    "logLoss": 0.9906804891333674,
+                    "brier": 0.572261399111184
+                  },
+                  "candidate": {
+                    "logLoss": 1.0398397246880422,
+                    "brier": 0.6011104844108776
+                  },
+                  "delta": {
+                    "logLoss": 0.04915923555467483,
+                    "brier": 0.028849085299693544
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.33170508838678747,
+                      "draw": 0.23262344810492996,
+                      "awayWin": 0.4356714635082825
+                    },
+                    "candidate": {
+                      "homeWin": 0.34871011621573694,
+                      "draw": 0.23017218127199102,
+                      "awayWin": 0.421117702512272
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.014322111959810396,
+                    "draw": -0.0014413492336475446,
+                    "awayWin": 0.015968322573530678
+                  },
+                  "trueOutcomeProbabilityDelta": -0.01455376099601053
+                },
+                "calibrated": {
+                  "incumbent": {
+                    "logLoss": 1.0040405631248641,
+                    "brier": 0.5792202885503733
+                  },
+                  "candidate": {
+                    "logLoss": 1.0561882069837278,
+                    "brier": 0.6089717503820568
+                  },
+                  "delta": {
+                    "logLoss": 0.052147643858863724,
+                    "brier": 0.029751461831683423
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.338333455198338,
+                      "draw": 0.2191064265492581,
+                      "awayWin": 0.442560118252404
+                    },
+                    "candidate": {
+                      "homeWin": 0.3582324510874615,
+                      "draw": 0.21484055240321476,
+                      "awayWin": 0.42692699650932353
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.016545706249202395,
+                    "draw": -0.002917653171693602,
+                    "awayWin": 0.01612340875417458
+                  },
+                  "trueOutcomeProbabilityDelta": -0.015633121743080465
+                },
+                "decision": {
+                  "incumbent": {
+                    "logLoss": 0.9926982295183743,
+                    "brier": 0.573502268779556
+                  },
+                  "candidate": {
+                    "logLoss": 1.0315196525917416,
+                    "brier": 0.5959253783051593
+                  },
+                  "delta": {
+                    "logLoss": 0.038821423073367334,
+                    "brier": 0.022423109525603335
+                  },
+                  "probabilities": {
+                    "incumbent": {
+                      "homeWin": 0.33847978523984207,
+                      "draw": 0.2117895437446476,
+                      "awayWin": 0.4497306710155107
+                    },
+                    "candidate": {
+                      "homeWin": 0.3536446326027253,
+                      "draw": 0.2085177941866193,
+                      "awayWin": 0.4378375732106553
+                    }
+                  },
+                  "brierDeltaByClass": {
+                    "homeWin": 0.012645570505783639,
+                    "draw": -0.002238194607208647,
+                    "awayWin": 0.012015733627028381
+                  },
+                  "trueOutcomeProbabilityDelta": -0.011893097804855327
+                }
+              },
+              "lambda": {
+                "home": {
+                  "incumbent": 1.3444698362719627,
+                  "candidate": 1.4353160368019378,
+                  "delta": 0.09084620052997494,
+                  "deltaLog": 0.06479972261396647
+                },
+                "away": {
+                  "incumbent": 1.6443199095695546,
+                  "candidate": 1.6275923353553523,
+                  "delta": -0.01672757421420243,
+                  "deltaLog": -0.008926110627632471
+                }
+              },
+              "sample": {
+                "home": {
+                  "mean": 76.5,
+                  "outsideTrainingRange": 1,
+                  "quantiles": [
+                    10.0,
+                    38.5,
+                    67.0,
+                    105.0,
+                    162.0
+                  ]
+                },
+                "away": {
+                  "mean": 152.25,
+                  "outsideTrainingRange": 4,
+                  "quantiles": [
+                    124.0,
+                    151.75,
+                    161.5,
+                    162.0,
+                    162.0
+                  ]
+                }
+              },
+              "calibrationAlgebraicAttribution": {
+                "rawInput": {
+                  "logLoss": 0.04782529472028422,
+                  "brier": 0.02937604988402773
+                },
+                "calibrationProfile": {
+                  "logLoss": 0.00432234913857877,
+                  "brier": 0.0003754119476553526
+                }
+              },
+              "rawDrawProbabilityRangeCounts": {
+                "incumbent": 1,
+                "candidate": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "contributors": {
+      "raw": {
+        "positiveCount": 65,
+        "negativeCount": 68,
+        "positiveSum": 1.9541836254386318,
+        "negativeSum": -2.281047217017633,
+        "topFivePositiveSum": 0.4819024348636386,
+        "topTenPositiveSum": 0.7777151139636481,
+        "worstMatchIds": [
+          "understat_29442",
+          "understat_30879",
+          "understat_29355",
+          "understat_29382",
+          "understat_29411",
+          "understat_29366",
+          "understat_29445",
+          "understat_29371",
+          "understat_29444",
+          "understat_29380"
+        ],
+        "bestMatchIds": [
+          "understat_29375",
+          "understat_29358",
+          "understat_29432",
+          "understat_29389",
+          "understat_29440",
+          "understat_29433",
+          "understat_29340",
+          "understat_29447",
+          "understat_29349",
+          "understat_29423"
+        ]
+      },
+      "calibrated": {
+        "positiveCount": 77,
+        "negativeCount": 56,
+        "positiveSum": 3.5735647367950234,
+        "negativeSum": -2.9829880725038196,
+        "topFivePositiveSum": 0.6315543503564514,
+        "topTenPositiveSum": 1.1297745028558488,
+        "worstMatchIds": [
+          "understat_29442",
+          "understat_29427",
+          "understat_30879",
+          "understat_29355",
+          "understat_29386",
+          "understat_29371",
+          "understat_29365",
+          "understat_29426",
+          "understat_29428",
+          "understat_29376"
+        ],
+        "bestMatchIds": [
+          "understat_29340",
+          "understat_29375",
+          "understat_29349",
+          "understat_29447",
+          "understat_29440",
+          "understat_29389",
+          "understat_29432",
+          "understat_29394",
+          "understat_30872",
+          "understat_29364"
+        ]
+      },
+      "decision": {
+        "positiveCount": 77,
+        "negativeCount": 56,
+        "positiveSum": 2.7475112885478183,
+        "negativeSum": -2.2347873437844017,
+        "topFivePositiveSum": 0.4877972661444381,
+        "topTenPositiveSum": 0.8747893050030147,
+        "worstMatchIds": [
+          "understat_29442",
+          "understat_29427",
+          "understat_29355",
+          "understat_29371",
+          "understat_30879",
+          "understat_29386",
+          "understat_29426",
+          "understat_29365",
+          "understat_29332",
+          "understat_29428"
+        ],
+        "bestMatchIds": [
+          "understat_29340",
+          "understat_29349",
+          "understat_29447",
+          "understat_29375",
+          "understat_29440",
+          "understat_29389",
+          "understat_29394",
+          "understat_30875",
+          "understat_30872",
+          "understat_29432"
+        ]
+      }
+    },
+    "calibrationAlgebraicAttribution": {
+      "method": "Exact two-factor telescoping attribution, averaged over both factor orders; mixed intermediate partitions are mathematical attribution only, not candidate evaluations.",
+      "maximumDiagonalProbabilityParityError": 8.881784197001252e-16,
+      "scalarCurveBefore1X2Normalization": [
+        {
+          "rawProbability": 0.2,
+          "incumbent": 0.1715565910146603,
+          "candidate": 0.1807754210936794
+        },
+        {
+          "rawProbability": 0.25,
+          "incumbent": 0.24160988978889356,
+          "candidate": 0.24843693302282352
+        },
+        {
+          "rawProbability": 0.27,
+          "incumbent": 0.2705820443291562,
+          "candidate": 0.2643291865405194
+        },
+        {
+          "rawProbability": 0.28,
+          "incumbent": 0.2862751522574261,
+          "candidate": 0.27227531329936727
+        },
+        {
+          "rawProbability": 0.29,
+          "incumbent": 0.30196826018569595,
+          "candidate": 0.28022144005821514
+        },
+        {
+          "rawProbability": 0.3,
+          "incumbent": 0.31766136811396584,
+          "candidate": 0.28816756681706307
+        },
+        {
+          "rawProbability": 0.31,
+          "incumbent": 0.3333544760422358,
+          "candidate": 0.3087337031571159
+        },
+        {
+          "rawProbability": 0.32,
+          "incumbent": 0.3490475839705056,
+          "candidate": 0.33076430302569937
+        },
+        {
+          "rawProbability": 0.34,
+          "incumbent": 0.3804337998270454,
+          "candidate": 0.37482550276286636
+        }
+      ]
+    },
+    "limitations": [
+      "Retrospective decomposition of the already-scored candidate; no new hypothesis validation.",
+      "Changing input and refitting calibration jointly prevents causal attribution to either alone.",
+      "Closing odds are historical diagnostic evidence, not a verified forecast-time capture."
+    ]
+  },
+  "leafEdit": {
+    "home": {
+      "treeCount": 120,
+      "emptyLeafCount": 805,
+      "changedLeafCount": 805,
+      "supportedLeavesUnchanged": true,
+      "onlyOriginallyEmptyLeavesChanged": true,
+      "trainingRawExactlyUnchanged": true,
+      "trainingRawMaximumDifference": 0.0
+    },
+    "away": {
+      "treeCount": 120,
+      "emptyLeafCount": 838,
+      "changedLeafCount": 838,
+      "supportedLeavesUnchanged": true,
+      "onlyOriginallyEmptyLeavesChanged": true,
+      "trainingRawExactlyUnchanged": true,
+      "trainingRawMaximumDifference": 0.0
+    }
+  },
+  "rawForecastsChangedAtTolerance1e12": 59,
+  "calibrationMatricesChangedAtTolerance1e12": 19,
+  "calibratedAndDecisionForecastsChanged": 652,
+  "candidateFrozenAt": "2026-11-08T13:47:33.498Z",
+  "diagnosticStartedAt": "2026-11-08T13:47:33.521Z",
+  "checks": {
+    "incumbentAndPinnedSourcesUnchanged": true,
+    "protectedHoldoutTargetsUsed": 0,
+    "quarantinedTargetsUsed": 0,
+    "originalCalibrationRows": 358,
+    "originalAProfileReproduced": true,
+    "nativeRawParityRows": 6577,
+    "nativeRawParityMaximum": 2.220446049250313e-16,
+    "trainingRawMaximumDifference": 0,
+    "guardedRawMathMaximumError": 0,
+    "calibrationMatrixMaximumError": 1.1102230246251565e-16,
+    "rebuiltInputs": 43,
+    "candidateFrozenBeforeScoring": true,
+    "bySide": {
+      "home": {
+        "emptyLeaves": 805,
+        "changedLeaves": 805
+      },
+      "away": {
+        "emptyLeaves": 838,
+        "changedLeaves": 838
+      }
+    },
+    "supportedLeavesUnchanged": true,
+    "onlyOriginallyEmptyLeavesChanged": true,
+    "onlyModelLeafValuesChanged": true
+  },
+  "developmentCriterion": {
+    "passed": false,
+    "diagnosticOnly": true,
+    "productionAdoptionEligible": false,
+    "independentEvidence": false,
+    "improvedLeagues": [
+      "Bundesliga",
+      "La Liga",
+      "Premier League",
+      "Serie A"
+    ],
+    "gates": [
+      {
+        "name": "exactly_five_leagues",
+        "passed": true,
+        "value": 5
+      },
+      {
+        "name": "all.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0006247134364107954
+      },
+      {
+        "name": "all.calibrated.logLoss.paired95_upper_below_zero",
+        "passed": true,
+        "value": {
+          "lower": -0.0012528995249863927,
+          "upper": -0.0001279036560126701
+        }
+      },
+      {
+        "name": "Bundesliga.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00018813938024442312
+      },
+      {
+        "name": "La Liga.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.000992095579981811
+      },
+      {
+        "name": "Ligue 1.calibrated.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.000275487720476697
+      },
+      {
+        "name": "Premier League.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00162052696708459
+      },
+      {
+        "name": "Serie A.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00041675980433930615
+      },
+      {
+        "name": "all.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0004658079823558481
+      },
+      {
+        "name": "all.calibrated.brier.paired95_upper_below_zero",
+        "passed": true,
+        "value": {
+          "lower": -0.0008995025248349735,
+          "upper": -0.0001074987102626908
+        }
+      },
+      {
+        "name": "Bundesliga.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.00015707014284593868
+      },
+      {
+        "name": "La Liga.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0007901383512194382
+      },
+      {
+        "name": "Ligue 1.calibrated.brier.strictly_lower",
+        "passed": false,
+        "value": 0.00014796182591070295
+      },
+      {
+        "name": "Premier League.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.001106897386939254
+      },
+      {
+        "name": "Serie A.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.00030229519317670484
+      },
+      {
+        "name": "all.calibrated.ece.not_worse",
+        "passed": true,
+        "value": -0.000548298138647263
+      },
+      {
+        "name": "all.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0004740950165684765
+      },
+      {
+        "name": "all.decision.logLoss.paired95_upper_below_zero",
+        "passed": true,
+        "value": {
+          "lower": -0.0009599372114263289,
+          "upper": -8.786225485687734e-05
+        }
+      },
+      {
+        "name": "Bundesliga.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00012791378508814066
+      },
+      {
+        "name": "La Liga.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0007507062487026595
+      },
+      {
+        "name": "Ligue 1.decision.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.00021149844905765658
+      },
+      {
+        "name": "Premier League.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0012479456158340785
+      },
+      {
+        "name": "Serie A.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0003161482842031216
+      },
+      {
+        "name": "all.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0003549234775885868
+      },
+      {
+        "name": "all.decision.brier.paired95_upper_below_zero",
+        "passed": true,
+        "value": {
+          "lower": -0.0006916974585887156,
+          "upper": -8.051978569457325e-05
+        }
+      },
+      {
+        "name": "Bundesliga.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.00010714093708996675
+      },
+      {
+        "name": "La Liga.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0006059199704138152
+      },
+      {
+        "name": "Ligue 1.decision.brier.strictly_lower",
+        "passed": false,
+        "value": 0.00011134159321968262
+      },
+      {
+        "name": "Premier League.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0008525805804053821
+      },
+      {
+        "name": "Serie A.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.00022824793132047994
+      },
+      {
+        "name": "all.decision.ece.not_worse",
+        "passed": false,
+        "value": 0.001031740064929676
+      }
+    ],
+    "failedGates": [
+      {
+        "name": "Ligue 1.calibrated.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.000275487720476697
+      },
+      {
+        "name": "Ligue 1.calibrated.brier.strictly_lower",
+        "passed": false,
+        "value": 0.00014796182591070295
+      },
+      {
+        "name": "Ligue 1.decision.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.00021149844905765658
+      },
+      {
+        "name": "Ligue 1.decision.brier.strictly_lower",
+        "passed": false,
+        "value": 0.00011134159321968262
+      },
+      {
+        "name": "all.decision.ece.not_worse",
+        "passed": false,
+        "value": 0.001031740064929676
+      }
+    ]
+  },
+  "summary": {
+    "all": {
+      "raw": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9894924671730627,
+          "brier": 0.5894423514417971,
+          "over25LogLoss": 0.6987987563331206,
+          "over25Brier": 0.25264808362796903,
+          "eceTopLabel10Bins": 0.0235303378122355
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.9890471068862158,
+          "brier": 0.5890856434129262,
+          "over25LogLoss": 0.6984276667602324,
+          "over25Brier": 0.2524673251567934,
+          "eceTopLabel10Bins": 0.02246552484426918
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.00044536028684694084,
+          "brier": -0.00035670802887088904,
+          "over25LogLoss": -0.00037108957288822797,
+          "over25Brier": -0.00018075847117565713,
+          "eceTopLabel10Bins": -0.00106481296796632
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0008622480782045109,
+              "upper": -4.1694447029934314e-05
+            },
+            "brier": {
+              "lower": -0.0006766679982461584,
+              "upper": -5.6488565800711674e-05
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9915936406384722,
+          "brier": 0.5906438595609752,
+          "over25LogLoss": 0.6983681639863509,
+          "over25Brier": 0.25243673321568166,
+          "eceTopLabel10Bins": 0.03878533792789205
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.9909689272020614,
+          "brier": 0.5901780515786194,
+          "over25LogLoss": 0.6979781055818668,
+          "over25Brier": 0.252246435050737,
+          "eceTopLabel10Bins": 0.03823703978924479
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0006247134364107954,
+          "brier": -0.0004658079823558481,
+          "over25LogLoss": -0.0003900584044841393,
+          "over25Brier": -0.00019029816494464669,
+          "eceTopLabel10Bins": -0.000548298138647263
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0012528995249863927,
+              "upper": -0.0001279036560126701
+            },
+            "brier": {
+              "lower": -0.0008995025248349735,
+              "upper": -0.0001074987102626908
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9851867645020889,
+          "brier": 0.5864606942848937,
+          "over25LogLoss": 0.6981340077763651,
+          "over25Brier": 0.2523322047263025,
+          "eceTopLabel10Bins": 0.020140878712410153
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.9847126694855204,
+          "brier": 0.5861057708073051,
+          "over25LogLoss": 0.697751625860042,
+          "over25Brier": 0.2521454231799948,
+          "eceTopLabel10Bins": 0.02117261877733983
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0004740950165684765,
+          "brier": -0.0003549234775885868,
+          "over25LogLoss": -0.0003823819163231157,
+          "over25Brier": -0.00018678154630774602,
+          "eceTopLabel10Bins": 0.001031740064929676
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0009599372114263289,
+              "upper": -8.786225485687734e-05
+            },
+            "brier": {
+              "lower": -0.0006916974585887156,
+              "upper": -8.051978569457325e-05
+            }
+          }
+        }
+      }
+    },
+    "historical": {
+      "raw": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9937793464955398,
+          "brier": 0.5929358906466908,
+          "over25LogLoss": 0.6956680430116275,
+          "over25Brier": 0.2511058121518658,
+          "eceTopLabel10Bins": 0.02365931834972618
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9933821160045178,
+          "brier": 0.5926098084429194,
+          "over25LogLoss": 0.6953640908049,
+          "over25Brier": 0.25095882135669767,
+          "eceTopLabel10Bins": 0.023818132259304025
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.000397230491022027,
+          "brier": -0.00032608220377139396,
+          "over25LogLoss": -0.0003039522067275202,
+          "over25Brier": -0.00014699079516811153,
+          "eceTopLabel10Bins": 0.0001588139095778443
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0008688244500158582,
+              "upper": 2.8583584813153823e-05
+            },
+            "brier": {
+              "lower": -0.0006872071657203294,
+              "upper": -9.434817068514899e-06
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9956929834878836,
+          "brier": 0.5941274305318758,
+          "over25LogLoss": 0.6952087736019901,
+          "over25Brier": 0.25087957852486287,
+          "eceTopLabel10Bins": 0.03804783514659511
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9950942662947572,
+          "brier": 0.5936777998288875,
+          "over25LogLoss": 0.694885041326554,
+          "over25Brier": 0.25072261313922756,
+          "eceTopLabel10Bins": 0.037482500025857825
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0005987171931264301,
+          "brier": -0.00044963070298831287,
+          "over25LogLoss": -0.00032373227543602834,
+          "over25Brier": -0.00015696538563531037,
+          "eceTopLabel10Bins": -0.0005653351207372884
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0012959965516077733,
+              "upper": -6.086572064813426e-05
+            },
+            "brier": {
+              "lower": -0.0009360214737646288,
+              "upper": -6.492194780397712e-05
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9894033921491068,
+          "brier": 0.5900132101366219,
+          "over25LogLoss": 0.6950859322481882,
+          "over25Brier": 0.2508286436840711,
+          "eceTopLabel10Bins": 0.025919712880534903
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9889470483470848,
+          "brier": 0.5896685924608654,
+          "over25LogLoss": 0.6947693792338799,
+          "over25Brier": 0.2506748149403832,
+          "eceTopLabel10Bins": 0.02699151603039555
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.00045634380202197455,
+          "brier": -0.0003446176757564423,
+          "over25LogLoss": -0.00031655301430821847,
+          "over25Brier": -0.00015382874368791155,
+          "eceTopLabel10Bins": 0.0010718031498606478
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0009953757558774912,
+              "upper": -3.829750972667029e-05
+            },
+            "brier": {
+              "lower": -0.0007197470541140063,
+              "upper": -4.7240419133610064e-05
+            }
+          }
+        }
+      }
+    },
+    "current": {
+      "raw": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.9447434637191425,
+          "brier": 0.5529747053556254,
+          "over25LogLoss": 0.7314790094258976,
+          "over25Brier": 0.2687472332469411,
+          "eceTopLabel10Bins": 0.1387811334050688
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.943795695914471,
+          "brier": 0.5522983066963313,
+          "over25LogLoss": 0.7304070999781759,
+          "over25Brier": 0.2682139876314756,
+          "eceTopLabel10Bins": 0.1390087299181846
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0009477678046715399,
+          "brier": -0.0006763986592941418,
+          "over25LogLoss": -0.0010719094477217306,
+          "over25Brier": -0.0005332456154655274,
+          "eceTopLabel10Bins": 0.00022759651311579643
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0010223133419489422,
+              "upper": -0.0004911763888474432
+            },
+            "brier": {
+              "lower": -0.0007316154003997749,
+              "upper": -0.0003381961200230564
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.948802254754272,
+          "brier": 0.5542802678471899,
+          "over25LogLoss": 0.7313477653669622,
+          "over25Brier": 0.2686912427075627,
+          "eceTopLabel10Bins": 0.1613984596770267
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.9479061770239096,
+          "brier": 0.5536455917731896,
+          "over25LogLoss": 0.7302653552645182,
+          "over25Brier": 0.26815299710947743,
+          "eceTopLabel10Bins": 0.16115036478275593
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0008960777303624878,
+          "brier": -0.0006346760740002511,
+          "over25LogLoss": -0.0010824101024440314,
+          "over25Brier": -0.0005382455980852963,
+          "eceTopLabel10Bins": -0.0002480948942707728
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0009606158283094445,
+              "upper": -0.0005007818804369998
+            },
+            "brier": {
+              "lower": -0.0006844411449611241,
+              "upper": -0.0003298650143629678
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.9411710899411135,
+          "brier": 0.5493774147800109,
+          "over25LogLoss": 0.7299516382897944,
+          "over25Brier": 0.2680272717460884,
+          "eceTopLabel10Bins": 0.10597468992490013
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.9405116971586622,
+          "brier": 0.5489149131955794,
+          "over25LogLoss": 0.7288820950278756,
+          "over25Brier": 0.2674965091899752,
+          "eceTopLabel10Bins": 0.10567156936413197
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0006593927824513068,
+          "brier": -0.00046250158443150724,
+          "over25LogLoss": -0.0010695432619187706,
+          "over25Brier": -0.000530762556113229,
+          "eceTopLabel10Bins": -0.0003031205607681581
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.000703465323195522,
+              "upper": -0.0003894484703926629
+            },
+            "brier": {
+              "lower": -0.0004949846585087504,
+              "upper": -0.00026354275570917955
+            }
+          }
+        }
+      }
+    },
+    "byLeague": {
+      "Bundesliga": {
+        "raw": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.955517090202476,
+            "brier": 0.5648790759559178,
+            "over25LogLoss": 0.6421256956774655,
+            "over25Brier": 0.2252838919377229,
+            "eceTopLabel10Bins": 0.0575809495084933
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9552747738205797,
+            "brier": 0.5646931570296246,
+            "over25LogLoss": 0.6417689467170907,
+            "over25Brier": 0.225116668323791,
+            "eceTopLabel10Bins": 0.057662204823023026
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00024231638189631255,
+            "brier": -0.00018591892629316042,
+            "over25LogLoss": -0.000356748960374742,
+            "over25Brier": -0.00016722361393189944,
+            "eceTopLabel10Bins": 8.125531452972401e-05
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0007391438280620936,
+                "upper": 0.00022483251648014295
+              },
+              "brier": {
+                "lower": -0.000550805532506175,
+                "upper": 0.00013120393263393746
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.955883429782181,
+            "brier": 0.5644852375491648,
+            "over25LogLoss": 0.6399219746807422,
+            "over25Brier": 0.22427614025825046,
+            "eceTopLabel10Bins": 0.04744119175665158
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9556952904019366,
+            "brier": 0.5643281674063189,
+            "over25LogLoss": 0.639572716099772,
+            "over25Brier": 0.22411244172941766,
+            "eceTopLabel10Bins": 0.05396572748509658
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00018813938024442312,
+            "brier": -0.00015707014284593868,
+            "over25LogLoss": -0.0003492585809702353,
+            "over25Brier": -0.00016369852883280078,
+            "eceTopLabel10Bins": 0.006524535728444997
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0008087131326367867,
+                "upper": 0.00040268558158187355
+              },
+              "brier": {
+                "lower": -0.0006026667682973788,
+                "upper": 0.00019961648342817134
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.9510895949454246,
+            "brier": 0.5606489732050877,
+            "over25LogLoss": 0.6399428317432482,
+            "over25Brier": 0.2242916904671738,
+            "eceTopLabel10Bins": 0.061789565190719695
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9509616811603364,
+            "brier": 0.5605418322679977,
+            "over25LogLoss": 0.6395978996403284,
+            "over25Brier": 0.22413013927885964,
+            "eceTopLabel10Bins": 0.06980153529602094
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00012791378508814066,
+            "brier": -0.00010714093708996675,
+            "over25LogLoss": -0.0003449321029197483,
+            "over25Brier": -0.00016155118831415183,
+            "eceTopLabel10Bins": 0.008011970105301247
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0006046262859628959,
+                "upper": 0.0003374623420824172
+              },
+              "brier": {
+                "lower": -0.0004423807059938875,
+                "upper": 0.00016634830019197311
+              }
+            }
+          }
+        }
+      },
+      "La Liga": {
+        "raw": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9570695851443591,
+            "brier": 0.5619898976678298,
+            "over25LogLoss": 0.7155915733078807,
+            "over25Brier": 0.2605287547375605,
+            "eceTopLabel10Bins": 0.06214636120117364
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9561216158651049,
+            "brier": 0.5612616252359341,
+            "over25LogLoss": 0.7152399159048696,
+            "over25Brier": 0.26035474408743475,
+            "eceTopLabel10Bins": 0.06910358971968379
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0009479692792542238,
+            "brier": -0.0007282724318956602,
+            "over25LogLoss": -0.0003516574030111297,
+            "over25Brier": -0.00017401065012573325,
+            "eceTopLabel10Bins": 0.006957228518510154
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0020153411900623785,
+                "upper": -8.857122112185675e-07
+              },
+              "brier": {
+                "lower": -0.0015599054665005475,
+                "upper": -5.884610294683965e-06
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9510267127447205,
+            "brier": 0.5582716267983555,
+            "over25LogLoss": 0.7144368207295275,
+            "over25Brier": 0.2599359141364082,
+            "eceTopLabel10Bins": 0.061992337144406676
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9500346171647387,
+            "brier": 0.5574814884471361,
+            "over25LogLoss": 0.7141324497705313,
+            "over25Brier": 0.25978608480322785,
+            "eceTopLabel10Bins": 0.06894693864799432
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.000992095579981811,
+            "brier": -0.0007901383512194382,
+            "over25LogLoss": -0.00030437095899626954,
+            "over25Brier": -0.0001498293331803624,
+            "eceTopLabel10Bins": 0.0069546015035876485
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.002070846371661084,
+                "upper": 6.116628591304414e-05
+              },
+              "brier": {
+                "lower": -0.0016691427712970056,
+                "upper": 4.725164506714027e-06
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9485406365195365,
+            "brier": 0.5574699321426173,
+            "over25LogLoss": 0.7144457813496039,
+            "over25Brier": 0.2599741544750713,
+            "eceTopLabel10Bins": 0.06887877133100215
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9477899302708338,
+            "brier": 0.5568640121722035,
+            "over25LogLoss": 0.7141270777474866,
+            "over25Brier": 0.2598173077226432,
+            "eceTopLabel10Bins": 0.0761589053452838
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0007507062487026595,
+            "brier": -0.0006059199704138152,
+            "over25LogLoss": -0.0003187036021172762,
+            "over25Brier": -0.00015684675242805257,
+            "eceTopLabel10Bins": 0.007280134014281653
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.001599482813423522,
+                "upper": 7.465045797953763e-05
+              },
+              "brier": {
+                "lower": -0.0013050319194752612,
+                "upper": 1.1632009146132593e-05
+              }
+            }
+          }
+        }
+      },
+      "Ligue 1": {
+        "raw": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9691788821974652,
+            "brier": 0.5757059066552157,
+            "over25LogLoss": 0.6797596796232758,
+            "over25Brier": 0.24337336403241389,
+            "eceTopLabel10Bins": 0.09152807562099495
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9695297376687234,
+            "brier": 0.5759032705359528,
+            "over25LogLoss": 0.6806819855318986,
+            "over25Brier": 0.2438242015616709,
+            "eceTopLabel10Bins": 0.09182702085743608
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.0003508554712582379,
+            "brier": 0.00019736388073710032,
+            "over25LogLoss": 0.0009223059086228558,
+            "over25Brier": 0.0004508375292570088,
+            "eceTopLabel10Bins": 0.00029894523644112547
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.00023278538845551214,
+                "upper": 0.001227533662115321
+              },
+              "brier": {
+                "lower": -0.00016110612788907273,
+                "upper": 0.0006901349950294937
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9646499315731565,
+            "brier": 0.57346393946069,
+            "over25LogLoss": 0.6797599938656262,
+            "over25Brier": 0.2433948107880135,
+            "eceTopLabel10Bins": 0.07528435178267001
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9649254192936332,
+            "brier": 0.5736119012866007,
+            "over25LogLoss": 0.680651453812977,
+            "over25Brier": 0.24382820106999037,
+            "eceTopLabel10Bins": 0.09459785047190017
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.000275487720476697,
+            "brier": 0.00014796182591070295,
+            "over25LogLoss": 0.0008914599473507367,
+            "over25Brier": 0.00043339028197686424,
+            "eceTopLabel10Bins": 0.019313498689230157
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.00022519018578783448,
+                "upper": 0.0009488987276831891
+              },
+              "brier": {
+                "lower": -0.0001604054138687183,
+                "upper": 0.0005201758962788701
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9609683791317292,
+            "brier": 0.5704774695715924,
+            "over25LogLoss": 0.6792531931417966,
+            "over25Brier": 0.24314974015674734,
+            "eceTopLabel10Bins": 0.08834596527187465
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9611798775807868,
+            "brier": 0.5705888111648121,
+            "over25LogLoss": 0.6800993444361713,
+            "over25Brier": 0.2435603377794895,
+            "eceTopLabel10Bins": 0.09996690050958572
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.00021149844905765658,
+            "brier": 0.00011134159321968262,
+            "over25LogLoss": 0.0008461512943747085,
+            "over25Brier": 0.00041059762274214817,
+            "eceTopLabel10Bins": 0.011620935237711072
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.00016902671881336296,
+                "upper": 0.0007205239750390979
+              },
+              "brier": {
+                "lower": -0.00012234858533805105,
+                "upper": 0.00038969598073056746
+              }
+            }
+          }
+        }
+      },
+      "Premier League": {
+        "raw": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1168041885434516,
+            "brier": 0.6842406163071941,
+            "over25LogLoss": 0.7158270890471081,
+            "over25Brier": 0.261148605341759,
+            "eceTopLabel10Bins": 0.16020542393630818
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.115892724088717,
+            "brier": 0.6835299712465374,
+            "over25LogLoss": 0.7147294235167073,
+            "over25Brier": 0.260605938494076,
+            "eceTopLabel10Bins": 0.16007866513298222
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0009114644547345563,
+            "brier": -0.0007106450606567671,
+            "over25LogLoss": -0.0010976655304008043,
+            "over25Brier": -0.0005426668476830043,
+            "eceTopLabel10Bins": -0.0001267588033259659
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0020809190893635358,
+                "upper": 3.5870192975707395e-05
+              },
+              "brier": {
+                "lower": -0.0016669206520797022,
+                "upper": 2.876097480956859e-05
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1327595727912887,
+            "brier": 0.694058675870179,
+            "over25LogLoss": 0.7157404426672538,
+            "over25Brier": 0.26106906596387586,
+            "eceTopLabel10Bins": 0.17698490599749292
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.131139045824204,
+            "brier": 0.6929517784832397,
+            "over25LogLoss": 0.7145621973839099,
+            "over25Brier": 0.26048635581470053,
+            "eceTopLabel10Bins": 0.17666590275844074
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00162052696708459,
+            "brier": -0.001106897386939254,
+            "over25LogLoss": -0.0011782452833438706,
+            "over25Brier": -0.000582710149175325,
+            "eceTopLabel10Bins": -0.0003190032390521791
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0037495801067290026,
+                "upper": -9.76127929042416e-05
+              },
+              "brier": {
+                "lower": -0.0025849404375655406,
+                "upper": -6.448683964560167e-05
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1195217667742157,
+            "brier": 0.6852256852823833,
+            "over25LogLoss": 0.7152050075836671,
+            "over25Brier": 0.2608109627110303,
+            "eceTopLabel10Bins": 0.13610724908355085
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.1182738211583816,
+            "brier": 0.6843731047019779,
+            "over25LogLoss": 0.7140686757671431,
+            "over25Brier": 0.26024867351125847,
+            "eceTopLabel10Bins": 0.13577505224814512
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0012479456158340785,
+            "brier": -0.0008525805804053821,
+            "over25LogLoss": -0.001136331816524061,
+            "over25Brier": -0.0005622891997718593,
+            "eceTopLabel10Bins": -0.00033219683540572364
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.002902275812326299,
+                "upper": -6.67914878480027e-05
+              },
+              "brier": {
+                "lower": -0.001989170875077505,
+                "upper": -4.5531884062588816e-05
+              }
+            }
+          }
+        }
+      },
+      "Serie A": {
+        "raw": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9495285024236826,
+            "brier": 0.5609785297072742,
+            "over25LogLoss": 0.7276417478441503,
+            "over25Brier": 0.26658634274652987,
+            "eceTopLabel10Bins": 0.08810989013503835
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.9492109048852684,
+            "brier": 0.5607309700325527,
+            "over25LogLoss": 0.7269933675849256,
+            "over25Brier": 0.2662733578519922,
+            "eceTopLabel10Bins": 0.08786319348223129
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0003175975384142049,
+            "brier": -0.0002475596747215647,
+            "over25LogLoss": -0.0006483802592246457,
+            "over25Brier": -0.0003129848945376823,
+            "eceTopLabel10Bins": -0.000246696652807063
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0009226619453944681,
+                "upper": 0.0003537196531982047
+              },
+              "brier": {
+                "lower": -0.0006828492668664305,
+                "upper": 0.00021456675884350414
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9525967491198952,
+            "brier": 0.5626113571934516,
+            "over25LogLoss": 0.7286454947199164,
+            "over25Brier": 0.2670598164237083,
+            "eceTopLabel10Bins": 0.10289477512079888
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.9521799893155559,
+            "brier": 0.5623090620002749,
+            "over25LogLoss": 0.7279612568223098,
+            "over25Brier": 0.266729536077067,
+            "eceTopLabel10Bins": 0.10290852474407358
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00041675980433930615,
+            "brier": -0.00030229519317670484,
+            "over25LogLoss": -0.0006842378976065211,
+            "over25Brier": -0.00033028034664128736,
+            "eceTopLabel10Bins": 1.3749623274703082e-05
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0010665302290208702,
+                "upper": 0.00028756096291936313
+              },
+              "brier": {
+                "lower": -0.0007668438863317771,
+                "upper": 0.00020095860144060362
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9455584792052771,
+            "brier": 0.5584283348648234,
+            "over25LogLoss": 0.7284415396561378,
+            "over25Brier": 0.26696359593254654,
+            "eceTopLabel10Bins": 0.06086099485643612
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.945242330921074,
+            "brier": 0.5582000869335029,
+            "over25LogLoss": 0.7277927014146683,
+            "over25Brier": 0.26665011255937954,
+            "eceTopLabel10Bins": 0.06059075820420586
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0003161482842031216,
+            "brier": -0.00022824793132047994,
+            "over25LogLoss": -0.0006488382414694405,
+            "over25Brier": -0.0003134833731670006,
+            "eceTopLabel10Bins": -0.000270236652230256
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0007957218438672891,
+                "upper": 0.00020320517591735724
+              },
+              "brier": {
+                "lower": -0.0005804368532076028,
+                "upper": 0.00014821081434874004
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "independentVerification": {
+    "verifiedAt": "2026-11-08T13:47:50.159459+00:00",
+    "scriptHash": "b217d21a3b9e7549b67e260807bb1f6cb87044e36daae547f1dd4c7d594168c2",
+    "planHash": "74a9f4a1d01d5e7b39ab0671b267775349de563c5f7302a3aced84b68d8d21a6",
+    "comparisonHash": "7e17676370c2309f5aababdee1631d3806de00ae153b02782bc85200f1799f6f",
+    "candidateHash": "4c5f6e5b6dcf5a5b6f7065344330ffcb71e9f92b93eb4c703bb33a74720c0b53",
+    "catboostVersion": "1.2.8",
+    "leafChecks": {
+      "home": {
+        "emptyLeaves": 805,
+        "changedLeaves": 805,
+        "editedTrees": 108,
+        "maximumReplacementError": 6.938893903907228e-18,
+        "supportedLeavesIdentical": true
+      },
+      "away": {
+        "emptyLeaves": 838,
+        "changedLeaves": 838,
+        "editedTrees": 108,
+        "maximumReplacementError": 8.673617379884035e-19,
+        "supportedLeavesIdentical": true
+      }
+    },
+    "nativeOriginalLeafSupportMaximumError": 0.0,
+    "nativeTrainingRawPredictionsExactlyUnchanged": true,
+    "nativeTrainingRows": 5293,
+    "nativeHistoricalRowsPerModel": 595,
+    "nativeRawProbabilityMaximumError": 7.771561172376096e-16,
+    "nativeCalibrationMatrixRows": 358,
+    "nativeCalibrationMatrixMaximumError": 0.0,
+    "independentCalibrationMaximumError": 8.881784197001252e-16,
+    "independentPrimaryMetricsMaximumError": 1.4432899320127035e-15,
+    "sameCohortQuotesAndIncumbentForecastsAsPrevious": true,
+    "incumbentAndPinnedSourcesUnchanged": true,
+    "independentPredictiveEvidence": false,
+    "productionAdoptionEligible": false
+  },
+  "targetedTests": {
+    "python": 13,
+    "node": 8,
+    "failed": 0,
+    "independentlyRerunByReviewer": true
+  },
+  "inputSourceHashes": {
+    "backend/current-models/challenger.json": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "backend/artifacts/operations/shared-baseline-20261107/candidate-v2-current-dataset.json": "8940f6468741a5fe7485efef1f1e5662faabb3df0f6e0c3ac264b7e175d8ca8a",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/quotes.json": "d394b3f0ffdd4bdfe3b68bbe98ad20cd0889b6fad9e7c537e042a9edfb441140",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/history.json": "58746c824638ab9502611aa6743dff5b16afe2753f1c1611c424afc2e204ac8a",
+    "backend/experiments/current-c-real-odds-backtest/selector-math.cjs": "6979ebf7286a3d6c58630cdc2096c9abf5b59ee1fb1b8ea61768e71d8e360703",
+    "backend/src/models/value/ValueBettingEngine.ts": "c3d3ef7826f265ff35fab465cc93fb48cbbe8857cf85aa565bf7aa35dd558bba",
+    "backend/dist/models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": "e8046a86fab0fe78cc602f78445e9f184bdcf77579e9d6df467b7cdd57aa3309",
+    "backend/dist/models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+    "backend/src/research/CatBoostModel.ts": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "backend/dist/research/CatBoostModel.js": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "backend/src/research/GoalSettlement.ts": "7ec091e305001b22f2c2746a22f757a5332b05c2ac0b89b746bef620f7277c94",
+    "backend/dist/research/GoalSettlement.js": "4f4314987114eb2d672a9b8e60a0e2bada67dc62bfac4e51432c0e4638b0b083",
+    "backend/src/research/CoherentProbabilityPipeline.ts": "24fdc38ad9b30756ab7c6aeab014e99cf5a36998b6ba225bd2f187d9df97a129",
+    "backend/dist/research/CoherentProbabilityPipeline.js": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+    "backend/src/research/ResearchProbabilityPipeline.ts": "16f21136f11955f82bd359d093d5479f42a09a35a864e7c4b1c1280e34c9cf46",
+    "backend/dist/research/ResearchProbabilityPipeline.js": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1",
+    "backend/src/research/ForecastCore.ts": "bc2a3f0fcf0b9e190d1ccd51728e64c17910d2db06eaaf1708efebafef85afcb",
+    "backend/dist/research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+    "backend/src/config/PredictionEngineConfig.ts": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+    "backend/dist/config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+    "backend/experiments/c-parameter-audit/metrics.cjs": "2c2c6437f1ab8b23f739df276cea28578490d80abc29899e2e73da35e8b86fdc",
+    "backend/ml/train.py": "929d22cf763394b2201e045fee22b173681e223b54eb1e229e19d7384b6f1af1",
+    "backend/ml/prepare_current_challenger.py": "878a971df695a32352c976f5b024ad4dfec96cf0d8a90a37782f6a435e435707",
+    "backend/src/research/original-holdout-policy.json": "e78e2a275ff5aae8be5d24f546d5e8ef522f62d60ab78dbb28e84357ea46d164",
+    "backend/src/research/challenger-data-quarantine.json": "1350f1fa837196ca57029946fe5b8a1bea5cd90cdbc0e72886a9dc19dc770d7d",
+    "backend/experiments/c-tree-sample-projection/prepare.py": "a647196dc9e42b198f8ec304df22d321d576100fa46f70b06133bc0102239f23",
+    "backend/experiments/c-tree-sample-projection/evaluate.cjs": "e005e1c3400c700d77bb248b4f23d4ae2017678b5bd53e3d09a0d8559884005c",
+    "backend/experiments/c-tree-sample-projection/verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/comparison.json": "de33462628d246c273393e8a9ba05113d44a60b1b0bff3cc0da56514f229231a",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/candidate.json": "25371123796c7ae4c11a6c5326d839a5bccc6c310533ca3b0e8c9267899b345b"
+  },
+  "artifactHashes": {
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/plan.json": "74a9f4a1d01d5e7b39ab0671b267775349de563c5f7302a3aced84b68d8d21a6",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/prepared/artifact.json": "2a2bfa3d6a8ed409250d953a2e79406975f569dc4b71d4eced665701a3c3aa95",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/prepared/audit.json": "4835f12d766cdf30036447c7a8f61bf0db3be0117515ab4f0c53670cf016ac0f",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/prepared/parity.json": "b2e12de77e820f7a0986f2519692f2d47d8f9f0e8e691ef40501575d41c7c414",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/run/candidate.json": "4c5f6e5b6dcf5a5b6f7065344330ffcb71e9f92b93eb4c703bb33a74720c0b53",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/run/comparison.json": "7e17676370c2309f5aababdee1631d3806de00ae153b02782bc85200f1799f6f",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/run/pre-scoring-checks.json": "bf1c05d3e8ea22958eb8adad6b54597dfe3e2ed6c9855c358f8c8235be149972",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/verification.json": "2d9e34d1f775b65eb7fe146f54d9f3b0fa54b111a352366bff096e46462b8ff0",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/diagnosis-verified/summary.json": "f5a0808e1bc28100764922f2e6220edd599c02c704529d093b9dee252007d4be",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/diagnosis-verified/rows.json": "02788bfcc710a6f56c408365bca21b78622324793cc3dfd4921c863a6d4c5fff"
+  },
+  "scriptHashes": {
+    "diagnose.py": "60c366521b74be1588bda6552b0298764528e244af0132e9586c2571dcf45d9b",
+    "evaluate.cjs": "798a64d42a7074ccc6a8c117950e44d1e98244b7c463b8fd5df8bb19f0e4edc0",
+    "evaluation.test.cjs": "290e3e054d6a4130d25931ab68e189892284f105d89a647f2b3b650b4eb47d0d",
+    "prepare.py": "4b9d78400004304b30bdd7996931029796be35a695dec6155dd54e72bac3ea9c",
+    "test_prepare.py": "9bf858f472cc31546bae372f380f4060a91a0fba09a36b4ade7b89de5ea37307",
+    "verify.py": "b217d21a3b9e7549b67e260807bb1f6cb87044e36daae547f1dd4c7d594168c2"
+  },
+  "independentEvidence": false,
+  "productionAdoption": false,
+  "productionAdoptionEligible": false,
+  "databaseWrites": 0,
+  "limitations": [
+    "One post-fit extrapolation assumption, not a proven CatBoost bug; additive zero does not mean zero forecast.",
+    "Original split ordering determines the prefix; some filled leaves are unreachable.",
+    "Same original358 refitted calibration changes all diagnostic probabilities even when the raw matrix is unchanged.",
+    "652 outcomes were already consulted; research adaptivity remains despite freezing this one rule before its scoring.",
+    "Nominal paired weekly intervals condition on fitted models and omit selection adjustment; they cannot certify future benefit.",
+    "Current57 games span only two UTC week blocks.",
+    "No per-league exception, second variant or modified pass criterion after results.",
+    "This experiment does not demonstrate profitability or replace the future500 protocol."
+  ]
+}

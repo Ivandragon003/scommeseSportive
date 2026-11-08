@@ -1,0 +1,10 @@
+{
+  "createdAt": "2026-11-08T16:06:23.755309+00:00",
+  "runtimeDatasetHash": "69c360c3deea231aa4e5b4d9f39a7aed50048187a3becfcabc1b2b762755a462",
+  "rows": 1,
+  "sourceFeatures": 56,
+  "modelFeatures": 40,
+  "actualJavaScriptRuntimeAndPythonControlledValidatorPassed": true,
+  "CatBoostFitsPerformed": 0,
+  "probabilityMetricsComputed": false
+}

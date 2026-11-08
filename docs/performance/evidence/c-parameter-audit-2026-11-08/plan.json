@@ -1,0 +1,109 @@
+{
+  "protocol": "c-isotonic-plateau-parameter-audit-v1",
+  "createdAt": "2026-11-08T12:40:42.812085+00:00",
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "incumbentArtifactHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "hypothesis": "Preserve the first and last original bin centroids of every PAVA pooled block, so the interpolated learned calibration curve retains its fitted plateaus. Current C loses a four-bin plateau by exporting only the pooled centroid. This is a binned calibration representation correction, not neural weight surgery.",
+  "intervention": {
+    "changed": "calibrationProfilesV2.C.calibrationPoints and byFamily.goal_1x2.points only, plus candidate identity/provenance",
+    "unchanged": [
+      "CatBoost trees, splits, leaf values, scale/bias",
+      "40 features, baseline and original5293 training",
+      "ML weight0.75 and temperature0.8",
+      "original358 calibration observations",
+      "binning, equal bin pooling weights, shrinkage/clamp, anchors",
+      "coherent projection and bookmaker blending",
+      "profile A"
+    ],
+    "maximumCandidates": 1,
+    "hyperparameterSearch": false
+  },
+  "sourceHashes": {
+    "backend/current-models/challenger.json": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "backend/artifacts/operations/shared-baseline-20261107/candidate-v2-current-dataset.json": "8940f6468741a5fe7485efef1f1e5662faabb3df0f6e0c3ac264b7e175d8ca8a",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/quotes.json": "d394b3f0ffdd4bdfe3b68bbe98ad20cd0889b6fad9e7c537e042a9edfb441140",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/history.json": "58746c824638ab9502611aa6743dff5b16afe2753f1c1611c424afc2e204ac8a",
+    "backend/experiments/current-c-real-odds-backtest/selector-math.cjs": "6979ebf7286a3d6c58630cdc2096c9abf5b59ee1fb1b8ea61768e71d8e360703",
+    "backend/src/models/value/ValueBettingEngine.ts": "c3d3ef7826f265ff35fab465cc93fb48cbbe8857cf85aa565bf7aa35dd558bba",
+    "backend/dist/models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": "e8046a86fab0fe78cc602f78445e9f184bdcf77579e9d6df467b7cdd57aa3309",
+    "backend/dist/models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+    "backend/src/research/CatBoostModel.ts": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "backend/dist/research/CatBoostModel.js": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "backend/src/research/GoalSettlement.ts": "7ec091e305001b22f2c2746a22f757a5332b05c2ac0b89b746bef620f7277c94",
+    "backend/dist/research/GoalSettlement.js": "4f4314987114eb2d672a9b8e60a0e2bada67dc62bfac4e51432c0e4638b0b083",
+    "backend/src/research/CoherentProbabilityPipeline.ts": "24fdc38ad9b30756ab7c6aeab014e99cf5a36998b6ba225bd2f187d9df97a129",
+    "backend/dist/research/CoherentProbabilityPipeline.js": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+    "backend/src/research/ResearchProbabilityPipeline.ts": "16f21136f11955f82bd359d093d5479f42a09a35a864e7c4b1c1280e34c9cf46",
+    "backend/dist/research/ResearchProbabilityPipeline.js": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1",
+    "backend/src/research/ForecastCore.ts": "bc2a3f0fcf0b9e190d1ccd51728e64c17910d2db06eaaf1708efebafef85afcb",
+    "backend/dist/research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+    "backend/src/config/PredictionEngineConfig.ts": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+    "backend/dist/config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337"
+  },
+  "calibration": {
+    "n": 358,
+    "from": "2025-11-01T00:00:00.000Z",
+    "to": "2025-12-31T23:59:59.999Z",
+    "availableThrough": "2025-12-30T22:15:00.000Z",
+    "matchIdsHash": "495afbbfd8b652145e2b99f95d9db6b0039b4ea8c73e5bbad017644a9cfe3931",
+    "observedFrom": "2025-11-01T02:07:00.000Z",
+    "observedTo": "2025-12-30T02:07:00.000Z"
+  },
+  "diagnosticCohort": {
+    "n": 652,
+    "matchIdsHash": "3ad8b8e23317e9f6fc0e1949009e4c288b07df1f6c9ed206713275347b9c7f0a",
+    "historical": 595,
+    "currentSeason": 57,
+    "alreadyConsulted": true,
+    "independentEvidence": false,
+    "purpose": "Fixed paired descriptive diagnostic only; no selection of another variant from results."
+  },
+  "metrics": {
+    "primary": [
+      "1X2 Log Loss",
+      "multiclass Brier (sum over3 outcomes)"
+    ],
+    "stages": [
+      "raw",
+      "coherently calibrated",
+      "decision with same real Bet365 closing1X2 odds"
+    ],
+    "secondary": [
+      "top-label ECE10equal-width bins",
+      "binary over2.5 Log Loss and Brier"
+    ],
+    "breakdowns": [
+      "all652",
+      "historical595",
+      "current57",
+      "five leagues"
+    ],
+    "intervals": {
+      "method": "paired UTC-week block bootstrap; conditional on fitted models; descriptive, no multiple-search adjustment",
+      "replications": 2000,
+      "seed": 20261108
+    }
+  },
+  "developmentCriterion": {
+    "bothPrimaryMetricsLowerAtCalibratedAndDecision": true,
+    "minimumLeaguesWithBothLowerAtBothStages": 4,
+    "overallTopLabelECENotWorseAtBothStages": true,
+    "note": "Passing is not independent confirmation or adoption approval."
+  },
+  "checks": [
+    "incumbent and all pinned source hashes unchanged",
+    "current fitted curve reproduced from its original358 calibration predictions",
+    "PAVA endpoints preserved and compared to independent SciPy on the same bin means",
+    "all raw probabilities identical",
+    "all forecast matrices normalized and derived markets coherent",
+    "new artifact marked diagnosticOnly and productionAdoptionEligible=false",
+    "existing prospective500FUTURE_TEST adoption rules remain required"
+  ],
+  "productionAdoption": false,
+  "databaseWrites": 0,
+  "sources": [
+    "https://rikiyat.github.io/blog/weight-space-programming/",
+    "https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.isotonic_regression.html"
+  ]
+}

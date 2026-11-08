@@ -79,9 +79,65 @@ SELECT il modello registrato e ne prova l'inferenza con input sintetici in
 memoria, inclusi i campi del contratto di qualità richiesti dalla release C.
 Non registra il modello nel pacchetto e non certifica la qualità dei dati reali.
 
-Prima di distribuire main confrontare il manifest della baseline compilata con quello richiesto dal modello C registrato; build, health e CI non dimostrano questa compatibilità. La release locale usa il nucleo statistico corrente di A e il solo artefatto `backend/current-models/challenger.json`, con identità e hash in `CurrentChallengerRelease.ts`. I vecchi pesi e la copia eseguibile A80 sono rimossi su richiesta: non sono una possibilità di rollback inclusa nel pacchetto. Non correggere la dichiarazione dell’artefatto o disabilitare le guardie per ottenere un esito positivo.
+Prima di distribuire main confrontare il manifest della baseline compilata con
+quello richiesto dalla release C: build, health e CI non dimostrano questa
+compatibilità. Il pacchetto contiene il solo `backend/current-models/challenger.json`,
+con identità `C-271c9573ba485956` e hash dichiarati in `CurrentChallengerRelease.ts`.
+La proiezione delle foglie usa i supporti del training; il preparatore
+`prepare-current-challenger-release.js` conserva la matematica della candidata
+esatta con metadata di scelta operativa esplicita, senza attestare validazione
+scientifica. Non modificare l'identità dell'artefatto o disabilitare le guardie
+per renderlo compatibile.
 
-Conservare branch e deploy esistenti finché necessari all'installazione. Prima della transizione verificare la release C con `current-challenger-release.test.js`, backup e stato di adozione; registrare esplicitamente l'artefatto compatibile con il comando lifecycle previsto, soltanto dopo autorizzazione. Il file nel pacchetto non viene importato automaticamente nel database e un deployment già adottato prevale sul fallback. Se resta selezionato un vecchio C incompatibile, il percorso C si astiene: non riattivare la Nightly. La transizione del deployment deve seguire i controlli di adozione, senza fabbricare evidenze prospettiche. Attendere LIVE e ripetere identità, health e flag false nel container. Nessuna registrazione, migrazione o accensione è implicita; mantenere `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`.
+L'attivazione usa `replace-current-challenger.js`: prima il piano senza
+scritture, poi l'applicazione esplicita con backup JSON mirato del registro,
+hash del piano e verifica dello stato concorrente. Il comando registra la release
+e l'evento `ADOPT` con evidenza `explicit-current-challenger-replacement-v1`,
+senza dossier candidato o GO scientifico fabbricato. Il JSON nel pacchetto non
+viene importato automaticamente e non dimostra quale deployment remoto sia attivo.
+La [guida Research](../research-platform.md#attivazione-operativa-esplicita)
+descrive il confine fra preparazione, attivazione e review scientifica.
+
+Con backend compilato, ambiente privato già configurato e directory locale
+esistente, creare piano e backup in percorsi nuovi. Sostituire i segnaposto con
+host, versione e hash realmente verificati nell'installazione; non usare valori
+ripresi da vecchi resoconti. Il piano usa `TURSO_WATCHDOG_READONLY_TOKEN`:
+
+```powershell
+node backend/scripts/replace-current-challenger.js --plan <nuovo-piano.json> --backup <nuovo-backup-registro.json> --previous-version <versione-registrata> --previous-artifact-hash <hash-registrato> --expected-host <host-previsto>
+```
+
+Il backup JSON comprende schema e record del sottoinsieme di registro interessato;
+non è un dump completo di partite, statistiche o portafogli. Mantenerlo privato
+con il piano. Prima dell'applicazione, verificare destinazione, nuova identità,
+operazioni previste e hash restituito. L'applicazione usa `TURSO_AUTH_TOKEN`,
+lo stesso backup e una ricevuta nuova:
+
+```powershell
+node backend/scripts/replace-current-challenger.js --apply <piano.json> --expected-plan-hash <hash-piano> --backup <backup-registro.json> --receipt <nuova-ricevuta.json> --previous-version <versione-registrata> --previous-artifact-hash <hash-registrato> --expected-host <host-previsto>
+```
+
+Lo script rifiuta endpoint, artefatti, hash o stato concorrente discordanti.
+Inserisce soltanto il modello, gli eventuali mercati mancanti come
+`EXPERIMENTAL`, i relativi eventi e l'evento di attivazione; non altera le righe
+precedenti. La destinazione della ricevuta è riservata prima delle scritture:
+parte come `PENDING`, diventa `COMPLETE` con `verified: true` dopo la verifica
+del registro. Un errore lascia `FAILED_UNKNOWN` con `verified: false`: leggere
+lo stato del registro prima di riprovare, perché l'esito del commit potrebbe
+richiedere accertamento. La ricevuta non costituisce prova di deploy o
+validazione predittiva.
+
+Il runtime richiede la sola release corrente. I record dei modelli precedenti
+restano nel database per giocate ed evidenze immutabili, senza essere modelli
+operativi o di rollback. Tre errori tecnici indipendenti sospendono il nuovo C;
+non riattivano una release precedente. A, portafogli e decisioni storiche restano
+fuori dalla sostituzione del modello. Se il registro seleziona un'identità
+incompatibile, C si astiene: correggere l'attivazione tramite il piano verificato.
+
+Dopo il deploy attendere LIVE e ricontrollare identità, hash, health e flag nel
+container. Conservare `WEB_DATABASE_SCHEMA_BOOTSTRAP_ENABLED=false`; il deploy
+non autorizza migrazioni o nuove puntate. Nessuna attivazione remota è dimostrata
+dalla sola modifica della documentazione.
 
 ## Persistenza per il recorder prospettico A
 

@@ -1,0 +1,30 @@
+{
+  "recordedAt": "2026-11-08T15:26:34.832049+00:00",
+  "stage": "First independent verification before native replay or output generation",
+  "verifierHash": "fe2df24c9b579fda716d0b676a886d28d0484d1e7361d40916503821aed4f665",
+  "failure": "AssertionError at exact candidate.models == staged.models comparison",
+  "recursiveComparison": {
+    "totalDifferences": 2,
+    "calibrationPredictionsExactlyEqual": true,
+    "differences": [
+      {
+        "path": "models.home.model_info.params.cat_feature_params.ctr_leaf_count_limit",
+        "preparedNative": 18446744073709551615,
+        "finalJavaScript": 18446744073709552000
+      },
+      {
+        "path": "models.away.model_info.params.cat_feature_params.ctr_leaf_count_limit",
+        "preparedNative": 18446744073709551615,
+        "finalJavaScript": 18446744073709552000
+      }
+    ]
+  },
+  "allowedCorrection": "Verify and normalize only the documented inactive uint64 pair on a comparison copy without categorical/text/embedding features. Preserve every other model field exactly; no changes to fitting, predictions or metric results.",
+  "inputHashes": {
+    "prepared\\artifact.json": "bfac22192fd4a3e14901753f484978739aeab641894c128fe964ac65aa08d2c3",
+    "run\\candidate.json": "493de4f2da8af6f1995b578529cbb7102c4aee70982fd157077067b9401c3928",
+    "run\\comparison.json": "9774bae3667e3102caee8a42720b730ac401c18a42a011727fb1e4b60eb545d5"
+  },
+  "verificationOutputCreated": false,
+  "verificationInputsCreated": false
+}

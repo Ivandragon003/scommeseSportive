@@ -1,0 +1,241 @@
+{
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "incumbentArtifactHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "sourceHashes": {
+    "backend/current-models/challenger.json": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "backend/artifacts/operations/shared-baseline-20261107/candidate-v2-current-dataset.json": "8940f6468741a5fe7485efef1f1e5662faabb3df0f6e0c3ac264b7e175d8ca8a",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/quotes.json": "d394b3f0ffdd4bdfe3b68bbe98ad20cd0889b6fad9e7c537e042a9edfb441140",
+    "backend/artifacts/research/current-c-real-odds-backtest-20261108/history.json": "58746c824638ab9502611aa6743dff5b16afe2753f1c1611c424afc2e204ac8a",
+    "backend/experiments/current-c-real-odds-backtest/selector-math.cjs": "6979ebf7286a3d6c58630cdc2096c9abf5b59ee1fb1b8ea61768e71d8e360703",
+    "backend/src/models/value/ValueBettingEngine.ts": "c3d3ef7826f265ff35fab465cc93fb48cbbe8857cf85aa565bf7aa35dd558bba",
+    "backend/dist/models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": "e8046a86fab0fe78cc602f78445e9f184bdcf77579e9d6df467b7cdd57aa3309",
+    "backend/dist/models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+    "backend/src/research/CatBoostModel.ts": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "backend/dist/research/CatBoostModel.js": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "backend/src/research/GoalSettlement.ts": "7ec091e305001b22f2c2746a22f757a5332b05c2ac0b89b746bef620f7277c94",
+    "backend/dist/research/GoalSettlement.js": "4f4314987114eb2d672a9b8e60a0e2bada67dc62bfac4e51432c0e4638b0b083",
+    "backend/src/research/CoherentProbabilityPipeline.ts": "24fdc38ad9b30756ab7c6aeab014e99cf5a36998b6ba225bd2f187d9df97a129",
+    "backend/dist/research/CoherentProbabilityPipeline.js": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+    "backend/src/research/ResearchProbabilityPipeline.ts": "16f21136f11955f82bd359d093d5479f42a09a35a864e7c4b1c1280e34c9cf46",
+    "backend/dist/research/ResearchProbabilityPipeline.js": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1",
+    "backend/src/research/ForecastCore.ts": "bc2a3f0fcf0b9e190d1ccd51728e64c17910d2db06eaaf1708efebafef85afcb",
+    "backend/dist/research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+    "backend/src/config/PredictionEngineConfig.ts": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+    "backend/dist/config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+    "backend/experiments/c-parameter-audit/metrics.cjs": "2c2c6437f1ab8b23f739df276cea28578490d80abc29899e2e73da35e8b86fdc",
+    "backend/ml/train.py": "929d22cf763394b2201e045fee22b173681e223b54eb1e229e19d7384b6f1af1",
+    "backend/ml/prepare_current_challenger.py": "878a971df695a32352c976f5b024ad4dfec96cf0d8a90a37782f6a435e435707",
+    "backend/src/research/original-holdout-policy.json": "e78e2a275ff5aae8be5d24f546d5e8ef522f62d60ab78dbb28e84357ea46d164",
+    "backend/src/research/challenger-data-quarantine.json": "1350f1fa837196ca57029946fe5b8a1bea5cd90cdbc0e72886a9dc19dc770d7d",
+    "backend/experiments/c-tree-sample-projection/prepare.py": "a647196dc9e42b198f8ec304df22d321d576100fa46f70b06133bc0102239f23",
+    "backend/experiments/c-tree-sample-projection/evaluate.cjs": "e005e1c3400c700d77bb248b4f23d4ae2017678b5bd53e3d09a0d8559884005c",
+    "backend/experiments/c-tree-sample-projection/verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/comparison.json": "de33462628d246c273393e8a9ba05113d44a60b1b0bff3cc0da56514f229231a",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/candidate.json": "25371123796c7ae4c11a6c5326d839a5bccc6c310533ca3b0e8c9267899b345b",
+    "backend/experiments/c-tree-empty-leaf-backoff/prepare.py": "4b9d78400004304b30bdd7996931029796be35a695dec6155dd54e72bac3ea9c",
+    "backend/experiments/c-tree-empty-leaf-backoff/evaluate.cjs": "798a64d42a7074ccc6a8c117950e44d1e98244b7c463b8fd5df8bb19f0e4edc0",
+    "backend/experiments/c-tree-empty-leaf-backoff/verify.py": "b217d21a3b9e7549b67e260807bb1f6cb87044e36daae547f1dd4c7d594168c2",
+    "backend/experiments/c-tree-empty-leaf-backoff/diagnose.py": "60c366521b74be1588bda6552b0298764528e244af0132e9586c2571dcf45d9b",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/run/comparison.json": "7e17676370c2309f5aababdee1631d3806de00ae153b02782bc85200f1799f6f",
+    "backend/artifacts/research/c-tree-empty-leaf-backoff-20261108/run/candidate.json": "4c5f6e5b6dcf5a5b6f7065344330ffcb71e9f92b93eb4c703bb33a74720c0b53",
+    "backend/experiments/c-tree-neighbor-backoff/prepare.py": "527af26425963c45b16c79e2fe9f243612d7eaf515fc91d90f71a9dacf9981e7",
+    "backend/experiments/c-tree-neighbor-backoff/evaluate.cjs": "c17162982bf440a7197aa179a82becaf13bf00c9a50dbdcf3db59f1231a29cf6",
+    "backend/experiments/c-tree-neighbor-backoff/verify.py": "82866b511f6ede543f12cd74282b3efaa07cf778c7287d1a31431f98b50bb3bf",
+    "backend/artifacts/research/c-tree-neighbor-backoff-20261108/run/comparison.json": "931a344831687dc50ace81a9acc98b4ff8ca0b84398ea44cf98504d529020bfd",
+    "backend/artifacts/research/c-tree-neighbor-backoff-20261108/run/candidate.json": "5551416f4f2f93c16a62c1bbb7fb0f929ad3faee48e8a73c325287f5cc3c8ae1",
+    "backend/experiments/c-tree-weight-research/diagnose.py": "7a0e671dc695c2c75ca71b9a27d2f28540fb8b1c88f74ab9027653299e8ae81e"
+  },
+  "trainingSplit": {
+    "protocol": "purged-temporal-train-selection-calibration-test-v1",
+    "train": {
+      "n": 5293,
+      "from": "2022-07-01T00:00:00.000Z",
+      "to": "2025-08-31T23:59:59.999Z",
+      "availableThrough": "2025-08-31T21:30:00.000Z",
+      "matchIdsHash": "2fa72df09d37859ed50d19d9cfdf4147fc8fa276208f47d3952895e835059834",
+      "observedFrom": "2022-08-27T01:07:00.000Z",
+      "observedTo": "2025-08-31T01:07:00.000Z"
+    },
+    "selection": {
+      "n": 317,
+      "from": "2025-09-01T00:00:00.000Z",
+      "to": "2025-10-31T23:59:59.999Z",
+      "availableThrough": "2025-10-31T22:00:00.000Z",
+      "matchIdsHash": "12f40a29e2281ae7bca1d9a175e74f879f3ac9b48cc08180379fb6909faa4f55",
+      "observedFrom": "2025-09-12T01:07:00.000Z",
+      "observedTo": "2025-10-31T02:07:00.000Z"
+    },
+    "calibration": {
+      "n": 358,
+      "from": "2025-11-01T00:00:00.000Z",
+      "to": "2025-12-31T23:59:59.999Z",
+      "availableThrough": "2025-12-30T22:15:00.000Z",
+      "matchIdsHash": "495afbbfd8b652145e2b99f95d9db6b0039b4ea8c73e5bbad017644a9cfe3931",
+      "observedFrom": "2025-11-01T02:07:00.000Z",
+      "observedTo": "2025-12-30T02:07:00.000Z"
+    },
+    "test": {
+      "n": 595,
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-06-30T23:59:59.999Z",
+      "availableThrough": "2026-04-04T20:45:00.000Z",
+      "matchIdsHash": "77508f45e84439e8e47071454208bf43996b6119632f49827b84907f83c3049c",
+      "observedFrom": "2026-01-01T02:07:00.000Z",
+      "observedTo": "2026-04-04T01:07:00.000Z"
+    }
+  },
+  "diagnosticCohort": {
+    "n": 652,
+    "matchIdsHash": "3ad8b8e23317e9f6fc0e1949009e4c288b07df1f6c9ed206713275347b9c7f0a",
+    "historical": 595,
+    "currentSeason": 57,
+    "alreadyConsulted": true,
+    "independentEvidence": false,
+    "purpose": "Fixed paired descriptive diagnostic only; no selection of another variant from results."
+  },
+  "metrics": {
+    "primary": [
+      "1X2 Log Loss",
+      "multiclass Brier (sum over3 outcomes)"
+    ],
+    "stages": [
+      "raw",
+      "coherently calibrated",
+      "decision with same real Bet365 closing1X2 odds"
+    ],
+    "secondary": [
+      "top-label ECE10equal-width bins",
+      "binary over2.5 Log Loss and Brier"
+    ],
+    "breakdowns": [
+      "all652",
+      "historical595",
+      "current57",
+      "five leagues"
+    ],
+    "intervals": {
+      "method": "paired UTC-week block bootstrap; conditional on fitted models; descriptive, no multiple-search adjustment",
+      "replications": 2000,
+      "seed": 20261108
+    }
+  },
+  "developmentCriterion": {
+    "bothPrimaryMetricsLowerAtCalibratedAndDecision": true,
+    "minimumLeaguesWithBothLowerAtBothStages": 5,
+    "overallTopLabelECENotWorseAtBothStages": true,
+    "overallPaired95IntervalsUpperBelowZeroAtBothStages": true,
+    "note": "Exploratory only because historical data were already consulted; never sufficient for adoption."
+  },
+  "promotion": "No operational replacement or registration. Independent future protocol500FUTURE_TEST remains mandatory; user requests evidence acrossall5leagues.",
+  "productionAdoption": false,
+  "databaseWrites": 0,
+  "protocol": "c-tree-block-weight-research-v1",
+  "createdAt": "2026-11-08T14:07:36.836237+00:00",
+  "hypothesis": "Align six regularized shared tree-block contribution weights with 1X2 log loss of the actual raw mixture/temperature pipeline. This is post-fit development on an earlier reserved selection period, not a Poisson bug fix. No league-specific weights or adaptation to post-calibration outcomes.",
+  "intervention": {
+    "method": "six-nonnegative-original-tree-block-weights-with-chronological-ridge-selection-v1",
+    "treeBlocks": [
+      [
+        0,
+        40
+      ],
+      [
+        40,
+        80
+      ],
+      [
+        80,
+        120
+      ]
+    ],
+    "parameterOrder": [
+      "home_0_40",
+      "home_40_80",
+      "home_80_120",
+      "away_0_40",
+      "away_40_80",
+      "away_80_120"
+    ],
+    "bounds": [
+      0.0,
+      2.0
+    ],
+    "initialWeights": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "ridgeGrid": [
+      10.0,
+      1.0,
+      0.1,
+      0.01
+    ],
+    "identityControl": true,
+    "maximumSelectionFits": 4,
+    "maximumFinalRefits": 1,
+    "maximumDiagnosticCandidates": 1,
+    "newTreeFits": 0,
+    "objective": "mean raw 1X2 negative log likelihood after original A/ML mixture0.75 and temperature0.8 +0.5*ridge*sum((weights-1)^2). No quotes/calibration labels in optimizer.",
+    "optimizer": {
+      "method": "L-BFGS-B",
+      "analyticGradient": true,
+      "maxiter": 500,
+      "maxls": 30,
+      "ftol": 1e-12,
+      "gtol": 1e-09,
+      "scipyVersion": "1.17.0"
+    },
+    "selectionRule": "Compare on later165 only. Eligible fits must converge, lower meanLL than identity by>1e-12 and have Brier<=identity+1e-12. Choose lowest validationLL, within1e-12 prefer higher ridge. If none, keep identity and do not score652. Refit only chosen ridge on all317; require convergence.",
+    "calibration": "Mandatory refit using the unchanged current binned isotonic estimator and the same original358 calibration rows after tree edit. No plateau correction, no choice between calibrators.",
+    "kept": [
+      "Original120+120splits,allleafsupports,scaleandbias,40features,baseline,MLweight.75,temperature.8",
+      "Same358calibration and untouched current binned isotonic estimator; no plateau modification",
+      "Same652 paired quotes and diagnostic rule if a nonidentitycandidate is selected",
+      "Originalemptyzero leaves remainzero; no previousleafbackoff used"
+    ]
+  },
+  "parameterDevelopment": {
+    "originalSelection": {
+      "n": 317,
+      "matchIdsHash": "12f40a29e2281ae7bca1d9a175e74f879f3ac9b48cc08180379fb6909faa4f55",
+      "availableThrough": "2025-10-31T22:00:00.000Z"
+    },
+    "fit": {
+      "n": 152,
+      "matchIdsHash": "1ccb8a4639b562d35a0294d81aeb00bce62894bc85e364c02ae0d96b893bd95d",
+      "availableThrough": "2025-09-29T21:00:00.000Z"
+    },
+    "validation": {
+      "n": 165,
+      "matchIdsHash": "5c45fcf33c1bb641fc2f305e8d744c87e4f69f2952735437d3a026b8905f9745",
+      "availableThrough": "2025-10-31T22:00:00.000Z"
+    },
+    "cutoff": "2025-10-01T00:00:00.000Z",
+    "alreadyConsultedResearch": true,
+    "fitBeforeValidationByAvailableAt": true,
+    "noCalibrationOrTestLabelsForWeightChoice": true,
+    "all317BecomeParameterFitDataOnFinalRefit": true
+  },
+  "artifactLineage": "Original trainingSplit still records base-tree partitions. Add parameterAdaptation with its distinct fit/validation/refit membership and six weights; trainedThrough becomes original selection.availableThrough. Keep original tree recipe in hyperparameters, record parentTrainerHash, set trainerHash to actual preparation script. No pretending the317 remain unused.",
+  "checks": [
+    "Original support/routing verified5293train, splits and leafweights immutable",
+    "Each entire tree leaf_values equals original multiplied by the single correct side/block weight",
+    "Identityweights reproduces native and actual raw pipeline exactly within1e-12",
+    "Analyticgradient agrees with independent finite differences at nonidentity interior points and clamp regions",
+    "Chronological152fit/165validation IDs verified; labelsavailable beforecutoff; final317fit only after hyperparameterchoice",
+    "Original selection identity control and all4 developmentfits recorded, no test-drivenweights/ridge/fallback",
+    "No652 outcome access during preparation/scoring selection; no358labels during weight fitting",
+    "Raw6577 native/Python/TypeScriptparity; updated358matrixC and samecalibration estimator",
+    "Candidatefrozen before652diagnostic outcomes; samebookprovenance",
+    "CurrentC75 andpinnedsourcehashsunchanged; diagnosticOnly/nopromotion"
+  ],
+  "references": [
+    "https://docs.scipy.org/doc/scipy-1.17.0/reference/optimize.minimize-lbfgsb.html",
+    "https://scikit-learn.org/stable/modules/calibration.html"
+  ]
+}

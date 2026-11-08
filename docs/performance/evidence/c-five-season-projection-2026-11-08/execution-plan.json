@@ -1,0 +1,996 @@
+{
+  "protocol": "c-five-season-projection-research-v1",
+  "phase": "execution",
+  "createdAt": "2026-11-08T16:26:17.020185+00:00",
+  "request": "Compare the fixed best count-leaf projection with originalC75 training recipe using chronological refits over five previous seasons and all five leagues; no current model replacement.",
+  "seasonStartYears": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "incumbentArtifactHash": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+  "baselineManifest": {
+    "protocolVersion": "current-a-statistical-asof-v2",
+    "algorithmVersion": "value-engine-v4",
+    "backtestEngineVersion": "backtest-engine-v5-oos",
+    "rankingVersion": "ranking-edge-novig-loggrowth-v2",
+    "featureSchema": "prematch-numeric-v1",
+    "minTrainingMatches": 30,
+    "refitIntervalMs": 604800000,
+    "resultDelayMs": 7200000,
+    "predictionConfig": {
+      "model": {
+        "homeAdvantageScale": 0.5,
+        "contextWeights": {
+          "form": 0.12,
+          "motivation": 0.06,
+          "absences": 0.05,
+          "discipline": 0.03
+        }
+      },
+      "markets": {
+        "minSampleSizePerTeam": 8,
+        "minCombinedSampleSize": 20
+      },
+      "playerGoals": {
+        "xgShrink": 0.88
+      }
+    },
+    "predictionEngineConfig": {
+      "dixonColes": {
+        "dynamicTeamStrengths": {
+          "enableDynamicTeamStrengths": false,
+          "dynamicSmoothingSigmaAttack": 0.25,
+          "dynamicSmoothingSigmaDefence": 0.25,
+          "dynamicSmoothingSigmaHomeAdvantage": 0.2
+        },
+        "temporalWeights": {
+          "currentSeasonDecay": 0.002,
+          "previousSeasonBaseWeight": 0.35,
+          "previousSeasonDecay": 0.018,
+          "olderSeasonBaseWeight": 0.08,
+          "olderSeasonDecay": 0.018,
+          "preCoachChangeWeightMultiplier": 0.15,
+          "preStructuralBreakWeightMultiplier": 0.25
+        },
+        "structuralBreaks": {
+          "enableAutomaticStructuralBreakDetection": false,
+          "detectionWindow": 5,
+          "minConfidence": 0.62
+        },
+        "bootstrap": {
+          "bootstrapMode": "paramNoise",
+          "bootstrapSamples": 200,
+          "uncertaintyCvReference": 0.25
+        },
+        "xgBlend": {
+          "enableXgBlend": true,
+          "xgWeight": 0.8,
+          "maxXgValue": 8
+        }
+      },
+      "specializedModels": {
+        "countDispersionTolerance": 0.5,
+        "dispersionShrinkageStrength": 12,
+        "minSampleForTeamDispersion": 12
+      },
+      "playerShots": {
+        "playerShotsDistribution": "ZIP",
+        "minutesDistributionMode": "triangular",
+        "minMinutesForShotShare": 20,
+        "teamInfluenceWeight": 0.35,
+        "minTeamInfluenceMultiplier": 0.75,
+        "maxTeamInfluenceMultiplier": 1.3
+      },
+      "playerCards": {
+        "teamYellowInfluenceWeight": 0.25,
+        "minMinutesForStableCards": 900
+      },
+      "context": {
+        "weights": {
+          "w_form": 0.12,
+          "w_motivation": 0.06,
+          "w_absences": 0.05,
+          "w_discipline": 0.03,
+          "w_rest": 0.05,
+          "w_scheduleLoad": 0.04,
+          "w_formAbsenceInteraction": 0.04
+        },
+        "multiplierMode": "linearClamp",
+        "richnessScore": {
+          "baseline": 0.3,
+          "sampleWeight": 0.32,
+          "xgWeight": 0.12,
+          "playerCoverageWeight": 0.1,
+          "refereeCoverageWeight": 0.06,
+          "min": 0.3,
+          "max": 0.93
+        }
+      },
+      "valueBetting": {
+        "kellyMode": "quarter",
+        "dynamicKellyMinFraction": 0.1,
+        "dynamicKellyMaxFraction": 0.5,
+        "dynamicEvThresholdEnabled": false,
+        "bootstrapUncertainty": {
+          "enableBootstrapUncertainty": true,
+          "uncertaintyWeight": 0.35
+        },
+        "operational": {
+          "maxOdds": 8,
+          "applyMaxOddsToAllMarkets": true
+        }
+      },
+      "lineupXg": {
+        "enableLineupXgAdjustment": true,
+        "replacementRatio": 0.6,
+        "maxXgReduction": 0.18
+      },
+      "comboBetting": {
+        "comboRiskMode": "sqrtLegs"
+      },
+      "calibration": {
+        "desiredBuckets": 10,
+        "minBucketSize": 20,
+        "enablePerFamilyCalibration": true,
+        "perFamilyMinSamples": 120
+      },
+      "marketBlending": {
+        "enableLearnedBlendWeights": true,
+        "learnedBlendMinSamples": 80,
+        "learnedBlendMaxShift": 0.18
+      },
+      "ensemble": {
+        "enabled": true,
+        "weights": {
+          "default": 0.5,
+          "oneXTwo": 0.5,
+          "overUnder": 0.5,
+          "btts": 0.5
+        }
+      },
+      "backtesting": {
+        "metricWeightMode": "none"
+      },
+      "adaptiveTuning": {
+        "confidenceWeightDenominator": 12,
+        "evDeltaMin": -0.012,
+        "evDeltaMax": 0.008
+      },
+      "operational": {
+        "primaryOddsProvider": "odds_api"
+      }
+    },
+    "fit": {
+      "iterations": 280,
+      "learningRate": 0.04
+    },
+    "codeHashes": {
+      "config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+      "config/algorithmVersions.js": "e1098e9cff6635442b8dc3c88f9e5f98f18088717c28f05b7b28a30a225e3764",
+      "config/predictionConfig.js": "f2240a65cabecfe7cb4a1630d46f15af25953d8e537afde68262760eaec13a30",
+      "models/backtesting/BacktestingEngine.js": "1125cb81b1cfbb1657e1365ae67cd2038ede3ac0e50a5d2341530315d2dd2bf0",
+      "models/core/DixonColesModel.js": "827418397ea5c943daf1ce1aee8d6e60c4a47c06abfffe286727afe704aeddf7",
+      "models/core/PoissonXgModel.js": "fec414e792b9c893b6c863c0e3937e2f52635daac6b81131d52955ad5335b219",
+      "models/markets/PlayerCardsModel.js": "c67dab61d72d81b08ec74263c5beb082f12f3ff7a43fe90928e7b4c7d3830292",
+      "models/markets/ShotsModel.js": "119db2259d499178818851453c2b7ee959b828990e70fd4b90f69e62363e6f78",
+      "models/markets/SpecializedModels.js": "b23397f0683805aa36ed02a2cea7e47ed7139c5386da929a9817b97b4a75bd92",
+      "models/utils/MathUtils.js": "5a976bcfed201f8569b32a33df996d28356ad9c63c17f1234442fb4728f9f250",
+      "models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+      "models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+      "research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+      "services/ChronologicalForecastService.js": "4883c353efbac363f93ef0cfb3234ee32f50101bc3bed9a7a850c535a64fff30",
+      "services/MarketBlendLearningService.js": "c63334c0ff7ae5173984b8838d619e1f8f8dc5f97e74d73bff05a5410b42af0d",
+      "services/PredictionContextBuilder.js": "0fc28f75bca09ea4ddab9fcd884f71ca433eb8c1c8eb8d2386d20bef6ea1b9d7",
+      "services/ProbabilityEnsembleService.js": "4e90d51a68f14b93afe819478358c6dc66ba6f7d73d3eb1195141927a465f279",
+      "services/SharedForecastCalculator.js": "312acfb6f427349b548ef03433b634a6849a29216ea5044ac76ad4950eb0f6fc",
+      "utils/dataHelpers.js": "e0a61cf80c10ed0379735c45dd1a26376b85f646c530b45d693d0f55445e7a63",
+      "utils/historicalTime.js": "9389c221b8779861a029216c5448373d8fe6fff8a47ae2d55609e96bc8c1451b"
+    },
+    "probabilityProtocol": "As-of statistical adapter using current shared A kernels and historical supplementary context; not the full operational A application state. Calibration and decision filtering are downstream, shared for A/C.",
+    "matrixProtocol": "Joint proxy: DC + Poisson-xG with the configured default ensemble weight. If family weights differ, this proxy is not identical to every A flat marginal; official A market evaluation uses baselineProbabilities.",
+    "oddsAsFeatures": false,
+    "playerFeatures": false,
+    "version": "A-9227e65a047783bd",
+    "fingerprint": "9227e65a047783bd5b9ef55527f1d6e09133a82aaf387159fbdceef8b5e93218"
+  },
+  "reconstruction": {
+    "targetFrom": "2019-07-01T00:00:00.000Z",
+    "targetUntil": "2026-07-01T00:00:00.000Z",
+    "asOf": "2026-07-01T00:00:00.000Z",
+    "warmupSeason": "2018/2019",
+    "features": 56,
+    "decisionTime": "03:07 Europe/Rome",
+    "resultAvailability": "kickoff+2h proxy, postdated by explicit availableAt when present",
+    "workers": 2,
+    "perMatchBaselineFitPreserved": true,
+    "sourceFeatures": 56,
+    "modelFeatures": 40,
+    "sourceFeatureBlocks": [
+      "recent_xg",
+      "schedule"
+    ],
+    "unusedSourceFeatureCount": 16
+  },
+  "foldCalendar": {
+    "training": "expanding2019onward,forecastAt and availableAt before March1of test startyear",
+    "reserved": "March1inclusive toMay1exclusive, not ML training/calibration/selection",
+    "calibration": "May1inclusive toJuly1exclusive,labels available beforeJuly1",
+    "test": "July1inclusive toJuly1ofnextyear exclusive",
+    "refitsPerSeason": 1,
+    "selectionOrTuning": false
+  },
+  "sourceConflictExclusions": [
+    "understat_17955",
+    "understat_17503"
+  ],
+  "additionalWarmupArchiveExclusion": "understat_9220",
+  "policy": "Exclude745protected target IDs and22quarantine target/history IDs; protected prior results may enter shared baseline as current code permits.",
+  "sourceHashes": {
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/archive-manifest-v3.json": "825399a4b42e301c74d134c55f21f7e55bb3050b97045738da04bd9ee4146e20",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/archive-verification.json": "e748bbe04d2e39823d83243d615b51747a72c4668baedf67ecd6ec9027a32e96",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/matches-archive.json": "71e9681decd606dc870dbb2edb470edbaa45fd669049913c56182c43564c1513",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-manifest.json": "0a55de33cfdcf5711518dbbf5c0bd798f242bbd16768b4b20756982c93e95641",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2018.csv": "f03ee41b741aca9c43cbafb800bbc6f01ca9d7ed19c1a9dd4c309389280cfe11",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2019.csv": "0a032b1adc75f7fa018dcfeff7fcdcc0a89014e3fe69f44534f538b6f931aef5",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2020.csv": "48ec5d53d2452b6ebdbc07bd78a836d6a4686f99fc020439ee3292e685315e61",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/D1-2021.csv": "034d0e1296e944dddf25e3c91b85ef5bd1ad25661b89d73878f5c73bfea4b9fc",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2018.csv": "7c096b3c2ecd54c6993d22eeea73450c2bde11e3457238b226b8f43c62dfc35e",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2019.csv": "100037618b94f94057400bb02bf6bac4ef74ddaa58cde4b38370839c39caee61",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2020.csv": "5afe63f69401457b8354eaacee24f9a3e520b3c3af6329564a9783e20d789c62",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/E0-2021.csv": "335afcbabeb2939fa10ab39ba3e8215072d0b577cb8d0705c1e44c56e934e703",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2018.csv": "31559a4d8b52eff6f78e13a9b33d7b844e4f41d823dd1cf5c1aaa61c51eaaf9c",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2019.csv": "bda566f6aea24bc2f08cceac8f7d6c81d7f9c64cfda9fdae7eb9be2b84dddd2a",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2020.csv": "124560ab39a1c256eb6ee5ad2dd1eed250c9780d0cbb34525d9abee41fbf7f70",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/F1-2021.csv": "9e9eaefb8704264f8d55a718a119d940de4af7d7b4217ac4097b957406e16213",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2018.csv": "2baea8a1fb31096960b5f5797d31dbb6b454eb41b00845e6b0b79feb82a0e3d0",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2019.csv": "f33233e0c428ebe4f7cb854c4a504e0b59c4e009ee8b679269486e26afdc575b",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2020.csv": "c09196fa18877547442807d375317299947abdd6d51a5e0df044cc6026e13f36",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/I1-2021.csv": "6a9555d5a90e652a883fd2862a52545c06e264016cd770347c067a6d7c993170",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2018.csv": "9b8cece2c85e90e382b30dc4fc5046534f12c6d2b0efa74cd7d1d52e90a0c201",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2019.csv": "a05d5d60eee0b1414c56d6d6817f860cdc620e206234069a1886c98a8cb318da",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2020.csv": "b4137db923101f464e8403c4973acbfaf7d71724ce93b4336fad580e894d9591",
+    "backend/artifacts/research/c-five-season-projection-20261108/csv-source/SP1-2021.csv": "2d9e619700712823d15716c07715133f8c3b1a09046930dcfc785a38633dee2e",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2022.csv": "b716517b25033ce8e0243e967aa961876425a4c41e97c8aa8fa59f2aca061341",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2023.csv": "1de8bc12a133dbbf71bc6ffda62082642f087f61b1b7c15ae9f2d320876fb07e",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2024.csv": "daf239ba83b6fba815a3bd5879e7111f3723e6bb1e64fa484399a20b32c4cb2e",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-D1-2025.csv": "db8306fcb4aa2ace9048f0423ef54271c560d58f5381e0591f2bc7b2a1882037",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2022.csv": "8442792d3b614c94ea3cf381bd2736805889cc1713169035368fff19c3d02380",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2023.csv": "b2e057b0ed959f198b0f63d2391c01239f3608e6de5db68edab3f88e04d07ff3",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2024.csv": "a0fb4e281b6f0e0fce66ac4c6bca53e54686d2db6054b5eb49b90decf161c12f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-E0-2025.csv": "25b1ecbf34c961fbe9a3a3b3bf906a6c7cf76121d4605ed11a1106cc4d15de7f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2022.csv": "18ea07d922e8b6360b81189637efd5aaf44779765db856bff208d5b1acf69b2f",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2023.csv": "ca0a4bf51d5b1ccfd0e1558ea41de6bb829df6c96c759888a87248d296d5adb7",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2024.csv": "f1cf48edf42cc28b9675f1aa801f60a74214d672892fc2ee3adc5ea5a5b374fa",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-F1-2025.csv": "806b1dd80e002707abd0c01f124c6554522af40ed4e54315f7b034a475c23217",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2022.csv": "9960837f37a97ae700f876c87b85a8b7a2f5a5d05a53077830c21b9db8880c45",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2023.csv": "343a89db026fe4204ebeabd663cdfee8d02a45457828fc1cb63fa630ca170723",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2024.csv": "0973077b99e9f7cba60fa80b8c2ed0c1326fd4950a6243b3fa213f6b51c0c205",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-I1-2025.csv": "bafbf14aacd7e764bc1fd65ec382cfd4c0bf7038523b065a56dd46b4ac477d49",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2022.csv": "53348112526b5165539df240be350083989bb258f30c0ff7cacbc0165ca7e4b3",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2023.csv": "5323f596c7ed318e4bce95557a369d809d98501fa499ea5f41350cd45cf3c7d9",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2024.csv": "caf6feffad03388a5d681c3210130b15f329b5e23195298428d0d0568e922364",
+    "backend/artifacts/research/current-c-vs-a-20261108/odds-audit/raw-source/verified-SP1-2025.csv": "5c0e49a163785fcc62fc424942500421d77c8d7c51e7159d1c9c0cad7d1d775f",
+    "backend/current-models/challenger.json": "772049b0d4462faa94c785390222501c609f7887a9b7e005c737c3c8988700d2",
+    "backend/dist/config/PredictionEngineConfig.js": "0a5f11c246914dab06010896e7dcb6b8f615a9395a2693a2e9fd1a78ce3bd337",
+    "backend/dist/models/value/EnhancedMarketAnalysis.js": "e7a33f28f93d9807827a2a9a4f0f5ca07278c632e072fd00d41222ab95c15a12",
+    "backend/dist/models/value/ValueBettingEngine.js": "7e87b299b8e80bb1ceaad68cf3df09c2bb72f472446fb53462b6b54a72b24f35",
+    "backend/dist/research/CatBoostModel.js": "a340258a9f4d9cb484056a1ecb80132cfeec36802fa749ed4b76d45b1d20be6d",
+    "backend/dist/research/ChallengerDataQuality.js": "674081752090d953ed9e6c030b84d0ef2eb87b974ad6f0c3e2dd07a7d791dc13",
+    "backend/dist/research/ChallengerFeatures.js": "9d10d7d8afa12b860ab5fe24f8bb4f1f7fadc6d32578e51cbd1c480ffaaee3f1",
+    "backend/dist/research/CoherentProbabilityPipeline.js": "d5e0f61827386fa8ab5d1edd29bde5ec7b12848cf15e723c2379243163a26015",
+    "backend/dist/research/ForecastCore.js": "821693ecb5fd40f14d3c415e89e95251490a41d7798d5fcf5fe6462d837d1954",
+    "backend/dist/research/ForecastDecisionTime.js": "d2d14e1d0e84d8e42a52ae0075059d09dca20e9a0ec629057bcca5270df096da",
+    "backend/dist/research/GoalSettlement.js": "4f4314987114eb2d672a9b8e60a0e2bada67dc62bfac4e51432c0e4638b0b083",
+    "backend/dist/research/ResearchProbabilityPipeline.js": "8d775cb80b691aecd9c22e942f19c434517ed321a3d1907bb0818ff2d93663b1",
+    "backend/dist/services/FootballDataService.js": "497406cf31945d12b24b1faba47cf2d34b8663945a5f8919992e059515c55a4f",
+    "backend/experiments/c-five-season-projection-research/acquire_csv.py": "67068b357d13937379e55eae0f5b6c8f0a700386d33ab20f3e0b7d037d1cbda8",
+    "backend/experiments/c-five-season-projection-research/acquire_inputs.py": "05dc25bc55c8227d7d4f2081ecc88aee7733aeeef91554e8167e9df3b1f07b98",
+    "backend/experiments/c-five-season-projection-research/build_dataset.cjs": "ad5b90464def8186607d57ef0ca7cbd160aeb799165c4a4778c9607cd1b07d78",
+    "backend/experiments/c-five-season-projection-research/finalize_inputs.py": "83ea10845886733fa59bfba07e3a485260b666111c3a0bb02420ace966f4ef5b",
+    "backend/experiments/c-five-season-projection-research/prepare_inputs.cjs": "62d7bc5e55edcb5d3821ff627fa86ce2c8b6c61a6ba55ddbc0f8970759c58c63",
+    "backend/experiments/c-five-season-projection-research/test_build_dataset.cjs": "1d16815e40d01a1728e3b7e37aba8176bfe192814418c59aacd2968740f25aea",
+    "backend/experiments/c-five-season-projection-research/test_prepare_inputs.cjs": "fbf64b49f10dacfadb0f2d0707a2a975f88cec9aedeb3e034a9caa5026506bcf",
+    "backend/src/config/PredictionEngineConfig.ts": "8b7fd4f1a4f98e1d1cba829d98137c9a3e34266b88843cbd12b724d834fad1a1",
+    "backend/src/models/value/EnhancedMarketAnalysis.ts": "e8046a86fab0fe78cc602f78445e9f184bdcf77579e9d6df467b7cdd57aa3309",
+    "backend/src/models/value/ValueBettingEngine.ts": "c3d3ef7826f265ff35fab465cc93fb48cbbe8857cf85aa565bf7aa35dd558bba",
+    "backend/src/research/CatBoostModel.ts": "8d45c9214f5bc01a5164cec0d26e6bc36281102f0b46dfeac41a49c90a745f8b",
+    "backend/src/research/challenger-data-quarantine.json": "1350f1fa837196ca57029946fe5b8a1bea5cd90cdbc0e72886a9dc19dc770d7d",
+    "backend/src/research/ChallengerDataQuality.ts": "98f09fc15cf30fb185bbfcd2be0b6838a59870b2d78e81c0747c0e1e0865073b",
+    "backend/src/research/ChallengerFeatures.ts": "c8ba723d48efd38fa2d27dade1bd5ec393c4ddc26cfeeec7f395450ebd047c6f",
+    "backend/src/research/CoherentProbabilityPipeline.ts": "24fdc38ad9b30756ab7c6aeab014e99cf5a36998b6ba225bd2f187d9df97a129",
+    "backend/src/research/ForecastCore.ts": "bc2a3f0fcf0b9e190d1ccd51728e64c17910d2db06eaaf1708efebafef85afcb",
+    "backend/src/research/ForecastDecisionTime.ts": "5c793aec760c84dda084ec6402fbac2f0f7a8eb89c5e7f343a0afe47a61d1eef",
+    "backend/src/research/GoalSettlement.ts": "7ec091e305001b22f2c2746a22f757a5332b05c2ac0b89b746bef620f7277c94",
+    "backend/src/research/original-holdout-policy.json": "e78e2a275ff5aae8be5d24f546d5e8ef522f62d60ab78dbb28e84357ea46d164",
+    "backend/src/research/ResearchProbabilityPipeline.ts": "16f21136f11955f82bd359d093d5479f42a09a35a864e7c4b1c1280e34c9cf46",
+    "backend/src/services/FootballDataService.ts": "578a5526a0701d1c2680a861b594493c43dcdc0ad05f82a9ceeac976bddc4e37",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs-v4/history.json": "968d7990a966d2c06c28845f8ecfdd05961d6bd0a548330df16af786e2e6a50e",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs-v4/quotes.json": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+    "backend/artifacts/research/c-five-season-projection-20261108/frozen-inputs-v4/source-exclusions.json": "58b77db9723ed6ea16e72d00c5d2ac9a09d274c474ee27bea61de5696d5806ba",
+    "backend/artifacts/research/c-five-season-projection-20261108/inputs-v4/input-audit.json": "f28eea9cc4ab52f7c83d65b46ff3bb763c20f4217e7a61e027c8aeff0edfc04b",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/matches-archive-v4.json": "237268cdc421bc989dc7b0d77e8eb9345dd12b5fa1fac7b42e87987587f0caf6",
+    "backend/artifacts/research/c-five-season-projection-20261108/acquisition/archive-shot-repair-v4.json": "a1b964b082a20ff818856ad22151d6371bc549964f9c5c575f9ff488b32c6c7c",
+    "backend/artifacts/research/c-five-season-projection-20261108/inputs-plan.json": "89d5b5a03b143125acbcc0beb14918903303fa39f9f7dd67c3e0864c9fb5c5fe",
+    "backend/artifacts/research/c-five-season-projection-20261108/dataset-attempt-1.json": "4bb28d37008b19ec7ba1266073f6cbb2641f7bc42e1199614b0dd0ee2f99193d",
+    "backend/experiments/c-five-season-projection-research/repair_shot_semantics.py": "18988327f7762b9ce0460f6863d71ad613fe037027c2a229e8d39684d1a7d198",
+    "backend/experiments/c-five-season-projection-research/test_repair_shot_semantics.py": "aa067cac666cb68c952370b856ef01ac4129e93710862cdd77aed6b2ad4fcc1f",
+    "backend/artifacts/research/c-five-season-projection-20261108/inputs-plan-v2.json": "7af94406e4829ddd8bf40fd1f90af9de03a4390fa96907024d23838d4b4dc156",
+    "backend/artifacts/research/c-five-season-projection-20261108/dataset-attempt-2.json": "80cfb53c739334f4a0425e2a3535fdf74af06a19c45d40f43c2f12281b92600a",
+    "backend/artifacts/research/c-five-season-projection-20261108/runtime-preflight-real.json": "69c360c3deea231aa4e5b4d9f39a7aed50048187a3becfcabc1b2b762755a462",
+    "backend/artifacts/research/c-five-season-projection-20261108/runtime-preflight-real-checks.json": "70a3717eadfb281ae170dfbc50684314c0ed95c94c97bb516a260c021a4eaa4d",
+    "backend/experiments/c-five-season-projection-research/build_dataset_v3.cjs": "43248c32ee7ed2bb3f9a28ab1d256b85d2fedb782dcedab766b764864e54dc47",
+    "backend/experiments/c-five-season-projection-research/test_build_dataset_v3.cjs": "628048ad481f9c7c98716a4a9eee0485dee67c24a9618797f1f6f374fa6b1799",
+    "backend/artifacts/research/c-five-season-projection-20261108/inputs-plan-v3.json": "25188bb8edea72dd64b37bc9c12d01528cc4039a7ae5fb2b753ed20995760327",
+    "backend/artifacts/research/c-five-season-projection-20261108/dataset-v3.json": "028fb60da21ac6985e70ef8cb910ae48f5f7292fe053b410302db825f80dbcca",
+    "backend/artifacts/research/c-five-season-projection-20261108/population-audit.json": "9f5978f9635cf00704bf5f197f4fe4d2bcf7f51fec1bf0e5fa362d65e2596ee0",
+    "backend/experiments/c-tree-sample-projection/prepare.py": "a647196dc9e42b198f8ec304df22d321d576100fa46f70b06133bc0102239f23",
+    "backend/experiments/c-tree-sample-projection/evaluate.cjs": "e005e1c3400c700d77bb248b4f23d4ae2017678b5bd53e3d09a0d8559884005c",
+    "backend/experiments/c-tree-sample-projection/verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b",
+    "backend/experiments/c-tree-l2-research/prepare.py": "efee724b632a4360725f5244768d30883515d6d27cf7ce3b18bb0cfb0abca111",
+    "backend/experiments/c-tree-l2-research/verify_selection.py": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+    "backend/experiments/c-tree-weight-research/verify.py": "183637d34924e871c1a958bb64491d980d4b9eea8059f7abab5130613459fc9d",
+    "backend/experiments/c-tree-weight-research/verify_selection.py": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "backend/experiments/c-tree-hierarchical-research/verify_selection.py": "d5378a4ba5a730f84e068c8dc738781ae2b8821dbeaff3d74dd8edb5d08ce1c3",
+    "backend/experiments/c-tree-ignored-samples-research/verify_selection.py": "9fae195e7873739abae3ca0e3a0c8760efca2a6fcc2ab2b7e20e45aa12cfb551",
+    "backend/experiments/c-tree-newton-one-research/verify.py": "9ee08beb7c3081c36a148756166818fa6f29cdb4a5a465801d6b944bd53249ef",
+    "backend/experiments/c-parameter-audit/metrics.cjs": "2c2c6437f1ab8b23f739df276cea28578490d80abc29899e2e73da35e8b86fdc",
+    "backend/ml/train.py": "929d22cf763394b2201e045fee22b173681e223b54eb1e229e19d7384b6f1af1",
+    "backend/ml/prepare_current_challenger.py": "878a971df695a32352c976f5b024ad4dfec96cf0d8a90a37782f6a435e435707",
+    "backend/experiments/c-five-season-projection-research/evaluate.cjs": "dd2a59daced1d930b45418c3eb7875889f4730f2f2dfa84abe6e1395cc0800d2",
+    "backend/experiments/c-five-season-projection-research/freeze_execution.py": "839f0bce5eebfffc22e02e45c0b6dc873faaf5abfe9f5693fc66147fdf81bb22",
+    "backend/experiments/c-five-season-projection-research/test_evaluate.cjs": "2c28037b5bcb3fdd2c76d1d66914794b53a45474c6f831f715231147d7259880",
+    "backend/experiments/c-five-season-projection-research/test_train.py": "41e8cbca94c15b6694d5ebd4c5c770787fad496992e912be25d99ca610d4f872",
+    "backend/experiments/c-five-season-projection-research/test_verify.py": "26eaf03a86fda68d52be9c123be883b2ebfde7a0204ee5b9684ed95c26b7bf85",
+    "backend/experiments/c-five-season-projection-research/train.py": "5ce0420341bc5b0be99cf5670da3385284b1b43375c8873f8cc31546d7fae98c",
+    "backend/experiments/c-five-season-projection-research/verify.py": "bfcf798ba6f8569898bd2618a055573328883e074d5da6c5eb1693e9c3f9c88a"
+  },
+  "adoption": false,
+  "databaseWrites": 0,
+  "limitations": [
+    "Archived Understat provenance via pinned public dumps; acquisition is later than events. No claim that snapshots were captured before each historical forecast.",
+    "Real Bet365 closing prices are retrospective; quote-missing rows retain paired raw/calibrated evaluation without synthesized market prices.",
+    "The leaf rule was selected in prior research, so this is an exploratory recipe backtest, not independent adoption evidence."
+  ],
+  "amendsInputsPlanHash": "7af94406e4829ddd8bf40fd1f90af9de03a4390fa96907024d23838d4b4dc156",
+  "amendmentReason": "Use both canonical versioned source feature blocks as required by current JS and Python validators, then explicitly select the original40 model features. Former empty-block wrapper stopped before C fitting.",
+  "termDefinitions": {
+    "priorAttemptModelFitsPerformed": "C/CatBoost fits. Statistical baselineA fits had been running as part of feature reconstruction."
+  },
+  "inputsPlanHash": "25188bb8edea72dd64b37bc9c12d01528cc4039a7ae5fb2b753ed20995760327",
+  "datasetHash": "028fb60da21ac6985e70ef8cb910ae48f5f7292fe053b410302db825f80dbcca",
+  "quotesHash": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+  "recipe": {
+    "iterations": 120,
+    "depth": 5,
+    "learning_rate": 0.05,
+    "random_seed": 20261027,
+    "thread_count": 2,
+    "verbose": false,
+    "allow_writing_files": false,
+    "loss_function": "Poisson"
+  },
+  "l2LeafReg": 3.0,
+  "studyExcludedMatchIds": [
+    "understat_17955",
+    "understat_17503"
+  ],
+  "metrics": {
+    "primary": [
+      "1X2 Log Loss",
+      "multiclass Brier sum"
+    ],
+    "secondary": [
+      "top-label ECE10 equal-width bins"
+    ],
+    "bootstrap": {
+      "unit": "season and UTC epoch week",
+      "replications": 2000,
+      "seed": 20261108
+    }
+  },
+  "folds": [
+    {
+      "year": 2021,
+      "boundaries": {
+        "trainBefore": "2021-03-01T00:00:00.000Z",
+        "reservedFrom": "2021-03-01T00:00:00.000Z",
+        "reservedTo": "2021-05-01T00:00:00.000Z",
+        "calibrationFrom": "2021-05-01T00:00:00.000Z",
+        "calibrationTo": "2021-07-01T00:00:00.000Z",
+        "testFrom": "2021-07-01T00:00:00.000Z",
+        "testTo": "2022-07-01T00:00:00.000Z"
+      },
+      "memberships": {
+        "train": {
+          "n": 2942,
+          "matchIdsHash": "dc8ab8ec6cb5d8c4e6ebe3bcddc6bab7c63e199ded7c722268d25e5324c28c00",
+          "orderedMatchIdsHash": "bbdd4dcc89978081a6659574fbf9b8133bbd9fdd37a59421e1953c04277057c3",
+          "competitionCounts": {
+            "Bundesliga": 512,
+            "La Liga": 627,
+            "Ligue 1": 548,
+            "Premier League": 637,
+            "Serie A": 618
+          },
+          "seasonCounts": {
+            "2019/2020": 1725,
+            "2020/2021": 1217
+          },
+          "from": "2019-08-09T01:07:00.000Z",
+          "to": "2021-02-28T02:07:00.000Z",
+          "availableThrough": "2021-02-28T22:00:00.000Z"
+        },
+        "reserved": {
+          "n": 389,
+          "matchIdsHash": "9fd50ca3a633c67d5e4f5473c05f78305bd6f8c1ce319e7de2945f8b35040f25",
+          "orderedMatchIdsHash": "05177d2e761545dc131fe858900e74bcc131f662470eaa925eab2bbd9f3a42ad",
+          "competitionCounts": {
+            "Bundesliga": 70,
+            "La Liga": 84,
+            "Ligue 1": 72,
+            "Premier League": 72,
+            "Serie A": 91
+          },
+          "seasonCounts": {
+            "2020/2021": 389
+          },
+          "from": "2021-03-01T02:07:00.000Z",
+          "to": "2021-04-30T01:07:00.000Z",
+          "availableThrough": "2021-04-30T21:00:00.000Z"
+        },
+        "calibration": {
+          "n": 220,
+          "matchIdsHash": "2dcc14c65943813cdbd31f38a747e1358c2e42c31b776144b56210491d67bf6f",
+          "orderedMatchIdsHash": "d88ad0eddaabbf91e2a4b5952612bf56809a1838c712ad07993adfbace34e2c4",
+          "competitionCounts": {
+            "Bundesliga": 30,
+            "La Liga": 49,
+            "Ligue 1": 39,
+            "Premier League": 51,
+            "Serie A": 51
+          },
+          "seasonCounts": {
+            "2020/2021": 220
+          },
+          "from": "2021-05-01T01:07:00.000Z",
+          "to": "2021-05-23T01:07:00.000Z",
+          "availableThrough": "2021-05-23T21:00:00.000Z"
+        },
+        "test": {
+          "n": 1824,
+          "matchIdsHash": "cf42c85c5eabfb05c7f6b0f6b5154c2b2361fb5301a33f0e8fdbea8780fc4379",
+          "orderedMatchIdsHash": "47f504a92b5fb21e8a3f3fe61a5d1c0b04790fa467eecadc07a80fb091c9ac03",
+          "competitionCounts": {
+            "Bundesliga": 306,
+            "La Liga": 379,
+            "Ligue 1": 379,
+            "Premier League": 380,
+            "Serie A": 380
+          },
+          "seasonCounts": {
+            "2021/2022": 1824
+          },
+          "from": "2021-08-06T01:07:00.000Z",
+          "to": "2022-05-22T01:07:00.000Z",
+          "availableThrough": "2022-05-22T22:00:00.000Z"
+        }
+      },
+      "purgedMatchIds": {
+        "train": [],
+        "calibration": []
+      }
+    },
+    {
+      "year": 2022,
+      "boundaries": {
+        "trainBefore": "2022-03-01T00:00:00.000Z",
+        "reservedFrom": "2022-03-01T00:00:00.000Z",
+        "reservedTo": "2022-05-01T00:00:00.000Z",
+        "calibrationFrom": "2022-05-01T00:00:00.000Z",
+        "calibrationTo": "2022-07-01T00:00:00.000Z",
+        "testFrom": "2022-07-01T00:00:00.000Z",
+        "testTo": "2023-07-01T00:00:00.000Z"
+      },
+      "memberships": {
+        "train": {
+          "n": 4805,
+          "matchIdsHash": "fe6b2f9b286a8691ee74b36cbe09c34c5ce09d413442548781a75fb34ca98844",
+          "orderedMatchIdsHash": "c23f21c2dc7b1ba913aa05489a8cac0772e34e707577347852bcab215b4b24af",
+          "competitionCounts": {
+            "Bundesliga": 828,
+            "La Liga": 1018,
+            "Ligue 1": 918,
+            "Premier League": 1016,
+            "Serie A": 1025
+          },
+          "seasonCounts": {
+            "2019/2020": 1725,
+            "2020/2021": 1826,
+            "2021/2022": 1254
+          },
+          "from": "2019-08-09T01:07:00.000Z",
+          "to": "2022-02-28T02:07:00.000Z",
+          "availableThrough": "2022-02-28T22:00:00.000Z"
+        },
+        "reserved": {
+          "n": 390,
+          "matchIdsHash": "91177877dd6ae44df0d1cd013f9fb73d923185f6d1bd02c0445807466014b249",
+          "orderedMatchIdsHash": "d382833e7c551d8cb20d666c9a71937962a587097387c28b52a529da402642b5",
+          "competitionCounts": {
+            "Bundesliga": 70,
+            "La Liga": 77,
+            "Ligue 1": 83,
+            "Premier League": 82,
+            "Serie A": 78
+          },
+          "seasonCounts": {
+            "2021/2022": 390
+          },
+          "from": "2022-03-01T02:07:00.000Z",
+          "to": "2022-04-30T01:07:00.000Z",
+          "availableThrough": "2022-04-30T21:00:00.000Z"
+        },
+        "calibration": {
+          "n": 180,
+          "matchIdsHash": "ba4b48655cf63bd15ad22e1234187deb5d67ebe134324603536c14fbf575e18d",
+          "orderedMatchIdsHash": "bbd9c4648e5f1c28b6703433d0981d152bab18062886be0b800f7a8a828f1dc8",
+          "competitionCounts": {
+            "Bundesliga": 20,
+            "La Liga": 44,
+            "Ligue 1": 37,
+            "Premier League": 42,
+            "Serie A": 37
+          },
+          "seasonCounts": {
+            "2021/2022": 180
+          },
+          "from": "2022-05-01T01:07:00.000Z",
+          "to": "2022-05-22T01:07:00.000Z",
+          "availableThrough": "2022-05-22T22:00:00.000Z"
+        },
+        "test": {
+          "n": 1825,
+          "matchIdsHash": "e9e41699962f67cad76261a000f6d551240a128d852afa41244201b07373b415",
+          "orderedMatchIdsHash": "36815dee6dd643baf3b92ca57a0bd44c4bb5da1d8f101bf06d3710601eed7b37",
+          "competitionCounts": {
+            "Bundesliga": 306,
+            "La Liga": 380,
+            "Ligue 1": 379,
+            "Premier League": 380,
+            "Serie A": 380
+          },
+          "seasonCounts": {
+            "2022/2023": 1825
+          },
+          "from": "2022-08-05T01:07:00.000Z",
+          "to": "2023-06-04T01:07:00.000Z",
+          "availableThrough": "2023-06-04T21:00:00.000Z"
+        }
+      },
+      "purgedMatchIds": {
+        "train": [],
+        "calibration": []
+      }
+    },
+    {
+      "year": 2023,
+      "boundaries": {
+        "trainBefore": "2023-03-01T00:00:00.000Z",
+        "reservedFrom": "2023-03-01T00:00:00.000Z",
+        "reservedTo": "2023-05-01T00:00:00.000Z",
+        "calibrationFrom": "2023-05-01T00:00:00.000Z",
+        "calibrationTo": "2023-07-01T00:00:00.000Z",
+        "testFrom": "2023-07-01T00:00:00.000Z",
+        "testTo": "2024-07-01T00:00:00.000Z"
+      },
+      "memberships": {
+        "train": {
+          "n": 6532,
+          "matchIdsHash": "0ca07b714b42431fa64ed882671c2fc6716bac704395a9d2751da1a8630723e5",
+          "orderedMatchIdsHash": "43e2c9a801abf46ef9bfb652e68efca844149b6b6f0b936a81ee2ddd5b83154b",
+          "competitionCounts": {
+            "Bundesliga": 1116,
+            "La Liga": 1369,
+            "Ligue 1": 1288,
+            "Premier League": 1379,
+            "Serie A": 1380
+          },
+          "seasonCounts": {
+            "2019/2020": 1725,
+            "2020/2021": 1826,
+            "2021/2022": 1824,
+            "2022/2023": 1157
+          },
+          "from": "2019-08-09T01:07:00.000Z",
+          "to": "2023-02-28T02:07:00.000Z",
+          "availableThrough": "2023-02-28T21:45:00.000Z"
+        },
+        "reserved": {
+          "n": 410,
+          "matchIdsHash": "a521c82d9bad54545a947137f13a22d1b9b4f66b2be5bdb87dc3d45f8d64984d",
+          "orderedMatchIdsHash": "cec130bcb71fb538f501319b39262edf70a51e112a7ee763da8d5bb9451058b8",
+          "competitionCounts": {
+            "Bundesliga": 72,
+            "La Liga": 88,
+            "Ligue 1": 77,
+            "Premier League": 93,
+            "Serie A": 80
+          },
+          "seasonCounts": {
+            "2022/2023": 410
+          },
+          "from": "2023-03-01T02:07:00.000Z",
+          "to": "2023-04-30T01:07:00.000Z",
+          "availableThrough": "2023-04-30T21:00:00.000Z"
+        },
+        "calibration": {
+          "n": 258,
+          "matchIdsHash": "30118c15b848ac61efcd7cb9bef9c6a32dfd3354f216d746daf5f27fc12f9257",
+          "orderedMatchIdsHash": "d706eea1139a6aa8d36c848e6364acab9f354e6b407bc0d0368925d321c74e7a",
+          "competitionCounts": {
+            "Bundesliga": 36,
+            "La Liga": 62,
+            "Ligue 1": 52,
+            "Premier League": 48,
+            "Serie A": 60
+          },
+          "seasonCounts": {
+            "2022/2023": 258
+          },
+          "from": "2023-05-01T01:07:00.000Z",
+          "to": "2023-06-04T01:07:00.000Z",
+          "availableThrough": "2023-06-04T21:00:00.000Z"
+        },
+        "test": {
+          "n": 1747,
+          "matchIdsHash": "6f071d0b71959da084d15342c0cafe45fe7d39bc71b5840bdd7bd8655887cb3d",
+          "orderedMatchIdsHash": "7071a1117bfbef7ed6a739f938cfe4e9dfdac44278e912bc8c6adb7c3010eced",
+          "competitionCounts": {
+            "Bundesliga": 306,
+            "La Liga": 379,
+            "Ligue 1": 304,
+            "Premier League": 380,
+            "Serie A": 378
+          },
+          "seasonCounts": {
+            "2023/2024": 1747
+          },
+          "from": "2023-08-11T01:07:00.000Z",
+          "to": "2024-06-02T01:07:00.000Z",
+          "availableThrough": "2024-06-02T18:00:00.000Z"
+        }
+      },
+      "purgedMatchIds": {
+        "train": [],
+        "calibration": []
+      }
+    },
+    {
+      "year": 2024,
+      "boundaries": {
+        "trainBefore": "2024-03-01T00:00:00.000Z",
+        "reservedFrom": "2024-03-01T00:00:00.000Z",
+        "reservedTo": "2024-05-01T00:00:00.000Z",
+        "calibrationFrom": "2024-05-01T00:00:00.000Z",
+        "calibrationTo": "2024-07-01T00:00:00.000Z",
+        "testFrom": "2024-07-01T00:00:00.000Z",
+        "testTo": "2025-07-01T00:00:00.000Z"
+      },
+      "memberships": {
+        "train": {
+          "n": 8388,
+          "matchIdsHash": "03c218aaa4d5098f0ab79d6530f675e023e9e024f888e2852d35daad37b3a980",
+          "orderedMatchIdsHash": "0291a9d8b9feb713a08fe716a77b788d14435bef4db8229bf15d3bfcefb8bf5f",
+          "competitionCounts": {
+            "Bundesliga": 1431,
+            "La Liga": 1777,
+            "Ligue 1": 1622,
+            "Premier League": 1778,
+            "Serie A": 1780
+          },
+          "seasonCounts": {
+            "2019/2020": 1725,
+            "2020/2021": 1826,
+            "2021/2022": 1824,
+            "2022/2023": 1825,
+            "2023/2024": 1188
+          },
+          "from": "2019-08-09T01:07:00.000Z",
+          "to": "2024-02-28T02:07:00.000Z",
+          "availableThrough": "2024-02-28T21:45:00.000Z"
+        },
+        "reserved": {
+          "n": 381,
+          "matchIdsHash": "ba71ffe13d633cd8555eaf8630333408ff5ef134920f0cee79c5c8f6a7e9e8f1",
+          "orderedMatchIdsHash": "1a04999be29791b9d5c18da4ddeab3c92f9734567539792b3c5124cae6621e1b",
+          "competitionCounts": {
+            "Bundesliga": 72,
+            "La Liga": 71,
+            "Ligue 1": 72,
+            "Premier League": 88,
+            "Serie A": 78
+          },
+          "seasonCounts": {
+            "2023/2024": 381
+          },
+          "from": "2024-03-01T02:07:00.000Z",
+          "to": "2024-04-29T01:07:00.000Z",
+          "availableThrough": "2024-04-29T21:00:00.000Z"
+        },
+        "calibration": {
+          "n": 178,
+          "matchIdsHash": "6093d9e29f2d481f6555f490a119e1f0b8c0c2e9da9dc29b4c0a8f470ae8c7e9",
+          "orderedMatchIdsHash": "0bb465df64fcdd76161a1ef371ed8e4be167e185fa28b1721b2e51e6702b3e92",
+          "competitionCounts": {
+            "Bundesliga": 27,
+            "La Liga": 50,
+            "Ligue 1": 27,
+            "Premier League": 34,
+            "Serie A": 40
+          },
+          "seasonCounts": {
+            "2023/2024": 178
+          },
+          "from": "2024-05-02T01:07:00.000Z",
+          "to": "2024-06-02T01:07:00.000Z",
+          "availableThrough": "2024-06-02T18:00:00.000Z"
+        },
+        "test": {
+          "n": 1749,
+          "matchIdsHash": "9da9c648102458fef97b12d21c90d1d9787adc4964e9ce5591c4e54813fec12d",
+          "orderedMatchIdsHash": "35e6db9e21e1d9b1a1b976dbfaaa3481aeb6920921770d982ae5f9ca872854f5",
+          "competitionCounts": {
+            "Bundesliga": 304,
+            "La Liga": 380,
+            "Ligue 1": 306,
+            "Premier League": 380,
+            "Serie A": 379
+          },
+          "seasonCounts": {
+            "2024/2025": 1749
+          },
+          "from": "2024-08-15T01:07:00.000Z",
+          "to": "2025-05-25T01:07:00.000Z",
+          "availableThrough": "2025-05-25T21:00:00.000Z"
+        }
+      },
+      "purgedMatchIds": {
+        "train": [],
+        "calibration": []
+      }
+    },
+    {
+      "year": 2025,
+      "boundaries": {
+        "trainBefore": "2025-03-01T00:00:00.000Z",
+        "reservedFrom": "2025-03-01T00:00:00.000Z",
+        "reservedTo": "2025-05-01T00:00:00.000Z",
+        "calibrationFrom": "2025-05-01T00:00:00.000Z",
+        "calibrationTo": "2025-07-01T00:00:00.000Z",
+        "testFrom": "2025-07-01T00:00:00.000Z",
+        "testTo": "2026-07-01T00:00:00.000Z"
+      },
+      "memberships": {
+        "train": {
+          "n": 10144,
+          "matchIdsHash": "e57c5d327160b15266586d6598f26eea95b03ea1a388b9849f6af45b64e8efed",
+          "orderedMatchIdsHash": "b62847aa117f6240bcafcf26d3fedaba597566168f9bfd9d2b435960905cf614",
+          "competitionCounts": {
+            "Bundesliga": 1736,
+            "La Liga": 2149,
+            "Ligue 1": 1929,
+            "Premier League": 2171,
+            "Serie A": 2159
+          },
+          "seasonCounts": {
+            "2019/2020": 1725,
+            "2020/2021": 1826,
+            "2021/2022": 1824,
+            "2022/2023": 1825,
+            "2023/2024": 1747,
+            "2024/2025": 1197
+          },
+          "from": "2019-08-09T01:07:00.000Z",
+          "to": "2025-02-28T02:07:00.000Z",
+          "availableThrough": "2025-02-28T22:00:00.000Z"
+        },
+        "reserved": {
+          "n": 368,
+          "matchIdsHash": "fac50ba1802d775c25f4ce3cf6bc2aeb03b56c122408496d35112e3296776d88",
+          "orderedMatchIdsHash": "68a535bc1097f2503551f33d37ac693b654a35c3630bfd38079e6e2b562930b3",
+          "competitionCounts": {
+            "Bundesliga": 71,
+            "La Liga": 79,
+            "Ligue 1": 71,
+            "Premier League": 68,
+            "Serie A": 79
+          },
+          "seasonCounts": {
+            "2024/2025": 368
+          },
+          "from": "2025-03-01T02:07:00.000Z",
+          "to": "2025-04-28T01:07:00.000Z",
+          "availableThrough": "2025-04-28T20:45:00.000Z"
+        },
+        "calibration": {
+          "n": 184,
+          "matchIdsHash": "c672013b9ed4c6ff97f62b28ae8c8749389bffc52962b2be01e26e5c1211e26c",
+          "orderedMatchIdsHash": "52cacb6f90a91398ab857268b01dab3cc23d31d5b9378b79d60b8d7723e4e945",
+          "competitionCounts": {
+            "Bundesliga": 27,
+            "La Liga": 50,
+            "Ligue 1": 27,
+            "Premier League": 41,
+            "Serie A": 39
+          },
+          "seasonCounts": {
+            "2024/2025": 184
+          },
+          "from": "2025-05-01T01:07:00.000Z",
+          "to": "2025-05-25T01:07:00.000Z",
+          "availableThrough": "2025-05-25T21:00:00.000Z"
+        },
+        "test": {
+          "n": 1396,
+          "matchIdsHash": "89cf06b067e6c00efd488680ec28db8e7385acc5fde79effeb6a4381f12d389d",
+          "orderedMatchIdsHash": "0e6868bd3db8a671088394f4710043bf09005cbefb4c6e107b01e62c9b651edc",
+          "competitionCounts": {
+            "Bundesliga": 250,
+            "La Liga": 293,
+            "Ligue 1": 241,
+            "Premier League": 309,
+            "Serie A": 303
+          },
+          "seasonCounts": {
+            "2025/2026": 1396
+          },
+          "from": "2025-08-15T01:07:00.000Z",
+          "to": "2026-04-04T01:07:00.000Z",
+          "availableThrough": "2026-04-04T20:45:00.000Z"
+        }
+      },
+      "purgedMatchIds": {
+        "train": [],
+        "calibration": []
+      }
+    }
+  ],
+  "newRegressorFits": 10,
+  "projectedRegressorFits": 0,
+  "modelSelection": false,
+  "productionAdoptionEligible": false,
+  "expectedTestPopulation": {
+    "createdAt": "2026-11-08T16:10:16.400432+00:00",
+    "phase": "metadata_only_before_CatBoost_fits",
+    "historyHash": "968d7990a966d2c06c28845f8ecfdd05961d6bd0a548330df16af786e2e6a50e",
+    "quoteHash": "a1901eda096f25679eed87ec527df25b85048be5863a7a41b7003b03ab314e64",
+    "eligibleTestRowsExpected": 8541,
+    "realClosingQuotedRowsExpected": 8541,
+    "excludedByRuntimePolicy": {
+      "quarantined": 14,
+      "protected": 351
+    },
+    "sourceConflictExclusionsAlreadyApplied": [
+      "understat_17955",
+      "understat_17503"
+    ],
+    "bySeasonAndLeague": {
+      "2021/2022": {
+        "Bundesliga": {
+          "n": 306,
+          "quoted": 306
+        },
+        "La Liga": {
+          "n": 379,
+          "quoted": 379
+        },
+        "Ligue 1": {
+          "n": 379,
+          "quoted": 379
+        },
+        "Premier League": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Serie A": {
+          "n": 380,
+          "quoted": 380
+        }
+      },
+      "2022/2023": {
+        "Bundesliga": {
+          "n": 306,
+          "quoted": 306
+        },
+        "La Liga": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Ligue 1": {
+          "n": 379,
+          "quoted": 379
+        },
+        "Premier League": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Serie A": {
+          "n": 380,
+          "quoted": 380
+        }
+      },
+      "2023/2024": {
+        "Bundesliga": {
+          "n": 306,
+          "quoted": 306
+        },
+        "La Liga": {
+          "n": 379,
+          "quoted": 379
+        },
+        "Ligue 1": {
+          "n": 304,
+          "quoted": 304
+        },
+        "Premier League": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Serie A": {
+          "n": 378,
+          "quoted": 378
+        }
+      },
+      "2024/2025": {
+        "Bundesliga": {
+          "n": 304,
+          "quoted": 304
+        },
+        "La Liga": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Ligue 1": {
+          "n": 306,
+          "quoted": 306
+        },
+        "Premier League": {
+          "n": 380,
+          "quoted": 380
+        },
+        "Serie A": {
+          "n": 379,
+          "quoted": 379
+        }
+      },
+      "2025/2026": {
+        "Bundesliga": {
+          "n": 250,
+          "quoted": 250
+        },
+        "La Liga": {
+          "n": 293,
+          "quoted": 293
+        },
+        "Ligue 1": {
+          "n": 241,
+          "quoted": 241
+        },
+        "Premier League": {
+          "n": 309,
+          "quoted": 309
+        },
+        "Serie A": {
+          "n": 303,
+          "quoted": 303
+        }
+      }
+    },
+    "expectedTestIdsHash": "3c9a6b4a153e0d727b4456bd4ccf5ed5e4f3c6fb25f511e2195332def2eed666",
+    "probabilityMetricsComputed": false
+  }
+}

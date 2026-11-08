@@ -1,0 +1,24 @@
+{
+  "verifiedAt": "2026-11-08T14:26:55.506969+00:00",
+  "scriptHash": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+  "planHash": "996c9df842ad4b5e7498f10dff531b71d1eb6b21b1f769b421658b2aa74a560c",
+  "selectionHash": "e11c0b42b6c2a2b77b358d529941c23b9e4f4be9d99e5d30b837a00ccfe11553",
+  "catboostVersion": "1.2.8",
+  "nativeControlRowsPerRegressor": 6577,
+  "nativeControlMaximumError": 1.2212453270876722e-15,
+  "nativeTrainingSupportRowsAcrossSixRegressors": 31758,
+  "nativeSelectionRowsPerPair": 317,
+  "nativeRawMaximumError": 3.3306690738754696e-16,
+  "independentProbabilityMaximumError": 3.3306690738754696e-16,
+  "independentMetricMaximumError": 0.0,
+  "allFiveLeagueSelectionReproduced": true,
+  "decision": {
+    "acceptedNonIdentity": false,
+    "selectedFitIndex": null,
+    "selectedL2LeafReg": null,
+    "frozenAt": "2026-11-08T14:26:43.222459Z"
+  },
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

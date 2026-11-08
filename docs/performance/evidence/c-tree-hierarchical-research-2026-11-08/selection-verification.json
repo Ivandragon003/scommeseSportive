@@ -1,0 +1,120 @@
+{
+  "verifiedAt": "2026-11-08T14:41:58.539116+00:00",
+  "scriptHash": "d5378a4ba5a730f84e068c8dc738781ae2b8821dbeaff3d74dd8edb5d08ce1c3",
+  "planHash": "f70c68205145454d95af140205fada013941a503ae838c2cf367ab205229441a",
+  "selectionHash": "8493ceb4e3c9859131b4bc43754eb437bbce452e1e3315ebb0fc7cae8138cf47",
+  "auditHash": "1a47fe29957c35a8cafa893170e577134feb00fb5c074478e1b1e422bb990399",
+  "catboostVersion": "1.2.8",
+  "dependencyHashes": {
+    "backend\\experiments\\c-tree-l2-research\\verify_selection.py": "a46e07ca0e6d4775170357acf4c392ae67729460f7697cb937f007bd2aeb0457",
+    "backend\\experiments\\c-tree-weight-research\\verify_selection.py": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "backend\\experiments\\c-tree-sample-projection\\verify.py": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b"
+  },
+  "modelInputHashes": {
+    "models\\hierarchical-1-home.json": "cbc175ccb866bfc20609205d95efcb10eea89f3a075193ae515feb2f7dd7c3d2",
+    "models\\hierarchical-1-away.json": "ba5f046a02b4e900cf6dbd87a7e70b3abc5af9df06ad45fee08db5990be03603",
+    "models\\hierarchical-10-home.json": "a9af42dc0d8b166a1151941e4d13d229c70af42c18b9dc8ec810f0eeee5dac5b",
+    "models\\hierarchical-10-away.json": "1229d9389bab4e7f7da417651227d890dda369a88f60f474704796e43fd1b577",
+    "models\\hierarchical-100-home.json": "de28bcdad8c1254c5b023ce732fa298996161f7fb968474ea21d43e648708e0a",
+    "models\\hierarchical-100-away.json": "cab6ad7d927c1877d73ea90c00aafe500db1f31f67f0220c96dbe8605633e0b3"
+  },
+  "formulaChecks": {
+    "1.0": {
+      "home": {
+        "lambda": 1.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 805,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 2.7755575615628914e-17,
+        "maximumWeightedTreeMeanError": 5.204170427930421e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      },
+      "away": {
+        "lambda": 1.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 838,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 2.7755575615628914e-17,
+        "maximumWeightedTreeMeanError": 1.734723475976807e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      }
+    },
+    "10.0": {
+      "home": {
+        "lambda": 10.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 805,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 4.163336342344337e-17,
+        "maximumWeightedTreeMeanError": 5.204170427930421e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      },
+      "away": {
+        "lambda": 10.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 838,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 2.7755575615628914e-17,
+        "maximumWeightedTreeMeanError": 3.469446951953614e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      }
+    },
+    "100.0": {
+      "home": {
+        "lambda": 100.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 805,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 2.7755575615628914e-17,
+        "maximumWeightedTreeMeanError": 3.469446951953614e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      },
+      "away": {
+        "lambda": 100.0,
+        "treeCount": 120,
+        "changedLeafCount": 3840,
+        "originalEmptyLeafCount": 838,
+        "onlyLeafValuesChanged": true,
+        "maximumLeafFormulaError": 2.0816681711721685e-17,
+        "maximumWeightedTreeMeanError": 2.6020852139652106e-18,
+        "maximumOperatorRowSumError": 4.440892098500626e-16,
+        "minimumOperatorWeight": 0.0,
+        "maximumRecordedNodeMeanError": 6.938893903907228e-18
+      }
+    }
+  },
+  "nativeAllFeatureRowsPerRegressor": 6577,
+  "nativeTrainingSupportRowsAcrossEightRegressors": 42344,
+  "nativeSelectionRowsPerPair": 317,
+  "nativeIndependentRawMaximumError": 3.3306690738754696e-16,
+  "nativeRecordedRawMaximumError": 0.0,
+  "independentProbabilityMaximumError": 0.0,
+  "independentMetricMaximumError": 0.0,
+  "allFiveLeagueSelectionReproduced": true,
+  "decision": {
+    "acceptedNonIdentity": false,
+    "selectedFitIndex": null,
+    "selectedLambda": null,
+    "frozenAt": "2026-11-08T14:39:13.259513Z"
+  },
+  "sameOriginalTrainingSelectionAndProtectedPartitions": true,
+  "noModelFitsOrOptimizerCalls": true,
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

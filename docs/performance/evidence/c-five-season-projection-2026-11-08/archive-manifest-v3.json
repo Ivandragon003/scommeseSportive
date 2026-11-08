@@ -1,0 +1,2103 @@
+{
+  "format": "pinned-understat-public-archive-acquisition-v1",
+  "createdAt": "2026-11-08T15:49:03.327214+00:00",
+  "archiveRepository": "https://github.com/Markjwilkins/Understat",
+  "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+  "provenanceChain": [
+    "https://github.com/JaseZiv/worldfootballR_data#the-data",
+    "https://github.com/Markjwilkins/Understat"
+  ],
+  "sourceDocumentation": "https://github.com/JaseZiv/worldfootballR/blob/main/R/understat_match_results.R",
+  "licenseEvidence": {
+    "repositoryLicense": null,
+    "explanation": "GitHub metadata reports no explicit data repository license; do not infer a license from the R package."
+  },
+  "sourceReceipts": [
+    {
+      "competition": "Premier League",
+      "seasonStart": 2018,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/EPL/EPL_2018_matches.csv",
+      "archivePath": "Matches/EPL/EPL_2018_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/epl-2018-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.254053+00:00",
+      "bytes": 41418,
+      "gitBlobSha1": "d669a36967829ba76c1301cdeffdd1529d6c7ba8",
+      "pinnedGitBlobVerified": true,
+      "sha256": "f35fc7ee7d9643cade2b9019d6e74f62f161293846e3d48ac21032d9bbcd50d6",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2019,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/EPL/EPL_2019_matches.csv",
+      "archivePath": "Matches/EPL/EPL_2019_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/epl-2019-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.255048+00:00",
+      "bytes": 42074,
+      "gitBlobSha1": "2a0440f968b287bd92e05668817619af0c761841",
+      "pinnedGitBlobVerified": true,
+      "sha256": "1d9ae4c15a60ffb8e73c3117266f7f1e65f92e92ab0be6b281398febd0f090e6",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2019,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/epl_2019.csv",
+      "archivePath": "Shot Data by Year/epl_2019.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/epl-2019-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.334023+00:00",
+      "bytes": 1817295,
+      "gitBlobSha1": "66a2d4a0d846f2efe35407a145a49e40e147dd9c",
+      "pinnedGitBlobVerified": true,
+      "sha256": "56fc38e1387ae9c6902116ee15b365e2a71712a78cbfbee19444b0630292efde",
+      "rowCount": 9427,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2020,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/epl_2020.csv",
+      "archivePath": "Shot Data by Year/epl_2020.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/epl-2020-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.328035+00:00",
+      "bytes": 1786683,
+      "gitBlobSha1": "5a2332e21c24cf78ccab583eab7c10d3242873b3",
+      "pinnedGitBlobVerified": true,
+      "sha256": "4a3e80d6c4f885ed6cbd6c62dd43c673dd77d641933dc0c7489d8d5d580726fe",
+      "rowCount": 9235,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2021,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/epl_2021.csv",
+      "archivePath": "Shot Data by Year/epl_2021.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/epl-2021-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.353609+00:00",
+      "bytes": 1872725,
+      "gitBlobSha1": "1c10bcacc74bfbba1fa1f4578fe646de02501556",
+      "pinnedGitBlobVerified": true,
+      "sha256": "9bdb20b7b3e30d8b92b6c484364513b17aad2c5b124f4a10b8c07855e436ddaf",
+      "rowCount": 9775,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "X",
+        "Y",
+        "xG",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shotType",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "lastAction"
+      ]
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2018,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/La_Liga/La_liga_2018_matches.csv",
+      "archivePath": "Matches/La_Liga/La_liga_2018_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/la_liga-2018-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.257029+00:00",
+      "bytes": 41552,
+      "gitBlobSha1": "87aba494fc72101d3289c77ff6bbaaaf27e88905",
+      "pinnedGitBlobVerified": true,
+      "sha256": "29dd44942e3ca81886051ae38fa87f3401fa20dccff0763afe85d2622b7f8095",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2019,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/La_Liga/La_liga_2019_matches.csv",
+      "archivePath": "Matches/La_Liga/La_liga_2019_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/la_liga-2019-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.336050+00:00",
+      "bytes": 41327,
+      "gitBlobSha1": "76bb28793d89b4ab92a5d448bfc4d5f333ecd15a",
+      "pinnedGitBlobVerified": true,
+      "sha256": "7a817682bfa886ff6f98d7143f5eda2aecd1f84780b5b8f78b7576a0d5312564",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2019,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/la_liga_2019.csv",
+      "archivePath": "Shot Data by Year/la_liga_2019.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/la_liga-2019-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.439352+00:00",
+      "bytes": 1650186,
+      "gitBlobSha1": "93b16ca6a5d9a9afed7864e41164dd9c64811dd6",
+      "pinnedGitBlobVerified": true,
+      "sha256": "f8a5a439494a7fd6d200ba3c6849b701ed57d61c2971fa310a89169ad2c2437d",
+      "rowCount": 8604,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2020,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/la_liga_2020.csv",
+      "archivePath": "Shot Data by Year/la_liga_2020.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/la_liga-2020-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.418352+00:00",
+      "bytes": 1552298,
+      "gitBlobSha1": "15d8521a8defa4b6fa2d91f9813de61d46e29853",
+      "pinnedGitBlobVerified": true,
+      "sha256": "771e4cf34f7ce845bbff7136d459a75dabe36621bca72ca8817b124b5629541b",
+      "rowCount": 8132,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2021,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/la_liga_2021.csv",
+      "archivePath": "Shot Data by Year/la_liga_2021.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/la_liga-2021-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.431373+00:00",
+      "bytes": 1723666,
+      "gitBlobSha1": "c2489d11ec6545dde7a6d36a1f12be7340d4d285",
+      "pinnedGitBlobVerified": true,
+      "sha256": "672523ef72acc8a4fd4110747cf7e6586605322756150d7afa3edc9f2873030c",
+      "rowCount": 8977,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "X",
+        "Y",
+        "xG",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shotType",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "lastAction"
+      ]
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2018,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Bundesliga/Bundesliga_2018_matches.csv",
+      "archivePath": "Matches/Bundesliga/Bundesliga_2018_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/bundesliga-2018-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.355603+00:00",
+      "bytes": 35739,
+      "gitBlobSha1": "3f8ed1978967cae027e0d1d8547bb04acbc0d974",
+      "pinnedGitBlobVerified": true,
+      "sha256": "29467fc7c00b490aea1567893dbf3e4e297987fb7f3ce35b86eca66f46385af9",
+      "rowCount": 306,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2019,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Bundesliga/Bundesliga_2019_matches.csv",
+      "archivePath": "Matches/Bundesliga/Bundesliga_2019_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/bundesliga-2019-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.440353+00:00",
+      "bytes": 35691,
+      "gitBlobSha1": "c2d5109ccbdadec0e28388ec888aaa34c28a2c23",
+      "pinnedGitBlobVerified": true,
+      "sha256": "8357292c76a2d778fa1e036e36ac02ce27eca4d8be59d00e3957317e0e1a24d2",
+      "rowCount": 306,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2019,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/bundesliga_2019.csv",
+      "archivePath": "Shot Data by Year/bundesliga_2019.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/bundesliga-2019-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.515355+00:00",
+      "bytes": 1673262,
+      "gitBlobSha1": "2703b6a0e1abc6639fbe4c3d459daa4405420062",
+      "pinnedGitBlobVerified": true,
+      "sha256": "4c69136a6ad43c90942bcf60d2a994e045dc9383111a71b3b0c35f03ef2ccb85",
+      "rowCount": 8148,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2020,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/bundesliga_2020.csv",
+      "archivePath": "Shot Data by Year/bundesliga_2020.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/bundesliga-2020-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.526343+00:00",
+      "bytes": 1558784,
+      "gitBlobSha1": "8aaf10741cd749c02349f82132c4fed802de7f32",
+      "pinnedGitBlobVerified": true,
+      "sha256": "c7f703180ce07e4703a4cfa66ba51d5c169930c178d9066e919033312e348d03",
+      "rowCount": 7590,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2021,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/bundesliga_2021.csv",
+      "archivePath": "Shot Data by Year/bundesliga_2021.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/bundesliga-2021-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.501354+00:00",
+      "bytes": 1630127,
+      "gitBlobSha1": "10072f5bbfd24bc5ca3a6b5a730b13bb09c466a8",
+      "pinnedGitBlobVerified": true,
+      "sha256": "37213179f796cbb0570058d9905e48b01082fcd13a586615f8b21a515dd23573",
+      "rowCount": 7949,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "X",
+        "Y",
+        "xG",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shotType",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "lastAction"
+      ]
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2018,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Serie_A/Serie_A_2018_matches.csv",
+      "archivePath": "Matches/Serie_A/Serie_A_2018_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/serie_a-2018-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.527342+00:00",
+      "bytes": 39565,
+      "gitBlobSha1": "735e676196802beeb425fabc1dd9f52f9a9b0e52",
+      "pinnedGitBlobVerified": true,
+      "sha256": "a2b843dc845d762fbb94a41a90320296f9199ac0c2fdf0bfbc8075c791ac613e",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2019,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Serie_A/Serie_A_2019_matches.csv",
+      "archivePath": "Matches/Serie_A/Serie_A_2019_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/serie_a-2019-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.443343+00:00",
+      "bytes": 39764,
+      "gitBlobSha1": "7e630076437007beb4cc2a9f4a5e7d433645e27a",
+      "pinnedGitBlobVerified": true,
+      "sha256": "e873d7eab8c44223701ff5dd391b1d8f8de4443559809870bc0bd9927d946d9e",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2019,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/serie_a_2019.csv",
+      "archivePath": "Shot Data by Year/serie_a_2019.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/serie_a-2019-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.613724+00:00",
+      "bytes": 2094117,
+      "gitBlobSha1": "293e6aa653ef39b783c12addeb71e09e2698a214",
+      "pinnedGitBlobVerified": true,
+      "sha256": "a9b90779eabe48b156657d76e4ba95ba53e10fea2e576918fcc7427c036ff498",
+      "rowCount": 10898,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2020,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/serie_a_2020.csv",
+      "archivePath": "Shot Data by Year/serie_a_2020.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/serie_a-2020-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.628725+00:00",
+      "bytes": 1823665,
+      "gitBlobSha1": "ed5d294d049e51474906b8e022932cfe1415e952",
+      "pinnedGitBlobVerified": true,
+      "sha256": "3a0ed45c835351b6e7f93cbcf5ee650e758b81785b0ad105e570a5d9df358c0b",
+      "rowCount": 9517,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2021,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/serie_a_2021.csv",
+      "archivePath": "Shot Data by Year/serie_a_2021.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/serie_a-2021-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.597724+00:00",
+      "bytes": 1898590,
+      "gitBlobSha1": "9ea6a6433128cd37da39643d9added431988eafa",
+      "pinnedGitBlobVerified": true,
+      "sha256": "bc8015f9710cf6b2a1cd9dfce927e2d3be4a8b966181e687d52604fb2e13c7b7",
+      "rowCount": 9932,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "X",
+        "Y",
+        "xG",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shotType",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "lastAction"
+      ]
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2018,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Ligue_1/Ligue_1_2018_matches.csv",
+      "archivePath": "Matches/Ligue_1/Ligue_1_2018_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/ligue_1-2018-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.528343+00:00",
+      "bytes": 40066,
+      "gitBlobSha1": "c681c6e570f84ab9b6b888fc5e5331689cb764ab",
+      "pinnedGitBlobVerified": true,
+      "sha256": "5d6a5150a8513d9f6c518b1fc2d0e234267ee932e87bf9ba5017d0e5ed958283",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2019,
+      "kind": "matches",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Matches/Ligue_1/Ligue_1_2019_matches.csv",
+      "archivePath": "Matches/Ligue_1/Ligue_1_2019_matches.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/ligue_1-2019-matches.csv",
+      "verifiedAt": "2026-11-08T15:49:02.551695+00:00",
+      "bytes": 38041,
+      "gitBlobSha1": "008606ed1d46c727ce32342849496ec1749dd82b",
+      "pinnedGitBlobVerified": true,
+      "sha256": "4ea3d77a0f1491d8544ed71b4b902ac72a9055328891feb09fd439a34a5a6490",
+      "rowCount": 380,
+      "columns": [
+        "id",
+        "isResult",
+        "h.id",
+        "h.title",
+        "h.short_title",
+        "a.id",
+        "a.title",
+        "a.short_title",
+        "goals.h",
+        "goals.a",
+        "xG.h",
+        "xG.a",
+        "datetime",
+        "forecast.w",
+        "forecast.d",
+        "forecast.l"
+      ]
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2019,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/ligue_1_2019.csv",
+      "archivePath": "Shot Data by Year/ligue_1_2019.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/ligue_1-2019-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.667719+00:00",
+      "bytes": 1300606,
+      "gitBlobSha1": "fc393d6ea61ce6eee6275da06f0ce3dc3cc9f471",
+      "pinnedGitBlobVerified": true,
+      "sha256": "1f9123eb21567d0dc84029a81d06777122d6e84241aafb6c42d8e5d89cacd2d9",
+      "rowCount": 6812,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2020,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/ligue_1_2020.csv",
+      "archivePath": "Shot Data by Year/ligue_1_2020.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/ligue_1-2020-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.680713+00:00",
+      "bytes": 1699662,
+      "gitBlobSha1": "c804210ab729c247e1bb83cf857f74295d99d78a",
+      "pinnedGitBlobVerified": true,
+      "sha256": "0a9403780946b9df22fba4e98c6b691a57779194a4a2abb59268c83b524b287f",
+      "rowCount": 8921,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "x",
+        "y",
+        "x_g",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shot_type",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "last_action"
+      ]
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2021,
+      "kind": "shots",
+      "sourceUrl": "https://raw.githubusercontent.com/Markjwilkins/Understat/4b42df35599f574c08ac65caacaf7975ed5fa138/Shot%20Data%20by%20Year/ligue_1_2021.csv",
+      "archivePath": "Shot Data by Year/ligue_1_2021.csv",
+      "archiveCommit": "4b42df35599f574c08ac65caacaf7975ed5fa138",
+      "reusedLocalPinnedArchiveFile": true,
+      "status": "downloaded",
+      "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/understat-original/ligue_1-2021-shots.csv",
+      "verifiedAt": "2026-11-08T15:49:02.709739+00:00",
+      "bytes": 1754576,
+      "gitBlobSha1": "59a47323e1d5ac6d1d09266f06885bee790664a1",
+      "pinnedGitBlobVerified": true,
+      "sha256": "77c59b994ec97f58c7188b707bdf4bafe2779bf04e4a91080483fa300ff2b124",
+      "rowCount": 9132,
+      "columns": [
+        "league",
+        "id",
+        "minute",
+        "result",
+        "X",
+        "Y",
+        "xG",
+        "player",
+        "h_a",
+        "player_id",
+        "situation",
+        "season",
+        "shotType",
+        "match_id",
+        "home_team",
+        "away_team",
+        "home_goals",
+        "away_goals",
+        "date",
+        "player_assisted",
+        "lastAction"
+      ]
+    }
+  ],
+  "shotCoverage": [
+    {
+      "competition": "Premier League",
+      "seasonStart": 2019,
+      "shotRows": 9427,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 244,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2020,
+      "shotRows": 9235,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Premier League",
+      "seasonStart": 2021,
+      "shotRows": 9775,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2019,
+      "shotRows": 8604,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 216,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2020,
+      "shotRows": 8132,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "La Liga",
+      "seasonStart": 2021,
+      "shotRows": 8977,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2019,
+      "shotRows": 8148,
+      "uniqueMatches": 306,
+      "expectedMatches": 306,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 209,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2020,
+      "shotRows": 7590,
+      "uniqueMatches": 306,
+      "expectedMatches": 306,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Bundesliga",
+      "seasonStart": 2021,
+      "shotRows": 7949,
+      "uniqueMatches": 306,
+      "expectedMatches": 306,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2019,
+      "shotRows": 10898,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 270,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2020,
+      "shotRows": 9517,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Serie A",
+      "seasonStart": 2021,
+      "shotRows": 9932,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2019,
+      "shotRows": 6812,
+      "uniqueMatches": 279,
+      "expectedMatches": 279,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 160,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2020,
+      "shotRows": 8921,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    },
+    {
+      "competition": "Ligue 1",
+      "seasonStart": 2021,
+      "shotRows": 9132,
+      "uniqueMatches": 380,
+      "expectedMatches": 380,
+      "matchedOfficialValidationFailures": 0,
+      "coveragePassed": true,
+      "shotSumXgReferenceFailures": 0,
+      "shotSumXgUsedAsFinalMatchTotal": false
+    }
+  ],
+  "xgAggregationValidation2019": {
+    "matchedGames": 1725,
+    "maximumAbsoluteGap": 1.0840550529021025,
+    "absoluteTolerance": 0.0001
+  },
+  "teamHistoryValidation": {
+    "zipFile": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/team-history-archive.zip",
+    "sha256": "54e5f240b61b425e55c83102e3c803135e28199d97dd6778b59e8721b576828f",
+    "exactDuplicateWholeFilesRemoved": [
+      {
+        "copy": "football_data_csv/La_liga_2018_Leganes 2.csv",
+        "original": "football_data_csv/La_liga_2018_Leganes.csv",
+        "sha256": "0090384b4b523640b4a9eb6c5ae92aeb305ea3c2cbd4d388d8b37d6b119c2f31"
+      },
+      {
+        "copy": "football_data_csv/La_liga_2021_Celta Vigo 2.csv",
+        "original": "football_data_csv/La_liga_2021_Celta Vigo.csv",
+        "sha256": "d6083dac761bd1103c7411bbe56370ccdf2c5f83ff775c10997089c507d9bf07"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2018_Caen 2.csv",
+        "original": "football_data_csv/Ligue_1_2018_Caen.csv",
+        "sha256": "551ce699bc6fe8c659dcbc9a2afd27a27aefc638515d11c603f158053923643d"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2020_Lens 2.csv",
+        "original": "football_data_csv/Ligue_1_2020_Lens.csv",
+        "sha256": "2e662a7d253888d06a3ea3e828594ccb86014444c3eb1b90d2ad53e40c1eaf75"
+      },
+      {
+        "copy": "football_data_csv/Ligue_1_2021_Lens 2.csv",
+        "original": "football_data_csv/Ligue_1_2021_Lens.csv",
+        "sha256": "9887ac1d288c24987b4cc815a3549a2dc6623c6d02d262fce55f4f8329c659fe"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Chievo 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Chievo.csv",
+        "sha256": "690bf0feda993f8216598c30f795970c1e44613f693fcc87950db7d56e26796b"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Genoa 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Genoa.csv",
+        "sha256": "4ba668df0aa33485dfa8137688134866105951a25ad0ad8a2d5e04720b33ece5"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2018_Napoli 2.csv",
+        "original": "football_data_csv/Serie_A_2018_Napoli.csv",
+        "sha256": "f0e93340ef236a80cfd00a59b12f84923b87af1e550d2f6c9ae6ea6f0428899a"
+      },
+      {
+        "copy": "football_data_csv/Serie_A_2021_Roma 2.csv",
+        "original": "football_data_csv/Serie_A_2021_Roma.csv",
+        "sha256": "208c572eafc59bd3104ae4e40a29c628f51a018dbaad64d08f89d71490d500e0"
+      }
+    ],
+    "matchedFixturesByLeagueSeason": [
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2018,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2019,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2020,
+        "matches": 306
+      },
+      {
+        "competition": "Bundesliga",
+        "seasonStart": 2021,
+        "matches": 306
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "La Liga",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2019,
+        "matches": 279
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Ligue 1",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2018,
+        "matches": 379
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Premier League",
+        "seasonStart": 2021,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2018,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2019,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2020,
+        "matches": 380
+      },
+      {
+        "competition": "Serie A",
+        "seasonStart": 2021,
+        "matches": 380
+      }
+    ],
+    "officialMatchTotalComparisons2018_2019": 3550,
+    "officialMatchTotalMaximumGap": 0.0,
+    "excludedWarmupFixtures": [
+      {
+        "matchId": "understat_9220",
+        "competition": "Premier League",
+        "archivedKickoffAt": "2018-08-25T17:00:00.000Z",
+        "reason": "conflicting_or_unmatched_historical_fixture_date_not_corrected"
+      }
+    ],
+    "licenseEvidence": "No explicit repository license in GitHub metadata; do not infer a data reuse license."
+  },
+  "localIdentityCrosswalkSource": {
+    "file": "backend/artifacts/research/current-c-real-odds-backtest-20261108/matches.json",
+    "sha256": "343cfcbcc3affb12704fdb145b2fee44f5e94bec72ff268f5e7ec9113ed51577"
+  },
+  "teamCrosswalk": [
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "manchesterunited",
+      "teamId": "understat_team_89",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "leicester",
+      "teamId": "leicester",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "newcastleunited",
+      "teamId": "newcastle",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "tottenham",
+      "teamId": "tottenham",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "watford",
+      "teamId": "understat_team_90",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "brighton",
+      "teamId": "brighton",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "huddersfield",
+      "teamId": "understat_team_219",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "chelsea",
+      "teamId": "chelsea",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "fulham",
+      "teamId": "fulham",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "crystalpalace",
+      "teamId": "crystal_palace",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "bournemouth",
+      "teamId": "bournemouth",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "cardiff",
+      "teamId": "understat_team_227",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "wolverhamptonwanderers",
+      "teamId": "understat_team_229",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "everton",
+      "teamId": "everton",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "southampton",
+      "teamId": "southampton",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "burnley",
+      "teamId": "burnley",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "liverpool",
+      "teamId": "liverpool",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "westham",
+      "teamId": "west_ham",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "arsenal",
+      "teamId": "arsenal",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "manchestercity",
+      "teamId": "man_city",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "norwich",
+      "teamId": "understat_team_79",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "sheffieldunited",
+      "teamId": "understat_team_238",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "astonvilla",
+      "teamId": "aston_villa",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "girona",
+      "teamId": "girona",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "realvalladolid",
+      "teamId": "real_valladolid",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "realbetis",
+      "teamId": "real_betis",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "levante",
+      "teamId": "levante",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "celtavigo",
+      "teamId": "celta_vigo",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "espanyol",
+      "teamId": "espanyol",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "villarreal",
+      "teamId": "villarreal",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "realsociedad",
+      "teamId": "real_sociedad",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "barcelona",
+      "teamId": "barcelona",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "alaves",
+      "teamId": "deportivo_alaves",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "eibar",
+      "teamId": "understat_team_156",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "sdhuesca",
+      "teamId": "understat_team_232",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "rayovallecano",
+      "teamId": "rayo_vallecano",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "sevilla",
+      "teamId": "sevilla",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "realmadrid",
+      "teamId": "real_madrid",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "getafe",
+      "teamId": "getafe",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "valencia",
+      "teamId": "valencia",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "atleticomadrid",
+      "teamId": "atletico_madrid",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "athleticclub",
+      "teamId": "athletic_club",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "leganes",
+      "teamId": "leganes",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "mallorca",
+      "teamId": "mallorca",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "osasuna",
+      "teamId": "osasuna",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "granada",
+      "teamId": "understat_team_155",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "bayernmunich",
+      "teamId": "understat_team_117",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "hoffenheim",
+      "teamId": "hoffenheim",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "wolfsburg",
+      "teamId": "wolfsburg",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "schalke04",
+      "teamId": "understat_team_124",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "fortunaduesseldorf",
+      "teamId": "understat_team_233",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "augsburg",
+      "teamId": "augsburg",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "herthaberlin",
+      "teamId": "understat_team_122",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "nuernberg",
+      "teamId": "understat_team_234",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "werderbremen",
+      "teamId": "werder_bremen",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "hannover96",
+      "teamId": "understat_team_128",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "freiburg",
+      "teamId": "freiburg",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "eintrachtfrankfurt",
+      "teamId": "frankfurt",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "borussiamgladbach",
+      "teamId": "mgladbach",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "bayerleverkusen",
+      "teamId": "leverkusen",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "mainz05",
+      "teamId": "mainz",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "vfbstuttgart",
+      "teamId": "vfb_stuttgart",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "borussiadortmund",
+      "teamId": "dortmund",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "rasenballsportleipzig",
+      "teamId": "understat_team_136",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "paderborn",
+      "teamId": "understat_team_205",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "fccologne",
+      "teamId": "understat_team_134",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "unionberlin",
+      "teamId": "union_berlin",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "chievo",
+      "teamId": "understat_team_109",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "juventus",
+      "teamId": "juventus",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "lazio",
+      "teamId": "lazio",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "napoli",
+      "teamId": "napoli",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "torino",
+      "teamId": "torino",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "roma",
+      "teamId": "roma",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "parmacalcio1913",
+      "teamId": "parma",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "udinese",
+      "teamId": "udinese",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "sassuolo",
+      "teamId": "sassuolo",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "inter",
+      "teamId": "inter",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "empoli",
+      "teamId": "empoli",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "cagliari",
+      "teamId": "cagliari",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "bologna",
+      "teamId": "bologna",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "spal2013",
+      "teamId": "understat_team_221",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "atalanta",
+      "teamId": "atalanta",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "frosinone",
+      "teamId": "understat_team_112",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "acmilan",
+      "teamId": "milan",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "sampdoria",
+      "teamId": "understat_team_102",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "fiorentina",
+      "teamId": "fiorentina",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "genoa",
+      "teamId": "genoa",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "verona",
+      "teamId": "hellas_verona",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "brescia",
+      "teamId": "understat_team_242",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "lecce",
+      "teamId": "lecce",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "marseille",
+      "teamId": "marseille",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "toulouse",
+      "teamId": "toulouse",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "nantes",
+      "teamId": "nantes",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "monaco",
+      "teamId": "monaco",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "nice",
+      "teamId": "nice",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "reims",
+      "teamId": "reims",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "montpellier",
+      "teamId": "montpellier",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "dijon",
+      "teamId": "understat_team_181",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "angers",
+      "teamId": "angers",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "nimes",
+      "teamId": "understat_team_235",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "lille",
+      "teamId": "lille",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "rennes",
+      "teamId": "rennes",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "saintetienne",
+      "teamId": "saintetienne",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "guingamp",
+      "teamId": "understat_team_169",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "lyon",
+      "teamId": "lyon",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "amiens",
+      "teamId": "understat_team_224",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "bordeaux",
+      "teamId": "understat_team_176",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "strasbourg",
+      "teamId": "strasbourg",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "parissaintgermain",
+      "teamId": "psg",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "caen",
+      "teamId": "understat_team_165",
+      "identitySource": "numeric_understat_team_id_from_archived_match_results"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "brest",
+      "teamId": "brest",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "metz",
+      "teamId": "metz",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "leeds",
+      "teamId": "leeds",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "westbromwichalbion",
+      "teamId": "archived_team_premierleague_westbromwichalbion",
+      "identitySource": "internal_deterministic_name_identity_not_numeric_provider_id"
+    },
+    {
+      "competition": "Premier League",
+      "canonicalNameKey": "brentford",
+      "teamId": "brentford",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "cadiz",
+      "teamId": "understat_team_261",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "La Liga",
+      "canonicalNameKey": "elche",
+      "teamId": "elche",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "arminiabielefeld",
+      "teamId": "archived_team_bundesliga_arminiabielefeld",
+      "identitySource": "internal_deterministic_name_identity_not_numeric_provider_id"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "greutherfuerth",
+      "teamId": "archived_team_bundesliga_greutherfuerth",
+      "identitySource": "internal_deterministic_name_identity_not_numeric_provider_id"
+    },
+    {
+      "competition": "Bundesliga",
+      "canonicalNameKey": "bochum",
+      "teamId": "bochum",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "crotone",
+      "teamId": "archived_team_seriea_crotone",
+      "identitySource": "internal_deterministic_name_identity_not_numeric_provider_id"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "benevento",
+      "teamId": "archived_team_seriea_benevento",
+      "identitySource": "internal_deterministic_name_identity_not_numeric_provider_id"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "spezia",
+      "teamId": "understat_team_260",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "salernitana",
+      "teamId": "understat_team_264",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Serie A",
+      "canonicalNameKey": "venezia",
+      "teamId": "venezia",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "lorient",
+      "teamId": "lorient",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "lens",
+      "teamId": "lens",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "troyes",
+      "teamId": "understat_team_172",
+      "identitySource": "existing_local_team_identity_exact_name"
+    },
+    {
+      "competition": "Ligue 1",
+      "canonicalNameKey": "clermontfoot",
+      "teamId": "understat_team_270",
+      "identitySource": "existing_local_team_identity_exact_name"
+    }
+  ],
+  "validationErrors": [],
+  "exported": true,
+  "constraints": [
+    "No downloaded R or other repository code executed.",
+    "Goals come from source match totals, never counted from shot outcomes.",
+    "Shot xG sums failed equality to official match totals and are not acceptable substitutes. When the separate team-history archive is supplied, its reciprocal official fixture totals are used instead.",
+    "Availability timestamps are reconstruction proxies; archive acquisition is later than the matches.",
+    "No provider substitutions, training, probability metrics, database or operational registry writes."
+  ],
+  "normalizedMatches": {
+    "file": "backend/artifacts/research/c-five-season-projection-20261108/acquisition/matches-archive.json",
+    "rows": 7202,
+    "sha256": "71e9681decd606dc870dbb2edb470edbaa45fd669049913c56182c43564c1513",
+    "rowsPerSeason": {
+      "2018/2019": 1825,
+      "2019/2020": 1725,
+      "2020/2021": 1826,
+      "2021/2022": 1826
+    }
+  }
+}

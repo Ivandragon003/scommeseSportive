@@ -1,0 +1,330 @@
+{
+  "format": "unseen-real-closing-odds-metadata-inventory-v1",
+  "createdAt": "2026-11-08T14:07:02.175242+00:00",
+  "candidateCount": 24,
+  "knownAlreadyQuotedDiagnosticCount": 652,
+  "protectedIdCount": 745,
+  "quarantineIdCount": 22,
+  "protectedQuarantineOverlap": 7,
+  "knownPriorResultReferencePath": "backend/artifacts/research/current-c-vs-a-20261108/observed-price-diagnostic/result.json",
+  "knownPriorResultReferenceCount": 6,
+  "knownPriorResultReferenceIds": [
+    "understat_30886",
+    "understat_31665",
+    "understat_31667",
+    "understat_32028",
+    "understat_32317",
+    "understat_32766"
+  ],
+  "matchedClosing1x2Count": 0,
+  "matchedNoKnownPriorResultReferenceCount": 0,
+  "sources": [
+    {
+      "leagueCode": "E0",
+      "competition": "Premier League",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/E0.csv",
+      "status": "downloaded",
+      "responseUrl": "https://football-data.co.uk/mmz4281/2627/E0.csv",
+      "acquiredAt": "2026-11-08T14:07:02.172242+00:00",
+      "file": "backend/artifacts/research/c-tree-weight-research-20261108/unseen-odds-inventory/E0-2627.csv",
+      "sha256": "c429b75f681dc7aaec5641a23320402409530b4b01a9f147bb7e386fe508159b",
+      "bytes": 44210,
+      "csvRows": 90,
+      "minCsvDate": "2026-08-21",
+      "maxCsvDate": "2026-11-02",
+      "candidates": [
+        {
+          "matchId": "understat_31273",
+          "kickoffAt": "2026-11-06T20:00:00.000Z",
+          "competition": "Premier League",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31276",
+          "kickoffAt": "2026-11-07T12:30:00.000Z",
+          "competition": "Premier League",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31270",
+          "kickoffAt": "2026-11-07T15:00:00.000Z",
+          "competition": "Premier League",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31274",
+          "kickoffAt": "2026-11-07T15:00:00.000Z",
+          "competition": "Premier League",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31278",
+          "kickoffAt": "2026-11-07T17:30:00.000Z",
+          "competition": "Premier League",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        }
+      ]
+    },
+    {
+      "leagueCode": "SP1",
+      "competition": "La Liga",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/SP1.csv",
+      "status": "downloaded",
+      "responseUrl": "https://football-data.co.uk/mmz4281/2627/SP1.csv",
+      "acquiredAt": "2026-11-08T14:07:01.927622+00:00",
+      "file": "backend/artifacts/research/c-tree-weight-research-20261108/unseen-odds-inventory/SP1-2627.csv",
+      "sha256": "a382f00d78d85eae814e8b06a4a0d5ba0dd70905156f20b02f8c0e6c28b7c7d6",
+      "bytes": 52117,
+      "csvRows": 109,
+      "minCsvDate": "2026-08-15",
+      "maxCsvDate": "2026-11-02",
+      "candidates": [
+        {
+          "matchId": "understat_30886",
+          "kickoffAt": "2026-11-06T20:00:00.000Z",
+          "competition": "La Liga",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_30883",
+          "kickoffAt": "2026-11-07T13:00:00.000Z",
+          "competition": "La Liga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_30882",
+          "kickoffAt": "2026-11-07T15:15:00.000Z",
+          "competition": "La Liga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_30884",
+          "kickoffAt": "2026-11-07T17:30:00.000Z",
+          "competition": "La Liga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_30887",
+          "kickoffAt": "2026-11-07T20:00:00.000Z",
+          "competition": "La Liga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        }
+      ]
+    },
+    {
+      "leagueCode": "D1",
+      "competition": "Bundesliga",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/D1.csv",
+      "status": "downloaded",
+      "responseUrl": "https://football-data.co.uk/mmz4281/2627/D1.csv",
+      "acquiredAt": "2026-11-08T14:07:02.018453+00:00",
+      "file": "backend/artifacts/research/c-tree-weight-research-20261108/unseen-odds-inventory/D1-2627.csv",
+      "sha256": "490b69c06ec2890be818372c7ea3bd5413b7fe6539185890d9eaeb6b59a6f22b",
+      "bytes": 34772,
+      "csvRows": 72,
+      "minCsvDate": "2026-08-28",
+      "maxCsvDate": "2026-11-01",
+      "candidates": [
+        {
+          "matchId": "understat_32313",
+          "kickoffAt": "2026-11-06T19:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32315",
+          "kickoffAt": "2026-11-07T14:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32316",
+          "kickoffAt": "2026-11-07T14:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32317",
+          "kickoffAt": "2026-11-07T14:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32766",
+          "kickoffAt": "2026-11-07T14:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32318",
+          "kickoffAt": "2026-11-07T17:30:00.000Z",
+          "competition": "Bundesliga",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        }
+      ]
+    },
+    {
+      "leagueCode": "F1",
+      "competition": "Ligue 1",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
+      "status": "downloaded",
+      "responseUrl": "https://football-data.co.uk/mmz4281/2627/F1.csv",
+      "acquiredAt": "2026-11-08T14:07:01.914244+00:00",
+      "file": "backend/artifacts/research/c-tree-weight-research-20261108/unseen-odds-inventory/F1-2627.csv",
+      "sha256": "18fed04746c2f4d764e02a331d5e94b0ca6c71c102ee82ae95423e4de410f4c0",
+      "bytes": 38817,
+      "csvRows": 81,
+      "minCsvDate": "2026-08-21",
+      "maxCsvDate": "2026-11-02",
+      "candidates": [
+        {
+          "matchId": "understat_32028",
+          "kickoffAt": "2026-11-06T19:45:00.000Z",
+          "competition": "Ligue 1",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32022",
+          "kickoffAt": "2026-11-07T18:00:00.000Z",
+          "competition": "Ligue 1",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_32026",
+          "kickoffAt": "2026-11-07T20:05:00.000Z",
+          "competition": "Ligue 1",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        }
+      ]
+    },
+    {
+      "leagueCode": "I1",
+      "competition": "Serie A",
+      "url": "https://www.football-data.co.uk/mmz4281/2627/I1.csv",
+      "status": "downloaded",
+      "responseUrl": "https://football-data.co.uk/mmz4281/2627/I1.csv",
+      "acquiredAt": "2026-11-08T14:07:02.059972+00:00",
+      "file": "backend/artifacts/research/c-tree-weight-research-20261108/unseen-odds-inventory/I1-2627.csv",
+      "sha256": "4138a4f01e96312a7a5dc07450c7a520c3861a479620fe3d102f12d42a6678ba",
+      "bytes": 47578,
+      "csvRows": 100,
+      "minCsvDate": "2026-08-22",
+      "maxCsvDate": "2026-11-02",
+      "candidates": [
+        {
+          "matchId": "understat_31666",
+          "kickoffAt": "2026-11-06T19:45:00.000Z",
+          "competition": "Serie A",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31665",
+          "kickoffAt": "2026-11-07T14:00:00.000Z",
+          "competition": "Serie A",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31667",
+          "kickoffAt": "2026-11-07T14:00:00.000Z",
+          "competition": "Serie A",
+          "knownPriorResultReference": true,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31664",
+          "kickoffAt": "2026-11-07T17:00:00.000Z",
+          "competition": "Serie A",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        },
+        {
+          "matchId": "understat_31660",
+          "kickoffAt": "2026-11-07T19:45:00.000Z",
+          "competition": "Serie A",
+          "knownPriorResultReference": false,
+          "matchingCsvRows": 0,
+          "matchingStatus": "absent"
+        }
+      ]
+    }
+  ],
+  "candidateIds": [
+    "understat_30882",
+    "understat_30883",
+    "understat_30884",
+    "understat_30886",
+    "understat_30887",
+    "understat_31270",
+    "understat_31273",
+    "understat_31274",
+    "understat_31276",
+    "understat_31278",
+    "understat_31660",
+    "understat_31664",
+    "understat_31665",
+    "understat_31666",
+    "understat_31667",
+    "understat_32022",
+    "understat_32026",
+    "understat_32028",
+    "understat_32313",
+    "understat_32315",
+    "understat_32316",
+    "understat_32317",
+    "understat_32318",
+    "understat_32766"
+  ],
+  "constraints": [
+    "Metadata and price completeness only; no outcome values or model metrics inspected or copied to this manifest.",
+    "Raw source CSV contains source-provided result fields; do not expose these labels to trainer or candidate selection.",
+    "CSV match uses date and current team aliases with unique row; outcome agreement deliberately unverified.",
+    "No proof these candidates are unconsulted; six have known observed-price diagnostic references, other source audit references also exist.",
+    "Acquired closing price is retrospective; no evidence it was available at nominal Nightly forecast.",
+    "History has no trustworthy ingestion timestamps; feature availability uses documented kickoff-plus-two-hours proxy.",
+    "Protected holdout and quarantine remain excluded; no model, registry, database, or operational threshold modified."
+  ]
+}

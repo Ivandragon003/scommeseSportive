@@ -1,0 +1,230 @@
+{
+  "protocol": "fixed-seed-ensemble-evidence-v1",
+  "decision": "REJECTED_AT_DEVELOPMENT_GATE",
+  "independentEvidence": false,
+  "productionAdoption": false,
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "candidateTrainingVersion": "C-e44f00587e5d1a23",
+  "candidateCoherentVersion": "C-1fc1cddaba5f6baa",
+  "datasetSha256": "8940f6468741a5fe7485efef1f1e5662faabb3df0f6e0c3ac264b7e175d8ca8a",
+  "planSha256": "886e7cc8aec343dbb8369f9e4d0db8c27e671aaeeda1ae78920c41af6f09ee5d",
+  "trainingReportSha256": "23a9d7272d654d4a267b688a6c441b3258b0f08e0ede4831cad8f611c6a75c22",
+  "seeds": [
+    20261027,
+    20261028,
+    20261029,
+    20261030,
+    20261031
+  ],
+  "memberWeights": [
+    0.2,
+    0.2,
+    0.2,
+    0.2,
+    0.2
+  ],
+  "aggregation": "mean_raw_log_intensity",
+  "baseRecipe": {
+    "kind": "calibrated_ensemble",
+    "iterations": 120,
+    "depth": 5,
+    "learningRate": 0.05,
+    "seed": 20261027,
+    "threadCount": 2,
+    "weight": 0.75,
+    "temperature": 0.8
+  },
+  "trainingSplit": {
+    "protocol": "purged-temporal-train-selection-calibration-test-v1",
+    "train": {
+      "n": 5293,
+      "from": "2022-07-01T00:00:00.000Z",
+      "to": "2025-08-31T23:59:59.999Z",
+      "availableThrough": "2025-08-31T21:30:00.000Z",
+      "matchIdsHash": "2fa72df09d37859ed50d19d9cfdf4147fc8fa276208f47d3952895e835059834",
+      "observedFrom": "2022-08-27T01:07:00.000Z",
+      "observedTo": "2025-08-31T01:07:00.000Z"
+    },
+    "selection": {
+      "n": 317,
+      "from": "2025-09-01T00:00:00.000Z",
+      "to": "2025-10-31T23:59:59.999Z",
+      "availableThrough": "2025-10-31T22:00:00.000Z",
+      "matchIdsHash": "12f40a29e2281ae7bca1d9a175e74f879f3ac9b48cc08180379fb6909faa4f55",
+      "observedFrom": "2025-09-12T01:07:00.000Z",
+      "observedTo": "2025-10-31T02:07:00.000Z"
+    },
+    "calibration": {
+      "n": 358,
+      "from": "2025-11-01T00:00:00.000Z",
+      "to": "2025-12-31T23:59:59.999Z",
+      "availableThrough": "2025-12-30T22:15:00.000Z",
+      "matchIdsHash": "495afbbfd8b652145e2b99f95d9db6b0039b4ea8c73e5bbad017644a9cfe3931",
+      "observedFrom": "2025-11-01T02:07:00.000Z",
+      "observedTo": "2025-12-30T02:07:00.000Z"
+    },
+    "test": {
+      "n": 595,
+      "from": "2026-01-01T00:00:00.000Z",
+      "to": "2026-06-30T23:59:59.999Z",
+      "availableThrough": "2026-04-04T20:45:00.000Z",
+      "matchIdsHash": "77508f45e84439e8e47071454208bf43996b6119632f49827b84907f83c3049c",
+      "observedFrom": "2026-01-01T02:07:00.000Z",
+      "observedTo": "2026-04-04T01:07:00.000Z"
+    }
+  },
+  "metricStage": "Raw joint goal distribution after fixed baseline/ML mixing and fixed temperature, before isotonic calibration and bookmaker blending.",
+  "selectionMetrics": {
+    "control": {
+      "n": 317,
+      "logLoss": 0.9649557449785277,
+      "brier": 0.5737485405774303,
+      "ece": 0.029528543391255407,
+      "byLeague": {
+        "Bundesliga": {
+          "n": 55,
+          "logLoss": 0.8480774436443164,
+          "brier": 0.4904353740907514
+        },
+        "La Liga": {
+          "n": 69,
+          "logLoss": 0.961670748123516,
+          "brier": 0.5688438070460878
+        },
+        "Ligue 1": {
+          "n": 63,
+          "logLoss": 1.0131935584298517,
+          "brier": 0.6102312573126356
+        },
+        "Premier League": {
+          "n": 60,
+          "logLoss": 0.9581557841515964,
+          "brier": 0.5674581943366679
+        },
+        "Serie A": {
+          "n": 70,
+          "logLoss": 1.022441270100812,
+          "brier": 0.6166008318711131
+        }
+      },
+      "bySeason": {
+        "2025/2026": {
+          "n": 317,
+          "logLoss": 0.9649557449785277,
+          "brier": 0.5737485405774303
+        }
+      }
+    },
+    "ensemble": {
+      "n": 317,
+      "logLoss": 0.9681195510678494,
+      "brier": 0.5760316023730064,
+      "ece": 0.03399199131660418,
+      "byLeague": {
+        "Bundesliga": {
+          "n": 55,
+          "logLoss": 0.849431064396508,
+          "brier": 0.49144434834867246
+        },
+        "La Liga": {
+          "n": 69,
+          "logLoss": 0.9656694660754908,
+          "brier": 0.5715654857100084
+        },
+        "Ligue 1": {
+          "n": 63,
+          "logLoss": 1.0149046921950893,
+          "brier": 0.6113486469109961
+        },
+        "Premier League": {
+          "n": 60,
+          "logLoss": 0.960776440558305,
+          "brier": 0.5691534097660711
+        },
+        "Serie A": {
+          "n": 70,
+          "logLoss": 1.0279773420814646,
+          "brier": 0.6210055848245494
+        }
+      },
+      "bySeason": {
+        "2025/2026": {
+          "n": 317,
+          "logLoss": 0.9681195510678494,
+          "brier": 0.5760316023730064
+        }
+      }
+    }
+  },
+  "selectionGate": {
+    "passed": false,
+    "globalBothStrictlyBetter": false,
+    "leaguesBothStrictlyBetter": [],
+    "requiredLeagues": 4,
+    "totalLeagues": 5,
+    "rule": {
+      "globalLogLossAndBrierBothStrictlyBetter": true,
+      "minimumLeaguesBothStrictlyBetter": 4,
+      "cohort": "original reserved selection phase; raw probabilities with unchanged ML weight and temperature; no future calibrator"
+    },
+    "usedForMemberOrHyperparameterSelection": false
+  },
+  "nativeChecks": {
+    "checkedRows": 6577,
+    "maximumControlIncumbentError": 1.2212453270876722e-15,
+    "maximumNativeAggregationError": 2.220446049250313e-15,
+    "memberDiversity": {
+      "home": {
+        "meanRawStandardDeviation": 0.02958666046273604,
+        "maximumRawStandardDeviation": 0.14236657292863011,
+        "rowsWithDistinctMembers": 6577
+      },
+      "away": {
+        "meanRawStandardDeviation": 0.03077470747736584,
+        "maximumRawStandardDeviation": 0.16090694587378546,
+        "rowsWithDistinctMembers": 6577
+      }
+    }
+  },
+  "jsonChecks": {
+    "candidateVersion": "C-1fc1cddaba5f6baa",
+    "samples": 24,
+    "maximumJsonNativeError": 0,
+    "maximumJsonMemberMeanError": 1.5543122344752192e-15,
+    "treeCounts": {
+      "home": 600,
+      "away": 600
+    },
+    "incumbentUnchanged": true,
+    "adoptionBlocked": true
+  },
+  "gateChecks": {
+    "tests": [
+      {
+        "cohort": "current",
+        "blockedBeforeScoring": true,
+        "resultFileCreated": false
+      },
+      {
+        "cohort": "post-calibration",
+        "blockedBeforeScoring": true,
+        "resultFileCreated": false
+      },
+      {
+        "tamperedPlanRejected": true,
+        "resultFileCreated": false
+      }
+    ],
+    "passed": true,
+    "extraDiagnosticRowsScored": 0
+  },
+  "additionalTestRowsScored": 0,
+  "limitations": [
+    "Original 317-game reserved selection is already consulted development, not independent evidence.",
+    "No candidate or individual member chosen through test595/current57 outcomes.",
+    "The prespecified development gate failed before any additional test diagnostics.",
+    "Only this exact equal-weight log-intensity ensemble was studied; no general claim that every ensemble is inferior.",
+    "Calibrators were exported locally solely for technical compatibility checks; no full-pipeline superiority is claimed.",
+    "No registry, deployment, incumbent artifact or wallet changes."
+  ]
+}

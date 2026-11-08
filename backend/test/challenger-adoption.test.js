@@ -75,7 +75,7 @@ async function setup() {
 // The Windows native driver can retain statement handles until process exit.
 // Keep fixture cleanup in the owning parent after all child handles are gone.
 if (process.platform === 'win32' && !process.env.CHALLENGER_ADOPTION_TEST_DIRECTORY) {
-  test('C adoption: six isolated SQLite cases and deterministic cleanup', () => {
+  test('C adoption: seven isolated SQLite cases and deterministic cleanup', () => {
     const directory = mkdtempSync(join(tmpdir(), 'challenger-adoption-suite-'));
     try {
       const environment = { ...process.env, CHALLENGER_ADOPTION_TEST_DIRECTORY: directory };
@@ -85,7 +85,7 @@ if (process.platform === 'win32' && !process.env.CHALLENGER_ADOPTION_TEST_DIRECT
       process.stdout.write(child.stdout || '');
       process.stderr.write(child.stderr || '');
       assert.equal(child.status, 0, child.error?.message || 'SQLite child cases failed');
-      assert.match(child.stdout, /# tests 6\b/);
+      assert.match(child.stdout, /# tests 7\b/);
       assert.match(child.stdout, /# fail 0\b/);
     } finally {
       const target = resolve(directory), root = resolve(tmpdir());
@@ -260,6 +260,57 @@ test('a successful C-only adoption is revisioned, idempotent and can roll back t
     assert.equal((await f.client.execute('SELECT COUNT(*) AS n FROM research_champions')).rows[0].n, 0);
     assert.equal((await f.client.execute('SELECT COUNT(*) AS n FROM research_bets')).rows[0].n, 0);
     assert.equal((await f.client.execute('SELECT COUNT(*) AS n FROM research_ledger')).rows[0].n, 0);
+  } finally { await f.close(); }
+});
+
+test('an explicit definitive replacement suspends the new release after three failures without loading the retired artifact', async () => {
+  const f = await setup();
+  try {
+    const deployment = f.dossier.candidate;
+    const evidence = { protocol: 'explicit-current-challenger-replacement-v1', manualReplacement: true,
+      independentEvidence: false, retirePrevious: true };
+    await f.client.execute({ sql: `INSERT INTO challenger_adoption_events(id,action,candidate_id,deployment_json,previous_json,evidence_json,evidence_hash,created_at)
+      VALUES (?,'ADOPT',NULL,?,?,?,?,?)`, args: ['manual-replacement', JSON.stringify(deployment),
+      JSON.stringify(f.dossier.reference), JSON.stringify(evidence), researchHash(evidence), '2026-11-01T02:07:00.000Z'] });
+    // Only this isolated fixture removes the retired artifact. Successful suspension
+    // must not depend on loading it or on a prospective candidate review.
+    await f.client.execute("DELETE FROM research_models WHERE family='C' AND version='C-reference'");
+    const beforeModels = (await f.client.execute('SELECT * FROM research_models ORDER BY version')).rows;
+    for (let index = 0; index < 3; index++) {
+      await f.client.execute({ sql: 'INSERT INTO scheduler_runs(scheduler_name,started_at,success,summary_json) VALUES (?,?,?,?)',
+        args: ['research_model_check', new Date(Date.parse('2026-11-01T02:08:00.000Z') + index * 60000).toISOString(), 0,
+          JSON.stringify({ family: 'C', modelVersion: deployment.modelVersion, selectorPolicy: deployment.selectorPolicy,
+            probabilityConfigurationHash: deployment.probabilityConfigurationHash, matchId: `manual-health-${index}`,
+            snapshotHash: `manual-snapshot-${index}`, checks: { inference: false, calibrationCompatible: true,
+              finiteProbabilities: true, coherentProbabilities: true } })] });
+      f.setTime('2026-11-01T02:11:00.000Z');
+      if (index < 2) {
+        assert.equal((await f.store.rollbackUnhealthy()).rolledBack, false);
+        assert.equal((await f.store.getState()).source, 'adopted');
+      }
+    }
+    const result = await f.store.rollbackUnhealthy();
+    assert.equal(result.rolledBack, false);
+    assert.equal(result.suspended, true);
+    assert.equal(result.state.source, 'suspended');
+    assert.deepEqual(result.state.deployment, deployment);
+    assert.deepEqual(await f.store.getState(), result.state);
+    const events = (await f.client.execute('SELECT * FROM challenger_adoption_events ORDER BY sequence')).rows;
+    assert.deepEqual(events.map(row => row.action), ['ADOPT', 'SUSPEND']);
+    const suspension = events[1], report = JSON.parse(suspension.evidence_json);
+    assert.equal(suspension.candidate_id, null);
+    assert.deepEqual(JSON.parse(suspension.previous_json), deployment);
+    assert.equal(report.failedRevision, 'manual-replacement');
+    assert.equal(report.independentEvidence, false);
+    assert.equal(report.retirePrevious, true);
+    assert.equal(report.runTimes.length, 3);
+    assert.equal(suspension.evidence_hash, researchHash(report));
+    assert.equal((await f.store.rollbackUnhealthy()).rolledBack, false);
+    assert.equal((await f.client.execute('SELECT COUNT(*) AS n FROM challenger_adoption_events')).rows[0].n, 2);
+    assert.deepEqual((await f.client.execute('SELECT * FROM research_models ORDER BY version')).rows, beforeModels);
+    for (const table of ['challenger_candidate_reviews', 'research_champions', 'research_bets', 'research_ledger']) {
+      assert.equal((await f.client.execute(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n, 0);
+    }
   } finally { await f.close(); }
 });
 }

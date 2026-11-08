@@ -1,0 +1,62 @@
+{
+  "verifiedAt": "2026-11-08T14:21:09.370796+00:00",
+  "scriptHash": "183637d34924e871c1a958bb64491d980d4b9eea8059f7abab5130613459fc9d",
+  "planHash": "acd4e01698d5a61a70843192cdb6e156997c0d7da81c865e2aac8380c910c483",
+  "comparisonHash": "a929cd99d99f84537ab45f23d3ca91642f526362561a275da1355cdb9bb32a16",
+  "candidateHash": "c07b714de8df75e6c5c063515d6c5fce6523c811d38ebdca89e540a7ad50c5f9",
+  "frozenDiagnosticInputsFile": "C:\\Users\\ACER\\Desktop\\scommeseSportive\\backend\\artifacts\\research\\c-tree-weight-research-20261108\\verification-inputs.json",
+  "frozenDiagnosticInputsHash": "f4a6c27b071360c0b52d7e436e4c2ef52b72f0dbcfe2ffb5bf1499c6f878e2d5",
+  "inputReconstructionCodeHash": "263dfa8a18fe690a466413670cebc93854da025c81159cfa3977d64c878adc01",
+  "catboostVersion": "1.2.8",
+  "scalingChecks": {
+    "home": {
+      "changedLeaves": 3035,
+      "emptyLeavesStillZero": 805,
+      "entireTreeScalingExact": true
+    },
+    "away": {
+      "changedLeaves": 3002,
+      "emptyLeavesStillZero": 838,
+      "entireTreeScalingExact": true
+    }
+  },
+  "selectionChecks": {
+    "verifiedAt": "2026-11-08T14:21:01.317017+00:00",
+    "scriptHash": "ee09c68fdbc209a831b408b0b53cf61de8f224954028d70b62192ad68f31e368",
+    "planHash": "acd4e01698d5a61a70843192cdb6e156997c0d7da81c865e2aac8380c910c483",
+    "selectionHash": "a629e65a71ae5bd0fa3882b17d7b6db2962b7e781bc57afa072068c3774f5cee",
+    "nativeDevelopmentRowsPerFit": 317,
+    "fitsChecked": 4,
+    "nativeProbabilityMaximumError": 5.551115123125783e-16,
+    "independentMetricsMaximumError": 4.440892098500626e-16,
+    "deterministicSelectionReproduced": true,
+    "decision": {
+      "acceptedNonIdentity": true,
+      "selectedFitIndex": 3,
+      "selectedRidge": 0.01,
+      "frozenAt": "2026-11-08T14:15:22.156652Z"
+    },
+    "originalDevelopmentIdsAndChronologyVerified": true,
+    "incumbentAndPinnedSourcesUnchanged": true,
+    "independentPredictiveEvidence": false,
+    "productionAdoptionEligible": false
+  },
+  "nativeParityRowsPerModel": 6577,
+  "nativeRawParityMaximumError": 0.0,
+  "nativeOriginalTrainingSupportRows": 5293,
+  "nativeOriginalTrainingSupportMaximumError": 0.0,
+  "nativeDiagnosticRowsPerModel": 652,
+  "pureForecastCoreInputsRebuilt": 43,
+  "nativeCalibrationRowsPerModel": 358,
+  "nativeCalibrationMatrixMaximumError": 5.551115123125783e-17,
+  "independentRawProbabilityMaximumError": 8.881784197001252e-16,
+  "independentCalibrationAndPartitionMaximumError": 1.1102230246251565e-15,
+  "independentAllMetricMaximumError": 2.886579864025407e-15,
+  "independentWeeklyIntervalMaximumError": 2.7755575615628914e-17,
+  "fixedCriterionReproduced": true,
+  "sameQuotesCohortAndIncumbentAsPrevious": true,
+  "decisionVerification": "Pinned current adapter identity, independent result-partition coherence and all metrics; no separate reimplementation of market-blend heuristics.",
+  "incumbentAndPinnedSourcesUnchanged": true,
+  "independentPredictiveEvidence": false,
+  "productionAdoptionEligible": false
+}

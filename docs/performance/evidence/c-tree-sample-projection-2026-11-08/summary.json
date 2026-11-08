@@ -1,0 +1,1413 @@
+{
+  "protocol": "c-tree-sample-projection-v1",
+  "incumbentVersion": "C-75fd74eb875e9d0e",
+  "candidateVersion": "C-f6d4ac23de48fbfa",
+  "decision": "NOT_ADOPTED_ALL_FIVE_LEAGUE_AND_UNCERTAINTY_CRITERIA_FAILED",
+  "hypothesis": "Test whether removing the direct cumulative archive-count dependence from learned leaf values improves probability generalization. Counts may encode legitimate reliability; harm is not established. This is a defined post-fit feature ablation, not an export bug fix.",
+  "intervention": {
+    "features": [
+      "home_sample",
+      "away_sample"
+    ],
+    "method": "Within each original tree, group leaves by all non-target split bits; replace values with their original-training-count weighted mean. Keep zero for all-zero-support groups after verifying all their original leaf values are zero.",
+    "maximumCandidates": 1,
+    "hyperparameterSearch": false,
+    "newTreeFits": 0,
+    "sameOriginalSplitsAndScaleBias": true,
+    "calibration": "Mandatory refit using the unchanged current binned isotonic estimator and the same original358 calibration rows after tree edit. No plateau correction, no choice between calibrators.",
+    "kept": [
+      "40feature contract and baseline",
+      "5293training and317selection membership",
+      "ML weight0.75,temperature0.8",
+      "original A profile",
+      "coherent projection and actual closing market blend"
+    ]
+  },
+  "initialAudit": {
+    "trainRows": 5293,
+    "selectionFeatureRows": 317,
+    "sampleTreesHome": 32,
+    "sampleTreesAway": 32,
+    "sampleSplitsHome": 35,
+    "sampleSplitsAway": 36,
+    "counterfactual": "Add38 to both counts keeping baseline and other38features unchanged; artificial input stress test, not a realfuturematch or naturalinvariance.",
+    "trainingMedianCountsHomeAwayBySeason": {
+      "2022/2023": [
+        20,
+        20
+      ],
+      "2023/2024": [
+        52,
+        52
+      ],
+      "2024/2025": [
+        86,
+        87
+      ],
+      "2025/2026": [
+        107,
+        114
+      ]
+    }
+  },
+  "treeEditAudit": {
+    "home": {
+      "treeCount": 120,
+      "targetTreesBefore": 32,
+      "targetTreesAfter": 32,
+      "targetSplitsBefore": 35,
+      "targetSplitsAfter": 35,
+      "effectiveCountDependentGroupsBefore": 448,
+      "effectiveCountDependentGroupsAfter": 0,
+      "changedLeafCount": 904,
+      "zeroSupportGroups": 40,
+      "maximumWeightedMeanError": 1.734723475976807e-18,
+      "allLeafSupportsMatch": true,
+      "untargetedTreesUnchanged": true,
+      "onlyLeafValuesChanged": true
+    },
+    "away": {
+      "treeCount": 120,
+      "targetTreesBefore": 32,
+      "targetTreesAfter": 32,
+      "targetSplitsBefore": 36,
+      "targetSplitsAfter": 36,
+      "effectiveCountDependentGroupsBefore": 434,
+      "effectiveCountDependentGroupsAfter": 0,
+      "changedLeafCount": 848,
+      "zeroSupportGroups": 46,
+      "maximumWeightedMeanError": 4.336808689942018e-19,
+      "allLeafSupportsMatch": true,
+      "untargetedTreesUnchanged": true,
+      "onlyLeafValuesChanged": true
+    }
+  },
+  "nativeIndependentParity": {
+    "home": {
+      "incumbentNativeMaximumError": 2.220446049250313e-16,
+      "candidateNativeMaximumError": 2.220446049250313e-16,
+      "counterfactualNativeMaximumError": 1.1102230246251565e-16,
+      "countCounterfactualMaximumDifference": 0.0
+    },
+    "away": {
+      "incumbentNativeMaximumError": 2.220446049250313e-16,
+      "candidateNativeMaximumError": 2.220446049250313e-16,
+      "counterfactualNativeMaximumError": 2.220446049250313e-16,
+      "countCounterfactualMaximumDifference": 0.0
+    }
+  },
+  "developmentCriterion": {
+    "passed": false,
+    "diagnosticOnly": true,
+    "productionAdoptionEligible": false,
+    "independentEvidence": false,
+    "improvedLeagues": [
+      "Bundesliga",
+      "Ligue 1",
+      "Premier League",
+      "Serie A"
+    ],
+    "gates": [
+      {
+        "name": "exactly_five_leagues",
+        "passed": true,
+        "value": 5
+      },
+      {
+        "name": "all.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00230556125792325
+      },
+      {
+        "name": "all.calibrated.logLoss.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.006665719454646993,
+          "upper": 0.002584682569075214
+        }
+      },
+      {
+        "name": "Bundesliga.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.00531232961977357
+      },
+      {
+        "name": "La Liga.calibrated.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.004440426047302992
+      },
+      {
+        "name": "Ligue 1.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.004842194603503325
+      },
+      {
+        "name": "Premier League.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.005558568288271948
+      },
+      {
+        "name": "Serie A.calibrated.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0011933357700443237
+      },
+      {
+        "name": "all.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0016701055929678743
+      },
+      {
+        "name": "all.calibrated.brier.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.005073114213869909,
+          "upper": 0.002186158633653243
+        }
+      },
+      {
+        "name": "Bundesliga.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0052958276524269765
+      },
+      {
+        "name": "La Liga.calibrated.brier.strictly_lower",
+        "passed": false,
+        "value": 0.0027099589581753847
+      },
+      {
+        "name": "Ligue 1.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0023691529148579527
+      },
+      {
+        "name": "Premier League.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0034222820890932315
+      },
+      {
+        "name": "Serie A.calibrated.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0005651349378470449
+      },
+      {
+        "name": "all.calibrated.ece.not_worse",
+        "passed": true,
+        "value": -0.01963919196668709
+      },
+      {
+        "name": "all.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0012525375331180477
+      },
+      {
+        "name": "all.decision.logLoss.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.004592804912895608,
+          "upper": 0.002499420825907004
+        }
+      },
+      {
+        "name": "Bundesliga.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.003248030659597778
+      },
+      {
+        "name": "La Liga.decision.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.0038550672538599784
+      },
+      {
+        "name": "Ligue 1.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.003431099262543369
+      },
+      {
+        "name": "Premier League.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.003675487293970603
+      },
+      {
+        "name": "Serie A.decision.logLoss.strictly_lower",
+        "passed": true,
+        "value": -0.0004937412859893353
+      },
+      {
+        "name": "all.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0009448463740073798
+      },
+      {
+        "name": "all.decision.brier.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.003562564741247852,
+          "upper": 0.002023824165742717
+        }
+      },
+      {
+        "name": "Bundesliga.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0033070094968181696
+      },
+      {
+        "name": "La Liga.decision.brier.strictly_lower",
+        "passed": false,
+        "value": 0.0023149085787870227
+      },
+      {
+        "name": "Ligue 1.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0017247596617701033
+      },
+      {
+        "name": "Premier League.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0022384983092584854
+      },
+      {
+        "name": "Serie A.decision.brier.strictly_lower",
+        "passed": true,
+        "value": -0.0002231430548308433
+      },
+      {
+        "name": "all.decision.ece.not_worse",
+        "passed": true,
+        "value": -0.0018834446386454262
+      }
+    ],
+    "failedGates": [
+      {
+        "name": "all.calibrated.logLoss.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.006665719454646993,
+          "upper": 0.002584682569075214
+        }
+      },
+      {
+        "name": "La Liga.calibrated.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.004440426047302992
+      },
+      {
+        "name": "all.calibrated.brier.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.005073114213869909,
+          "upper": 0.002186158633653243
+        }
+      },
+      {
+        "name": "La Liga.calibrated.brier.strictly_lower",
+        "passed": false,
+        "value": 0.0027099589581753847
+      },
+      {
+        "name": "all.decision.logLoss.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.004592804912895608,
+          "upper": 0.002499420825907004
+        }
+      },
+      {
+        "name": "La Liga.decision.logLoss.strictly_lower",
+        "passed": false,
+        "value": 0.0038550672538599784
+      },
+      {
+        "name": "all.decision.brier.paired95_upper_below_zero",
+        "passed": false,
+        "value": {
+          "lower": -0.003562564741247852,
+          "upper": 0.002023824165742717
+        }
+      },
+      {
+        "name": "La Liga.decision.brier.strictly_lower",
+        "passed": false,
+        "value": 0.0023149085787870227
+      }
+    ]
+  },
+  "checks": {
+    "incumbentAndPinnedSourcesUnchanged": true,
+    "protectedHoldoutTargetsUsed": 0,
+    "quarantinedTargetsUsed": 0,
+    "originalCalibrationRows": 358,
+    "originalAProfileReproduced": true,
+    "nativeRawParityRows": 6577,
+    "nativeRawParityMaximum": 2.220446049250313e-16,
+    "countCounterfactualMaximumDifference": 0,
+    "guardedRawMathMaximumError": 0,
+    "calibrationMatrixMaximumError": 1.1102230246251565e-16,
+    "rebuiltInputs": 43,
+    "candidateFrozenBeforeScoring": true,
+    "changedLeaves": 1752,
+    "editedTrees": 64,
+    "onlyModelLeafValuesChanged": true
+  },
+  "summary": {
+    "all": {
+      "raw": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9894924671730627,
+          "brier": 0.5894423514417971,
+          "over25LogLoss": 0.6987987563331206,
+          "over25Brier": 0.25264808362796903,
+          "eceTopLabel10Bins": 0.0235303378122355
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.9869860815885377,
+          "brier": 0.5876019114129912,
+          "over25LogLoss": 0.6958267393510492,
+          "over25Brier": 0.2513230645098615,
+          "eceTopLabel10Bins": 0.026359018883916435
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.002506385584524984,
+          "brier": -0.0018404400288059009,
+          "over25LogLoss": -0.0029720169820713904,
+          "over25Brier": -0.0013250191181075066,
+          "eceTopLabel10Bins": 0.002828681071680935
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.006151653012938144,
+              "upper": 0.0015477557101884665
+            },
+            "brier": {
+              "lower": -0.004504089668443174,
+              "upper": 0.001072991941398831
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9915936406384722,
+          "brier": 0.5906438595609752,
+          "over25LogLoss": 0.6983681639863509,
+          "over25Brier": 0.25243673321568166,
+          "eceTopLabel10Bins": 0.03878533792789205
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.989288079380549,
+          "brier": 0.5889737539680073,
+          "over25LogLoss": 0.6947511258654704,
+          "over25Brier": 0.2508223023757569,
+          "eceTopLabel10Bins": 0.019146145961204963
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.00230556125792325,
+          "brier": -0.0016701055929678743,
+          "over25LogLoss": -0.0036170381208805447,
+          "over25Brier": -0.001614430839924741,
+          "eceTopLabel10Bins": -0.01963919196668709
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.006665719454646993,
+              "upper": 0.002584682569075214
+            },
+            "brier": {
+              "lower": -0.005073114213869909,
+              "upper": 0.002186158633653243
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 652,
+          "logLoss": 0.9851867645020889,
+          "brier": 0.5864606942848937,
+          "over25LogLoss": 0.6981340077763651,
+          "over25Brier": 0.2523322047263025,
+          "eceTopLabel10Bins": 0.020140878712410153
+        },
+        "candidate": {
+          "n": 652,
+          "logLoss": 0.9839342269689708,
+          "brier": 0.5855158479108863,
+          "over25LogLoss": 0.6946483765127994,
+          "over25Brier": 0.25077444576893804,
+          "eceTopLabel10Bins": 0.018257434073764726
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0012525375331180477,
+          "brier": -0.0009448463740073798,
+          "over25LogLoss": -0.003485631263565714,
+          "over25Brier": -0.0015577589573644857,
+          "eceTopLabel10Bins": -0.0018834446386454262
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 15,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.004592804912895608,
+              "upper": 0.002499420825907004
+            },
+            "brier": {
+              "lower": -0.003562564741247852,
+              "upper": 0.002023824165742717
+            }
+          }
+        }
+      }
+    },
+    "historical": {
+      "raw": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9937793464955398,
+          "brier": 0.5929358906466908,
+          "over25LogLoss": 0.6956680430116275,
+          "over25Brier": 0.2511058121518658,
+          "eceTopLabel10Bins": 0.02365931834972618
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9915437735947115,
+          "brier": 0.5913495759210726,
+          "over25LogLoss": 0.6924213970207896,
+          "over25Brier": 0.24964768282344274,
+          "eceTopLabel10Bins": 0.023564002229010058
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.00223557290082832,
+          "brier": -0.0015863147256182097,
+          "over25LogLoss": -0.003246645990837904,
+          "over25Brier": -0.0014581293284230412,
+          "eceTopLabel10Bins": -9.531612071612267e-05
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.0062409984706584265,
+              "upper": 0.0018462620244875639
+            },
+            "brier": {
+              "lower": -0.004572043951035144,
+              "upper": 0.0014363544043201587
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9956929834878836,
+          "brier": 0.5941274305318758,
+          "over25LogLoss": 0.6952087736019901,
+          "over25Brier": 0.25087957852486287,
+          "eceTopLabel10Bins": 0.03804783514659511
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9940958658063632,
+          "brier": 0.5930378458833889,
+          "over25LogLoss": 0.6913849940666777,
+          "over25Brier": 0.2491640938464962,
+          "eceTopLabel10Bins": 0.0317777026420096
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.001597117681520377,
+          "brier": -0.001089584648486852,
+          "over25LogLoss": -0.0038237795353123216,
+          "over25Brier": -0.0017154846783666577,
+          "eceTopLabel10Bins": -0.00627013250458551
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.00595673405946185,
+              "upper": 0.0031562045339724523
+            },
+            "brier": {
+              "lower": -0.004375783886366454,
+              "upper": 0.002513297222256243
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 595,
+          "logLoss": 0.9894033921491068,
+          "brier": 0.5900132101366219,
+          "over25LogLoss": 0.6950859322481882,
+          "over25Brier": 0.2508286436840711,
+          "eceTopLabel10Bins": 0.025919712880534903
+        },
+        "candidate": {
+          "n": 595,
+          "logLoss": 0.9887199535653505,
+          "brier": 0.5895229453410844,
+          "over25LogLoss": 0.6913787677510983,
+          "over25Brier": 0.24916293842809328,
+          "eceTopLabel10Bins": 0.020436854427130304
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.0006834385837563017,
+          "brier": -0.0004902647955374873,
+          "over25LogLoss": -0.0037071644970898543,
+          "over25Brier": -0.0016657052559778118,
+          "eceTopLabel10Bins": -0.005482858453404599
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 13,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.004020942741501577,
+              "upper": 0.0029406951225728084
+            },
+            "brier": {
+              "lower": -0.0030032960368181322,
+              "upper": 0.0022481215256769955
+            }
+          }
+        }
+      }
+    },
+    "current": {
+      "raw": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.9447434637191425,
+          "brier": 0.5529747053556254,
+          "over25LogLoss": 0.7314790094258976,
+          "over25Brier": 0.2687472332469411,
+          "eceTopLabel10Bins": 0.1387811334050688
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.939410173804799,
+          "brier": 0.5484815538286326,
+          "over25LogLoss": 0.7313737338511266,
+          "over25Brier": 0.26881169790317866,
+          "eceTopLabel10Bins": 0.1521462516630418
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.005333289914343564,
+          "brier": -0.004493151526992811,
+          "over25LogLoss": -0.00010527557477102434,
+          "over25Brier": 6.44646562375506e-05,
+          "eceTopLabel10Bins": 0.013365118257972985
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.00948230243156763,
+              "upper": 0.020079411753653527
+            },
+            "brier": {
+              "lower": -0.007784596252830445,
+              "upper": 0.015666947418761033
+            }
+          }
+        }
+      },
+      "calibrated": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.948802254754272,
+          "brier": 0.5542802678471899,
+          "over25LogLoss": 0.7313477653669622,
+          "over25Brier": 0.2686912427075627,
+          "eceTopLabel10Bins": 0.1613984596770267
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.9391015368654728,
+          "brier": 0.5465503383600786,
+          "over25LogLoss": 0.7298888174493581,
+          "over25Brier": 0.2681316721110261,
+          "eceTopLabel10Bins": 0.14678706498870783
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.009700717888799226,
+          "brier": -0.0077299294871112645,
+          "over25LogLoss": -0.0014589479176041475,
+          "over25Brier": -0.0005595705965366071,
+          "eceTopLabel10Bins": -0.014611394688318874
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.014052449004771378,
+              "upper": 0.01695363519652994
+            },
+            "brier": {
+              "lower": -0.011495437284532818,
+              "upper": 0.015333805772095893
+            }
+          }
+        }
+      },
+      "decision": {
+        "incumbent": {
+          "n": 57,
+          "logLoss": 0.9411710899411135,
+          "brier": 0.5493774147800109,
+          "over25LogLoss": 0.7299516382897944,
+          "over25Brier": 0.2680272717460884,
+          "eceTopLabel10Bins": 0.10597468992490013
+        },
+        "candidate": {
+          "n": 57,
+          "logLoss": 0.9339779581120226,
+          "brier": 0.5436873747360127,
+          "over25LogLoss": 0.7287785030603816,
+          "over25Brier": 0.26759632064266964,
+          "eceTopLabel10Bins": 0.12050178250375762
+        },
+        "deltaCandidateMinusIncumbent": {
+          "logLoss": -0.007193131829090982,
+          "brier": -0.005690040043998201,
+          "over25LogLoss": -0.0011731352294127584,
+          "over25Brier": -0.0004309511034187863,
+          "eceTopLabel10Bins": 0.014527092578857495
+        },
+        "pairedWeekly95PercentInterval": {
+          "blocks": 2,
+          "replications": 2000,
+          "seed": 20261108,
+          "independentEvidence": false,
+          "intervals": {
+            "logLoss": {
+              "lower": -0.010479360185884842,
+              "upper": 0.012935016856271443
+            },
+            "brier": {
+              "lower": -0.008513701235160874,
+              "upper": 0.011604884751873545
+            }
+          }
+        }
+      }
+    },
+    "byLeague": {
+      "Bundesliga": {
+        "raw": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.955517090202476,
+            "brier": 0.5648790759559178,
+            "over25LogLoss": 0.6421256956774655,
+            "over25Brier": 0.2252838919377229,
+            "eceTopLabel10Bins": 0.0575809495084933
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9471228895089779,
+            "brier": 0.5572265999714566,
+            "over25LogLoss": 0.6326095343034916,
+            "over25Brier": 0.22093606027454182,
+            "eceTopLabel10Bins": 0.06132096640294788
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.008394200693498055,
+            "brier": -0.007652475984461171,
+            "over25LogLoss": -0.00951616137397382,
+            "over25Brier": -0.00434783166318109,
+            "eceTopLabel10Bins": 0.0037400168944545786
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.019342372838658226,
+                "upper": 0.003792490324537998
+              },
+              "brier": {
+                "lower": -0.015280101737638642,
+                "upper": 0.00114795557994436
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.955883429782181,
+            "brier": 0.5644852375491648,
+            "over25LogLoss": 0.6399219746807422,
+            "over25Brier": 0.22427614025825046,
+            "eceTopLabel10Bins": 0.04744119175665158
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9505711001624074,
+            "brier": 0.5591894098967378,
+            "over25LogLoss": 0.6311354929826724,
+            "over25Brier": 0.22030535049644473,
+            "eceTopLabel10Bins": 0.06445359262858809
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.00531232961977357,
+            "brier": -0.0052958276524269765,
+            "over25LogLoss": -0.008786481698069837,
+            "over25Brier": -0.003970789761805732,
+            "eceTopLabel10Bins": 0.017012400871936506
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.020371906650771383,
+                "upper": 0.01141087265386429
+              },
+              "brier": {
+                "lower": -0.015310661033757554,
+                "upper": 0.006103086719573075
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 124,
+            "logLoss": 0.9510895949454246,
+            "brier": 0.5606489732050877,
+            "over25LogLoss": 0.6399428317432482,
+            "over25Brier": 0.2242916904671738,
+            "eceTopLabel10Bins": 0.061789565190719695
+          },
+          "candidate": {
+            "n": 124,
+            "logLoss": 0.9478415642858268,
+            "brier": 0.5573419637082695,
+            "over25LogLoss": 0.6310625806427921,
+            "over25Brier": 0.22026293055934418,
+            "eceTopLabel10Bins": 0.049503817841933376
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.003248030659597778,
+            "brier": -0.0033070094968181696,
+            "over25LogLoss": -0.008880251100456094,
+            "over25Brier": -0.00402875990782961,
+            "eceTopLabel10Bins": -0.012285747348786319
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.014608226031839389,
+                "upper": 0.009399017867070937
+              },
+              "brier": {
+                "lower": -0.010948876249483085,
+                "upper": 0.005323514324340217
+              }
+            }
+          }
+        }
+      },
+      "La Liga": {
+        "raw": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9570695851443591,
+            "brier": 0.5619898976678298,
+            "over25LogLoss": 0.7155915733078807,
+            "over25Brier": 0.2605287547375605,
+            "eceTopLabel10Bins": 0.06214636120117364
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9546119641550432,
+            "brier": 0.5605945344537935,
+            "over25LogLoss": 0.7093300287467894,
+            "over25Brier": 0.2577089795407684,
+            "eceTopLabel10Bins": 0.06947769942760607
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0024576209893159007,
+            "brier": -0.001395363214036327,
+            "over25LogLoss": -0.006261544561091292,
+            "over25Brier": -0.002819775196792107,
+            "eceTopLabel10Bins": 0.007331338226432428
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.009039823598914648,
+                "upper": 0.0031025140058844355
+              },
+              "brier": {
+                "lower": -0.005730056202567505,
+                "upper": 0.0022165113793709266
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9510267127447205,
+            "brier": 0.5582716267983555,
+            "over25LogLoss": 0.7144368207295275,
+            "over25Brier": 0.2599359141364082,
+            "eceTopLabel10Bins": 0.061992337144406676
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9554671387920235,
+            "brier": 0.5609815857565309,
+            "over25LogLoss": 0.7069488715388745,
+            "over25Brier": 0.25658633617813065,
+            "eceTopLabel10Bins": 0.06892258436110674
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.004440426047302992,
+            "brier": 0.0027099589581753847,
+            "over25LogLoss": -0.007487949190652987,
+            "over25Brier": -0.003349577958277561,
+            "eceTopLabel10Bins": 0.006930247216700061
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0038708562676881136,
+                "upper": 0.012952068736937173
+              },
+              "brier": {
+                "lower": -0.003121682133864815,
+                "upper": 0.008560592292072707
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 0.9485406365195365,
+            "brier": 0.5574699321426173,
+            "over25LogLoss": 0.7144457813496039,
+            "over25Brier": 0.2599741544750713,
+            "eceTopLabel10Bins": 0.06887877133100215
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 0.9523957037733964,
+            "brier": 0.5597848407214043,
+            "over25LogLoss": 0.7074694025280721,
+            "over25Brier": 0.2568499864262687,
+            "eceTopLabel10Bins": 0.06481780504862834
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.0038550672538599784,
+            "brier": 0.0023149085787870227,
+            "over25LogLoss": -0.006976378821531792,
+            "over25Brier": -0.003124168048802556,
+            "eceTopLabel10Bins": -0.004060966282373804
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 14,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0025745325243306423,
+                "upper": 0.010392733854400382
+              },
+              "brier": {
+                "lower": -0.002227423028016327,
+                "upper": 0.006862871545707286
+              }
+            }
+          }
+        }
+      },
+      "Ligue 1": {
+        "raw": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9691788821974652,
+            "brier": 0.5757059066552157,
+            "over25LogLoss": 0.6797596796232758,
+            "over25Brier": 0.24337336403241389,
+            "eceTopLabel10Bins": 0.09152807562099495
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9654599751712996,
+            "brier": 0.5742037140038435,
+            "over25LogLoss": 0.6771754895463046,
+            "over25Brier": 0.2421891050276722,
+            "eceTopLabel10Bins": 0.06883521411855709
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0037189070261656187,
+            "brier": -0.0015021926513721917,
+            "over25LogLoss": -0.0025841900769711934,
+            "over25Brier": -0.0011842590047416723,
+            "eceTopLabel10Bins": -0.022692861502437864
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.013104221050703219,
+                "upper": 0.00562109780098572
+              },
+              "brier": {
+                "lower": -0.007574555379691493,
+                "upper": 0.004569240756497549
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9646499315731565,
+            "brier": 0.57346393946069,
+            "over25LogLoss": 0.6797599938656262,
+            "over25Brier": 0.2433948107880135,
+            "eceTopLabel10Bins": 0.07528435178267001
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9598077369696532,
+            "brier": 0.571094786545832,
+            "over25LogLoss": 0.6772456879499733,
+            "over25Brier": 0.24224611216342554,
+            "eceTopLabel10Bins": 0.08352392375222047
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.004842194603503325,
+            "brier": -0.0023691529148579527,
+            "over25LogLoss": -0.002514305915652937,
+            "over25Brier": -0.0011486986245879682,
+            "eceTopLabel10Bins": 0.008239571969550455
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.017106375231616944,
+                "upper": 0.0070195025032564065
+              },
+              "brier": {
+                "lower": -0.010239715107026355,
+                "upper": 0.005397310178093256
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 105,
+            "logLoss": 0.9609683791317292,
+            "brier": 0.5704774695715924,
+            "over25LogLoss": 0.6792531931417966,
+            "over25Brier": 0.24314974015674734,
+            "eceTopLabel10Bins": 0.08834596527187465
+          },
+          "candidate": {
+            "n": 105,
+            "logLoss": 0.9575372798691858,
+            "brier": 0.5687527099098223,
+            "over25LogLoss": 0.6765493386814374,
+            "over25Brier": 0.24191060200797146,
+            "eceTopLabel10Bins": 0.06275201103707932
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.003431099262543369,
+            "brier": -0.0017247596617701033,
+            "over25LogLoss": -0.0027038544603591452,
+            "over25Brier": -0.0012391381487758812,
+            "eceTopLabel10Bins": -0.025593954234795324
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.012725391217031227,
+                "upper": 0.005626228138889647
+              },
+              "brier": {
+                "lower": -0.00782208980927665,
+                "upper": 0.004285996608736905
+              }
+            }
+          }
+        }
+      },
+      "Premier League": {
+        "raw": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1168041885434516,
+            "brier": 0.6842406163071941,
+            "over25LogLoss": 0.7158270890471081,
+            "over25Brier": 0.261148605341759,
+            "eceTopLabel10Bins": 0.16020542393630818
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.1161865793256271,
+            "brier": 0.6834855951449434,
+            "over25LogLoss": 0.7264387132021162,
+            "over25Brier": 0.2662098421189033,
+            "eceTopLabel10Bins": 0.14182627913422885
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0006176092178244996,
+            "brier": -0.0007550211622506797,
+            "over25LogLoss": 0.010611624155008048,
+            "over25Brier": 0.005061236777144318,
+            "eceTopLabel10Bins": -0.018379144802079334
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.0076795228461303535,
+                "upper": 0.007164854649514441
+              },
+              "brier": {
+                "lower": -0.005960521645787021,
+                "upper": 0.004458716319670203
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1327595727912887,
+            "brier": 0.694058675870179,
+            "over25LogLoss": 0.7157404426672538,
+            "over25Brier": 0.26106906596387586,
+            "eceTopLabel10Bins": 0.17698490599749292
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.1272010045030167,
+            "brier": 0.6906363937810858,
+            "over25LogLoss": 0.7254178370629782,
+            "over25Brier": 0.26566896913179316,
+            "eceTopLabel10Bins": 0.1620048283269127
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.005558568288271948,
+            "brier": -0.0034222820890932315,
+            "over25LogLoss": 0.009677394395724459,
+            "over25Brier": 0.0045999031679173075,
+            "eceTopLabel10Bins": -0.01498007767058021
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.017013349669114303,
+                "upper": 0.0072817519352003125
+              },
+              "brier": {
+                "lower": -0.011067533306813596,
+                "upper": 0.004273679444323758
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 133,
+            "logLoss": 1.1195217667742157,
+            "brier": 0.6852256852823833,
+            "over25LogLoss": 0.7152050075836671,
+            "over25Brier": 0.2608109627110303,
+            "eceTopLabel10Bins": 0.13610724908355085
+          },
+          "candidate": {
+            "n": 133,
+            "logLoss": 1.115846279480245,
+            "brier": 0.6829871869731248,
+            "over25LogLoss": 0.7246947472207558,
+            "over25Brier": 0.2653315377527146,
+            "eceTopLabel10Bins": 0.1390571549402396
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.003675487293970603,
+            "brier": -0.0022384983092584854,
+            "over25LogLoss": 0.009489739637088657,
+            "over25Brier": 0.004520575041684294,
+            "eceTopLabel10Bins": 0.0029499058566887504
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 13,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.012487851166413558,
+                "upper": 0.006162923644898358
+              },
+              "brier": {
+                "lower": -0.008147223316404476,
+                "upper": 0.0037460658848565876
+              }
+            }
+          }
+        }
+      },
+      "Serie A": {
+        "raw": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9495285024236826,
+            "brier": 0.5609785297072742,
+            "over25LogLoss": 0.7276417478441503,
+            "over25Brier": 0.26658634274652987,
+            "eceTopLabel10Bins": 0.08810989013503835
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.9508419313420241,
+            "brier": 0.5622057365463338,
+            "over25LogLoss": 0.7208584886731535,
+            "over25Brier": 0.2634108743805372,
+            "eceTopLabel10Bins": 0.07274993905632389
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": 0.0013134289183415193,
+            "brier": 0.0012272068390595248,
+            "over25LogLoss": -0.006783259170996758,
+            "over25Brier": -0.0031754683659926952,
+            "eceTopLabel10Bins": -0.015359951078714462
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.006337533906416284,
+                "upper": 0.009099979341678995
+              },
+              "brier": {
+                "lower": -0.004204882294987419,
+                "upper": 0.0069003649993420076
+              }
+            }
+          }
+        },
+        "calibrated": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9525967491198952,
+            "brier": 0.5626113571934516,
+            "over25LogLoss": 0.7286454947199164,
+            "over25Brier": 0.2670598164237083,
+            "eceTopLabel10Bins": 0.10289477512079888
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.9514034133498509,
+            "brier": 0.5620462222556045,
+            "over25LogLoss": 0.7203908500359354,
+            "over25Brier": 0.26320051149079765,
+            "eceTopLabel10Bins": 0.040721267244171896
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0011933357700443237,
+            "brier": -0.0005651349378470449,
+            "over25LogLoss": -0.00825464468398096,
+            "over25Brier": -0.0038593049329106455,
+            "eceTopLabel10Bins": -0.06217350787662698
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.010976383105985086,
+                "upper": 0.007921660797552913
+              },
+              "brier": {
+                "lower": -0.007616589283316534,
+                "upper": 0.006117056591879674
+              }
+            }
+          }
+        },
+        "decision": {
+          "incumbent": {
+            "n": 157,
+            "logLoss": 0.9455584792052771,
+            "brier": 0.5584283348648234,
+            "over25LogLoss": 0.7284415396561378,
+            "over25Brier": 0.26696359593254654,
+            "eceTopLabel10Bins": 0.06086099485643612
+          },
+          "candidate": {
+            "n": 157,
+            "logLoss": 0.9450647379192878,
+            "brier": 0.5582051918099925,
+            "over25LogLoss": 0.7206590382706607,
+            "over25Brier": 0.26332216130794367,
+            "eceTopLabel10Bins": 0.05936745977906415
+          },
+          "deltaCandidateMinusIncumbent": {
+            "logLoss": -0.0004937412859893353,
+            "brier": -0.0002231430548308433,
+            "over25LogLoss": -0.007782501385477092,
+            "over25Brier": -0.0036414346246028684,
+            "eceTopLabel10Bins": -0.0014935350773719672
+          },
+          "pairedWeekly95PercentInterval": {
+            "blocks": 15,
+            "replications": 2000,
+            "seed": 20261108,
+            "independentEvidence": false,
+            "intervals": {
+              "logLoss": {
+                "lower": -0.007773078280709689,
+                "upper": 0.006396374612425786
+              },
+              "brier": {
+                "lower": -0.005528432707226545,
+                "upper": 0.004771703084034227
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "independentVerification": {
+    "verifiedAt": "2026-11-08T13:31:40.510861+00:00",
+    "scriptHash": "2482549c86b35be4cea8d28847f3f94d2207e73ea0b9f79d896318211f229d9b",
+    "planHash": "44fca9dacda50c5e42eff92c2243bbf32648f6ebbe9cfbccd6c52c79f1be4e9c",
+    "comparisonHash": "de33462628d246c273393e8a9ba05113d44a60b1b0bff3cc0da56514f229231a",
+    "candidateHash": "25371123796c7ae4c11a6c5326d839a5bccc6c310533ca3b0e8c9267899b345b",
+    "catboostVersion": "1.2.8",
+    "editedTrees": {
+      "home": 32,
+      "away": 32
+    },
+    "independentProjectionMaximumError": 6.938893903907228e-18,
+    "nativeOriginalLeafSupportMaximumError": 0,
+    "nativeHistoricalRowsPerModel": 595,
+    "nativeRawProbabilityMaximumError": 7.771561172376096e-16,
+    "nativeCalibrationMatrixRows": 358,
+    "nativeCalibrationMatrixMaximumError": 0.0,
+    "independentCalibrationMaximumError": 7.771561172376096e-16,
+    "independentPrimaryMetricsMaximumError": 1.4432899320127035e-15,
+    "incumbentAndPinnedSourcesUnchanged": true,
+    "independentPredictiveEvidence": false,
+    "productionAdoptionEligible": false
+  },
+  "targetedTests": {
+    "pythonProjection": 12,
+    "nodeEvaluation": 10,
+    "passed": 22,
+    "skipped": 0
+  },
+  "sourceHashes": {
+    "backend/artifacts/research/c-tree-sample-projection-20261108/plan.json": "44fca9dacda50c5e42eff92c2243bbf32648f6ebbe9cfbccd6c52c79f1be4e9c",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/prepared/artifact.json": "ed08522670889506429c3e292c81b4f73691f6fb51bc3e20632d541e3a06442c",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/prepared/audit.json": "d8b49482710ce58b1ddd0e4f4174352984a30536f3daf7d81260a7cc22f65f2a",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/prepared/parity.json": "cc9b03d254adf26591aaf6e4ee153db6e2ed0993c5ad68966c1ce9f77ac3cd32",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/candidate.json": "25371123796c7ae4c11a6c5326d839a5bccc6c310533ca3b0e8c9267899b345b",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/comparison.json": "de33462628d246c273393e8a9ba05113d44a60b1b0bff3cc0da56514f229231a",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/run/pre-scoring-checks.json": "530813c4c680b3f3f1ae21c7b38b8b4fdb4e381a0773604752a92095a0795978",
+    "backend/artifacts/research/c-tree-sample-projection-20261108/verification.json": "2309d870bbf3e9d26a1a4ec88d14719e62d276d4c8ef482575df32f7e1c133c1"
+  },
+  "scriptHashes": {
+    "evaluate.cjs": "e005e1c3400c700d77bb248b4f23d4ae2017678b5bd53e3d09a0d8559884005c",
+    "evaluation.test.cjs": "f078172ce0d134b3a97db15fbfd5f87bd79a876840b473684b806d937e8a5f26",
+    "prepare.py": "a647196dc9e42b198f8ec304df22d321d576100fa46f70b06133bc0102239f23"
+  },
+  "independentEvidence": false,
+  "productionAdoption": false,
+  "productionAdoptionEligible": false,
+  "databaseWrites": 0,
+  "limitations": [
+    "The archive counts can contain legitimate information about statistical reliability. The direct dependence is real, but harmful bias or a software bug was not established.",
+    "One predefined post-fit feature ablation; original tree residual interactions and indirect correlations remain.",
+    "Calibration parameters are re-estimated using the same current algorithm and original358 rows; the previous plateau candidate is not combined.",
+    "652 previously consulted retrospective matches:595historical and57current, same real Bet365 closing1X2 prices; acquisition time is not historical forecast capture time.",
+    "Only4/5leagues improve in both primary scores at both finalstages; LaLiga worsens. Nominal paired weekly bootstrap intervals includezero; they do not correct previousresearch/selection.",
+    "Current57finalECE worsens despite lowerLL/Brier; only2weeklyblocks. PremierLeagueOver2.5 secondaryproper scoresworsen.",
+    "No independent prospectiveconfirmation orprofitproof. Candidate mustnotreplaceincumbent."
+  ],
+  "reproduction": "docs/research-platform.md#modifica-delle-foglie-dipendenti-dai-contatori"
+}
