@@ -2,6 +2,35 @@
 
 ## Reset esplicito del modello C
 
+Per mantenere soltanto la release C attuale e ripartire con **1.000 €**
+usare `backend/scripts/prune-obsolete-challenger.js`. È una manutenzione
+selettiva esplicita, separata dal deploy: rimuove le giocate manuali obsolete
+già liquidate, le relative liquidazioni e i movimenti, i vecchi modelli/mercati,
+candidati, benchmark, eventi di adozione e controlli tecnici dedicati alla
+vecchia C. Conserva modello corrente, ultimo `ADOPT`, mercati correnti e dati A.
+La nuova apertura C è 100.000 centesimi, con zero impegnato; risultati e saldo
+della vecchia C non vengono riportati nel nuovo periodo. Giocate C attuali o
+ancora aperte e dipendenze inattese bloccano il comando.
+
+Prima creare un [backup completo verificato](turso-backup.md), provare la
+procedura su una copia di `restore.db` e confrontare schema e dati protetti.
+Con ambiente privato già caricato e percorsi di output nuovi:
+
+```powershell
+node backend/scripts/prune-obsolete-challenger.js --plan <nuovo-piano.json> --expected-host <host-verificato>
+node backend/scripts/prune-obsolete-challenger.js --apply <nuovo-piano.json> --expected-plan-hash <hash-piano> --backup-manifest <manifest-backup.json> --receipt <nuova-ricevuta.json> --expected-host <host-verificato>
+```
+
+Il piano usa il token dedicato in sola lettura; l'applicazione usa il token
+di scrittura. Il backup deve essere recente e corrispondere allo stato del
+piano. Trigger e chiavi esterne sono verificati nella transazione; schema,
+input, job, policy condivise e dati A restano immutati, compresi i descrittori
+storici di policy necessari agli archivi A. La ricevuta è riservata prima delle
+scritture: `COMPLETE` con `verified=true` attesta la verifica;
+`FAILED_UNKNOWN` richiede una lettura del registro prima di un nuovo tentativo.
+La pulizia non avvia giocate: la prossima Nightly usa il nuovo saldo e la
+principale C per partita, con i normali controlli su quote e orari.
+
 `backend/scripts/reset-challenger-production.js` è una manutenzione distruttiva,
 separata dall'avvio e dal normale rilascio. Richiede il mandato al reset, un
 backup completo con restore verificato e un piano privato associato al target.
@@ -70,7 +99,9 @@ Il vincolo C sulla partita viene verificato nella transazione anche tra retry,
 versioni del modello, policy e registri paper/finanziati. Una giocata C già
 esistente, anche manuale, blocca una nuova registrazione automatica per la
 partita. Le giocate annullate logicamente non bloccano; le partite con più
-giocate storiche restano immutate. Il flusso delle azioni manuali non cambia.
+giocate storiche restano immutate durante l'uso ordinario. La pulizia esplicita
+descritta sopra può rimuovere lo storico obsoleto C.
+Il flusso delle azioni manuali non cambia.
 La chiave `(famiglia, partita, mercato/esito/linea/squadra)` impedisce
 di rigiocare la stessa selezione per un cambio di bookmaker, prezzo o versione.
 Linea e squadra entrano nella chiave solo nei mercati che le usano: campi

@@ -211,8 +211,11 @@ Training o iscrizione nel registry non costituiscono adozione. La sostituzione
 operativa esplicita usa `replace-current-challenger.js`, con piano, backup e
 controlli di identità, distinta dalla review scientifica. Tre fallimenti tecnici
 indipendenti su partite e snapshot distinti sospendono il nuovo deployment;
-non riattivano il vecchio C. Lo storico nel database rimane immutabile per
-giocate, liquidazioni ed evidenze. Il pacchetto include un solo modello C e
+non riattivano il vecchio C. Nell'uso ordinario lo storico nel database rimane
+immutabile. Una manutenzione esplicita può eliminare lo storico C obsoleto e
+riaprire il portafoglio a 1.000 €, preservando la release adottata e A: vedere
+la [procedura operativa](../operations/README.md#reset-esplicito-del-modello-c).
+Il pacchetto include un solo modello C e
 non contiene un modello di rollback. A rimane indipendente da questa scelta.
 
 Metriche probabilistiche, simulazioni virtuali e profitto sono evidenze diverse.

@@ -123,7 +123,10 @@ secondaria. Entrambi possono giocare più partite nello stesso gruppo, senza
 un tetto cumulativo del 5%; finanziano solo gli importi completi coperti dal saldo,
 dando priorità a confidenza, EV e chiave della selezione. Duplicati e budget API
 restano controllati. Lo storico
-e le puntate manuali restano conservati. Le vecchie giocate a percentuale fissa
+e le puntate manuali restano conservati durante l'uso ordinario. Una manutenzione
+esplicita separata può eliminare lo storico C obsoleto e riaprire il suo
+portafoglio a 1.000 €, preservando A e la release C attuale.
+Le vecchie giocate a percentuale fissa
 annullate sono escluse dall'operatività e rimborsate sul rispettivo portafoglio;
 le registrazioni paper precedenti non vengono convertite da unità in euro.
 Le proposte senza puntata non producono ROI. Nessuna puntata è inviata ai bookmaker.
