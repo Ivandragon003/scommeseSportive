@@ -132,9 +132,12 @@ lo stato del registro prima di riprovare, perché l'esito del commit potrebbe
 richiedere accertamento. La ricevuta non costituisce prova di deploy o
 validazione predittiva.
 
-Il runtime richiede la sola release corrente. I record dei modelli precedenti
-restano nel database per giocate ed evidenze immutabili, senza essere modelli
-operativi o di rollback. Tre errori tecnici indipendenti sospendono il nuovo C;
+Il runtime richiede la sola release corrente. La sostituzione conserva i record
+precedenti per giocate ed evidenze; la successiva pulizia esplicita
+`prune-obsolete-challenger.js`, descritta nelle [operazioni](README.md), può
+rimuovere lo storico obsoleto e riaprire C con 1.000 €. Il deploy non esegue
+questa manutenzione. I vecchi modelli non sono operativi o di rollback.
+Tre errori tecnici indipendenti sospendono il nuovo C;
 non riattivano una release precedente. A, portafogli e decisioni storiche restano
 fuori dalla sostituzione del modello. Se il registro seleziona un'identità
 incompatibile, C si astiene: correggere l'attivazione tramite il piano verificato.
