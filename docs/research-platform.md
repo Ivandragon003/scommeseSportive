@@ -171,8 +171,11 @@ dell'utente senza simulare un GO prospettico. Lo stato remoto si verifica dopo l
 del JSON nel pacchetto. Procedura nella
 [guida hosting](operations/hostless-deployment.md#compatibilità-del-modello-registrato-prima-del-rilascio).
 
-Il pacchetto contiene un solo C. I record storici restano nel database per le
-relazioni con giocate ed evidenze, senza ruolo operativo o di rollback.
+Il pacchetto contiene un solo C. La sostituzione conserva inizialmente i record
+storici per le relazioni con giocate ed evidenze, senza ruolo operativo o di
+rollback. La pulizia esplicita descritta nelle [operazioni](operations/README.md#reset-esplicito-del-modello-c)
+può eliminare lo storico C obsoleto e riaprire C a 1.000 €, preservando la
+release adottata e tutti i dati A.
 Tre errori tecnici indipendenti sospendono il nuovo deployment; non riattivano
 una release precedente. Le candidature sottoposte a review scientifica mantengono
 il gate prospettico descritto sotto.
