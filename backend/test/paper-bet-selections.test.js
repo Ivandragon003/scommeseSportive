@@ -89,7 +89,7 @@ test('C keeps the scientific sheet unchanged and exposes other bookmakers to pap
   assert.equal(all.find((quote) => quote.bookmaker === 'Other' && quote.selection === 'homeWin').odds, 2.2);
 });
 
-test('C paper selection preserves quality evidence even when the legacy payout selector abstains', async () => {
+test('C abstains without a principal and preserves archived quality evidence despite secondary paper prices', async () => {
   const matrix = [[.5, 0], [.5, 0]], probabilities = scoreMatrixMarkets(matrix);
   const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: RECOMMENDATION_BASELINE_C,
     pipelineHashV2: coherentProbabilityPipelineHash(), mode: 'identity' });
@@ -114,18 +114,21 @@ test('C paper selection preserves quality evidence even when the legacy payout s
     baselineVersion: RECOMMENDATION_BASELINE_C, selectorPolicy: 'payout-aware-v1', probabilityConfigurationHash: null, artifactHash: null } };
   const runtime = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), paperMode: true, researchRuntime, appOdds, deploymentC });
   const result = await runtime.prepare(job), c = result.decisions.find((value) => value.family === 'C');
-  assert.equal(result.inputSnapshot.forecasts.C.recommendation.selected, null);
-  assert.equal(c.action, 'BET'); assert.equal(c.selections.length, 1);
-  assert.equal(c.selections[0].quote.bookmaker, 'Other'); assert.equal(c.selections[0].quote.odds, 2.001);
-  assert.equal(c.dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
-  assert.equal(c.dataQualityBaselineClean, true); assert.deepEqual(c.dataQualityEvidence, { fixtureCheck: 'verified' });
+  const archived = result.inputSnapshot.forecasts.C;
+  assert.equal(archived.recommendation.selected, null);
+  assert.equal(c.action, 'ABSTAIN'); assert.equal(c.selections?.length ?? 0, 0);
+  assert.equal(c.reason, archived.recommendation.abstentionReason);
+  assert.ok(result.inputSnapshot.quotes.some(quote => quote.bookmaker === 'Other' && quote.odds === 2.001));
+  assert.equal(archived.decision.dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
+  assert.equal(archived.decision.dataQualityBaselineClean, true);
+  assert.deepEqual(archived.decision.dataQualityEvidence, { fixtureCheck: 'verified' });
   const funded = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), fundedMode: true, researchRuntime, appOdds, deploymentC });
   const fundedC = (await funded.prepare(job)).decisions.find((value) => value.family === 'C');
   assert.equal(fundedC.action, 'ABSTAIN');
-  assert.equal(fundedC.reason, 'confidence_unavailable');
+  assert.equal(fundedC.reason, c.reason);
   const dynamic = new ResearchRecommendationRuntime(db, { clock: () => new Date(at), dynamicMode: true, researchRuntime, appOdds, deploymentC });
   const dynamicC = (await dynamic.prepare(job)).decisions.find((value) => value.family === 'C');
-  assert.equal(dynamicC.action, 'ABSTAIN'); assert.equal(dynamicC.reason, 'dynamic_stake_unavailable');
+  assert.equal(dynamicC.action, 'ABSTAIN'); assert.equal(dynamicC.reason, c.reason);
   const canonicalQuotes = quotesFor('Best', 3.5);
   const canonicalRuntime = { ...researchRuntime, prepareNightly: async () => ({ job, status: 'upcoming', kickoffAt: row.date,
     quotes: canonicalQuotes, paperQuotes: canonicalQuotes, decisions: [decision] }) };
