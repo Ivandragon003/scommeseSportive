@@ -4,7 +4,7 @@ const { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } = 
 const { scoreMatrixMarkets } = require('../dist/research/GoalSettlement');
 const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
 const { coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } = require('../dist/research/CoherentProbabilityPipeline');
-const { RECOMMENDATION_MODEL_C, RECOMMENDATION_BASELINE_C } = require('../dist/research/ResearchRecommendationPolicy');
+const RECOMMENDATION_MODEL_C = 'C-legacy-team-unit-fixture', RECOMMENDATION_BASELINE_C = 'A-legacy-team-unit-fixture';
 const { researchHash } = require('../dist/research/ResearchStore');
 const at = '2026-10-30T10:00:00.000Z';
 const matrix = [[.2, .2, 0], [.6, 0, 0], [0, 0, 0]];
@@ -14,7 +14,7 @@ const decision = () => ({ modelVersion: RECOMMENDATION_MODEL_C, validated: true,
   probabilityConfigurationHash: config.hash, prospectiveMatrix: matrix, probabilityStages: { decision: scoreMatrixMarkets(matrix) } });
 const quote = (selection, market, side, odds, extra = {}) => ({ selection, market, side, odds, bookmaker: 'Book',
   source: 'odds_api', priceType: 'prematch', capturedAt: at, updatedAt: at, ...extra });
-const base = (quotes, extra = {}) => ({ decision: decision(), quotes, observedAt: at, allowedMarkets: ['1x2', 'cards_total'], ...extra });
+const base = (quotes, extra = {}) => ({ decision: decision(), quotes, observedAt: at, allowedMarkets: ['1x2', 'cards_total'], expectedIdentity: { modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C }, ...extra });
 const stat = (line = 4.5) => [quote(`cards_total_over_${line}`, 'cards_total', 'over', 2.5, { line }), quote(`cards_total_under_${line}`, 'cards_total', 'under', 1.8, { line })];
 const model = { source: 'PredictionService', version: `APP-A-${'a'.repeat(20)}`, codeHash: '1'.repeat(64), configHash: '2'.repeat(64), stateHash: '3'.repeat(64) };
 const specialist = (line = 4.5) => { const op = { selection: `cards_total_over_${line}`, marketName: 'Cards', marketCategory: 'yellow_cards', marketTier: 'CORE', confidence: 'MEDIUM', bookmakerOdds: 2.5, ourProbability: 60, expectedValue: 50, edge: 20, edgeNoVig: 10, kellyFraction: 3, suggestedStakePercent: 2, isValueBet: true, evReason: 'computed', calibrationSampleSize: 50 }; return { matchId: 'm1', opportunities: [op], packet: { policyVersion: 'match-page-recommendation-v1', asOf: at, model, odds: { source: 'odds_api', capturedAt: at, bookmakerBySelection: { [op.selection]: 'Book' } }, probabilities: { raw: {}, decision: { [op.selection]: .6 } } } }; };
@@ -24,10 +24,9 @@ test('configuration fingerprints goal and stays stable across specialist states'
   assert.equal(a.goalConfigurationHash, researchHash(a.goalConfiguration));
   assert.deepEqual(buildChallengerTeamConfiguration(decision(), { ...packet, model: { ...model, stateHash: '4'.repeat(64) } }), a);
 });
-test('C failure prevents specialist fallback and qualified booking points retain provenance', () => {
+test('unsupported statistics cannot enter the C goal catalog or replace a failed C forecast', () => {
   const result = buildChallengerTeamRecommendation(base(stat(), { specialist: specialist() }));
-  assert.equal(result.selected.quote.market, 'cards_total');
-  assert.equal(result.selected.qualificationEvidence.model.stateHash, model.stateHash);
+  assert.equal(result.selected, null); assert.ok(result.exclusions.market_not_supported > 0);
   const failed = buildChallengerTeamRecommendation(base(stat(), { decision: { ...decision(), validated: false }, specialist: specialist() }));
   assert.equal(failed.selected, null); assert.equal(failed.exclusions.challenger_technical_validation_failed, 1);
 });
@@ -48,34 +47,31 @@ test('goal markets require complete, coherent real bookmaker sheets without inpu
   assert.equal(buildChallengerTeamRecommendation(base(quotes.map((q, i) => i === 1 ? { ...q, bookmaker: 'Other' } : q))).selected, null);
   assert.equal(buildChallengerTeamRecommendation(base(quotes.map(q => ({ ...q, updatedAt: '2026-10-30T09:50:00Z' })))).selected, null);
 });
-test('DNB and quarter handicaps use exact payout and EU requires three outcomes', () => {
+test('the C goal catalog excludes DNB and European handicap while supported Asian payouts retain split outcomes', () => {
   const dnb = [quote('dnb_home', 'dnb', 'home', 2.5), quote('dnb_away', 'dnb', 'away', 3)];
-  const selected = buildChallengerTeamRecommendation(base(dnb, { allowedMarkets: ['dnb'] })).opportunities.find(o => o.quote.side === 'home');
-  assert.ok(selected); assert.ok(selected.payout.outcomes.find(o => o.status === 'VOID').probability > 0);
-  assert.ok(Math.abs(selected.expectedValue - 70) < 1e-8);
+  assert.equal(buildChallengerTeamRecommendation(base(dnb, { allowedMarkets: ['dnb'] })).selected, null);
   const asian = [quote('ahcp_0.25', 'asian_handicap', 'home', 3, { line: -.25 }), quote('ahcp_away_0.25', 'asian_handicap', 'away', 3, { line: .25 })];
   const ah = buildChallengerTeamRecommendation(base(asian, { allowedMarkets: ['asian_handicap'] })).opportunities.find(o => o.quote.side === 'home');
   assert.ok(ah); assert.ok(ah.payout.outcomes.find(o => o.status === 'HALF_LOST').probability > 0);
   assert.ok(Math.abs(ah.expectedValue - ah.payout.expectedValue * 100) < 1e-8);
   const eu = [quote('hcp_home-1', 'european_handicap', 'home', 5, { line: -1 }), quote('hcp_draw-1', 'european_handicap', 'draw', 3, { line: -1 }), quote('hcp_away+1', 'european_handicap', 'away', 3, { line: -1 })];
-  assert.equal(buildChallengerTeamRecommendation(base(eu.slice(0, 2), { allowedMarkets: ['european_handicap'] })).opportunities.length, 0);
+  assert.equal(buildChallengerTeamRecommendation(base(eu, { allowedMarkets: ['european_handicap'] })).opportunities.length, 0);
 });
-test('overlapping double chance prices are never normalized to sum to one', () => {
+test('double chance is outside the approved C recipe', () => {
   const dc = [quote('double_chance_1x', 'double_chance', '1x', 2), quote('double_chance_x2', 'double_chance', 'x2', 2), quote('double_chance_12', 'double_chance', '12', 2)];
   const result = buildChallengerTeamRecommendation(base(dc, { allowedMarkets: ['double_chance'] }));
-  assert.ok(result.opportunities.length > 0);
-  for (const op of result.opportunities) assert.equal(op.impliedProbabilityNoVig, 50);
+  assert.equal(result.opportunities.length, 0); assert.ok(result.exclusions.market_not_supported > 0);
 });
 
-test('refund probability cannot bypass the effective payout EV threshold', () => {
+test('refund probability cannot activate a market outside the approved C recipe', () => {
   const m = [[.99, .004], [.006, 0]], d = decision();
   d.prospectiveMatrix = m; d.probabilityStages.decision = scoreMatrixMarkets(m);
   const quotes = [quote('dnb_home', 'dnb', 'home', 2), quote('dnb_away', 'dnb', 'away', 2)];
   const result = buildChallengerTeamRecommendation(base(quotes, { decision: d, allowedMarkets: ['dnb'] }));
-  assert.equal(result.selected, null); assert.ok(result.exclusions.payout_ev_below_threshold > 0);
+  assert.equal(result.selected, null); assert.ok(result.exclusions.market_not_supported > 0);
 });
 
-test('BTTS, team totals, goal totals and complete European handicap derive from the C matrix', () => {
+test('only approved goal totals enter C; other app markets remain outside its recipe', () => {
   const d = decision(), m = [[.1, .05, .05], [.05, .05, .25], [.05, .25, .15]];
   d.prospectiveMatrix = m; d.probabilityStages.decision = scoreMatrixMarkets(m);
   const sheets = [
@@ -89,6 +85,7 @@ test('BTTS, team totals, goal totals and complete European handicap derive from 
   ];
   for (const sheet of sheets) {
     const result = buildChallengerTeamRecommendation(base(sheet, { decision: d, allowedMarkets: [sheet[0].market] }));
+    if (sheet[0].market !== 'totals') { assert.equal(result.opportunities.length, 0); continue; }
     assert.ok(result.opportunities.length > 0, `${sheet[0].market}: ${JSON.stringify(result.exclusions)}`);
     for (const op of result.opportunities) {
       assert.equal(op.qualificationEvidence.source, 'C_goal');
@@ -97,7 +94,7 @@ test('BTTS, team totals, goal totals and complete European handicap derive from 
   }
 });
 
-test('real app quote adapter aliases preserve statistical coverage and reject conflicting prices', async () => {
+test('the app quote adapter keeps real statistical prices available to A without entering the C recipe', async () => {
   const { AppPredictionOddsService } = require('../dist/services/AppPredictionOddsService');
   const { OddsApiService } = require('../dist/services/OddsApiService');
   const mapper = new OddsApiService('mapping-only');
@@ -112,8 +109,8 @@ test('real app quote adapter aliases preserve statistical coverage and reject co
   assert.ok(loaded.quotes.some(q => q.selection === 'cardsTotalOver45'));
   const s = specialist();
   const result = buildChallengerTeamRecommendation(base(loaded.quotes, { specialist: s }));
-  assert.equal(result.selected.quote.market, 'cards_total');
-  assert.equal(result.selected.quote.bookmaker, 'Book');
+  assert.equal(result.selected, null); assert.ok(result.exclusions.market_not_supported > 0);
+  assert.ok(loaded.quotes.every(q => q.bookmaker === 'Book' && q.source === 'odds_api'));
   const conflict = loaded.quotes.map(q => q.selection === 'cardsTotalOver45' ? { ...q, odds: 3 } : q);
   assert.equal(buildChallengerTeamRecommendation(base(conflict, { specialist: s })).selected, null);
 });

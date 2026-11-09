@@ -6,11 +6,13 @@ import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
 import { normalizeScoreMatrix, scoreMatrixMarkets, settleGoalQuote } from './GoalSettlement';
-import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
+import { isChallengerTeamMarketPolicy, challengerAllowedMarkets, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
 import { settleAppRecommendationQuote } from './AppRecommendationQuotes';
 import { CoherentCalibrationMode, CoherentCalibrationProfile, COHERENT_PROBABILITY_PROTOCOL, applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash } from './CoherentProbabilityPipeline';
 import { researchHash } from './ResearchStore';
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
+import { buildJointHeadProbabilityConfiguration } from './JointHeadConfiguration';
+import { jointHeadMarkets, restoreJointHeadSpread } from './JointHeadProbability';
 import { PreparedT15Job, quoteFreshnessReason, safeOddsFailureCode, T15Decision, T15Job, T15Scheduler, T15TickSummary } from './T15Scheduler';
 import { reconcileResearchMonitoring } from './ResearchMonitoring';
 import { rollbackUnhealthyChampion } from './ResearchLifecycle';
@@ -151,9 +153,9 @@ export async function settleResearchBets(db: RuntimeDb): Promise<{ checked: numb
     if (homeGoals === null || awayGoals === null) { summary.unresolved++; continue; }
     const quote = bet.snapshot?.quote;
     const appExecution = (!!bet.executionDecisionId || bet.snapshot?.decisionMode === 'MANUAL')
-      && (bet.family === 'A' || bet.family === 'C' && (bet.snapshot?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
-        || bet.snapshot?.probabilityConfiguration?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
-        || bet.snapshot?.quote?.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY));
+      && (bet.family === 'A' || bet.family === 'C' && (isChallengerTeamMarketPolicy(bet.snapshot?.marketPolicyVersion)
+        || isChallengerTeamMarketPolicy(bet.snapshot?.probabilityConfiguration?.marketPolicyVersion)
+        || isChallengerTeamMarketPolicy(bet.snapshot?.quote?.marketPolicyVersion)));
     const outcome = appExecution ? settleAppRecommendationQuote(quote, { ...match, home_goals: homeGoals, away_goals: awayGoals })
       : settleGoalQuote(quote, homeGoals, awayGoals);
     if (outcome.returnMultiplier == null) { summary.unresolved++; continue; }
@@ -282,7 +284,7 @@ export class ResearchRuntime {
   /** One approved C tuple is held for the entire batch; A's input and engine are untouched. */
   pinChallengerDeployment(deployment: ChallengerExecutionDeployment): void {
     if (!/^C-[a-zA-Z0-9._-]{1,128}$/.test(deployment.modelVersion) || !deployment.baselineVersion?.trim()
-      || !['canonical-binary-v1', 'payout-aware-v1'].includes(deployment.selectorPolicy)
+      || !['canonical-binary-v1', 'payout-aware-v1', 'c-resolved-engine-ranking-v1'].includes(deployment.selectorPolicy)
       || [deployment.probabilityConfigurationHash, deployment.artifactHash]
         .some((hash) => hash !== null && !/^[a-f0-9]{64}$/i.test(hash))) throw new Error('Invalid pinned C deployment');
     this.deploymentC = Object.freeze({ ...deployment });
@@ -447,6 +449,9 @@ export class ResearchRuntime {
     const input = buildForecastInput(this.historyCache.rows, researchMatchFromRow(row), snapshotAt);
     const quotes = researchQuotesFromEvent(event, feed.capturedAt).map((quote) => this.nightly
       ? { ...quote, priceType: 'prematch' as const } : quote);
+    const allSheetsC = researchQuotesFromEvent(event, feed.capturedAt, { allSheets: true })
+      .filter((quote) => !quoteFreshnessReason(quote, Date.parse(snapshotAt)))
+      .map((quote) => this.nightly ? { ...quote, priceType: 'prematch' as const } : quote);
     const paperQuotes = this.paperMode && this.nightly ? researchQuotesFromEvent(event, feed.capturedAt, { allSheets: true })
       .map((quote) => ({ ...quote, priceType: 'prematch' as const })) : undefined;
     const context = inferenceOnlyC ? await this.modelsForPreviewC()
@@ -534,18 +539,27 @@ export class ResearchRuntime {
       if (!failure && mode === 'isotonic_1x2' && !profile) failure = 'validated_calibration_unavailable';
       if (!failure) {
         try {
+          const pipelineQuotes = family === 'C' && artifact?.candidateKind === 'joint_head_v1' ? allSheetsC : quotes;
           const pipeline = applyCoherentProbabilityPipeline({ matrix, rawProbabilities: probabilities, profile,
-            quotes, forecastAt: snapshotAt, mode, temperature: calibrationEvidence?.probabilityTemperature });
+            quotes: pipelineQuotes, forecastAt: snapshotAt, mode, temperature: calibrationEvidence?.probabilityTemperature });
           stages.calibrated = pipeline.calibrated; stages.decision = pipeline.decision;
           probabilities = pipeline.decision; matrix = pipeline.matrix;
+          if (family === 'C' && artifact?.candidateKind === 'joint_head_v1') {
+            matrix = restoreJointHeadSpread(matrix);
+            probabilities = jointHeadMarkets(matrix, pipelineQuotes, pipeline.decision);
+            stages.decision = probabilities;
+          }
         } catch { failure = 'validated_calibration_unavailable'; }
       }
-      let probabilityConfiguration: ReturnType<typeof buildProbabilityConfiguration> | null = null;
+      let probabilityConfiguration: { descriptor: any; hash: string } | null = null;
       if (!failure) {
         try {
-          probabilityConfiguration = buildProbabilityConfiguration({ family, baselineVersion: input.baselineVersion,
+          const configurationInput = { family, baselineVersion: input.baselineVersion,
             pipelineHashV2: calibrationEvidence.pipelineHashV2, mode,
-            temperature: calibrationEvidence.probabilityTemperature, profile });
+            temperature: calibrationEvidence.probabilityTemperature, profile };
+          probabilityConfiguration = family === 'C' && artifact?.candidateKind === 'joint_head_v1'
+            ? buildJointHeadProbabilityConfiguration(configurationInput, (artifact.jointHeadIdentity as any).classifierHash)
+            : buildProbabilityConfiguration(configurationInput);
           if (family === 'C' && this.deploymentC && (this.deploymentC.baselineVersion !== input.baselineVersion
             || this.deploymentC.probabilityConfigurationHash !== null
               && this.deploymentC.probabilityConfigurationHash !== probabilityConfiguration.hash)) {
@@ -615,6 +629,11 @@ export class ResearchRuntime {
         ...(this.nightly ? { minEv: this.nightly.minEv, minPrudentialEv: this.nightly.minPrudentialEv } : {}) });
       const selected = result?.decision;
       decisions.push({ family, modelVersion, validated: !failure, action: selected ? 'BET' : 'ABSTAIN',
+        ...(family === 'C' && artifact?.candidateKind === 'joint_head_v1' ? { opportunityGuard: artifact.opportunityGuard,
+          opportunityGuardQuality: { evidenceSource: 'forecast_input', evidenceAsOf: snapshotAt,
+            hasXg: (familyInput.features[6] ?? 0) >= .5 && (familyInput.features[22] ?? 0) >= .5,
+            hasPlayerData: false, hasRefereeData: false,
+            teamSampleSize: { home: familyInput.features[1] ?? 0, away: familyInput.features[17] ?? 0 } } } : {}),
         ...(family === 'C' && artifact?.dataQualityPolicyHash !== undefined ? {
           dataQualityPolicyHash: artifact.dataQualityPolicyHash, dataQualityBaselineClean: !!challengerDataQuality,
           dataQualityEvidence: challengerDataQuality?.evidence ?? null,
@@ -825,13 +844,19 @@ export class ResearchRuntime {
       const predicted = predictHybrid(challengerInput, artifact);
       const pipeline = applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
         profile, quotes, forecastAt: snapshotAt, mode, temperature: artifact.probabilityTemperature as number | undefined });
-      probabilityConfigurationHash = buildProbabilityConfiguration({ family: 'C', baselineVersion: input.baselineVersion,
+      const configurationInput = { family: 'C' as const, baselineVersion: input.baselineVersion,
         pipelineHashV2: artifact.pipelineHashV2 as string, mode, profile,
-        temperature: artifact.probabilityTemperature as number | undefined }).hash;
+        temperature: artifact.probabilityTemperature as number | undefined };
+      probabilityConfigurationHash = (artifact.candidateKind === 'joint_head_v1'
+        ? buildJointHeadProbabilityConfiguration(configurationInput, (artifact.jointHeadIdentity as any).classifierHash)
+        : buildProbabilityConfiguration(configurationInput)).hash;
+      const finalMatrix = artifact.candidateKind === 'joint_head_v1' ? restoreJointHeadSpread(pipeline.matrix) : pipeline.matrix;
+      const finalProbabilities = artifact.candidateKind === 'joint_head_v1'
+        ? jointHeadMarkets(finalMatrix, quotes, pipeline.decision) : pipeline.decision;
       checks.inference = true;
       checks.calibrationCompatible = true;
-      checks.finiteProbabilities = Object.values(pipeline.decision).every((value) => Number.isFinite(value) && value >= 0 && value <= 1);
-      checks.coherentProbabilities = coherentMatrixProbabilities(pipeline.matrix, pipeline.decision);
+      checks.finiteProbabilities = Object.values(finalProbabilities).every((value) => Number.isFinite(value) && value >= 0 && value <= 1);
+      checks.coherentProbabilities = coherentMatrixProbabilities(finalMatrix, finalProbabilities);
     } catch { errorCode = 'challenger_compatibility_probe_failed'; }
     try {
       await this.db.saveSchedulerRun({ schedulerName: 'research_model_check', trigger: 'remote', startedAt: snapshotAt,

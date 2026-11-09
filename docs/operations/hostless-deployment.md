@@ -82,17 +82,22 @@ Non registra il modello nel pacchetto e non certifica la qualità dei dati reali
 Prima di distribuire main confrontare il manifest della baseline compilata con
 quello richiesto dalla release C: build, health e CI non dimostrano questa
 compatibilità. Il pacchetto contiene il solo `backend/current-models/challenger.json`,
-con identità `C-271c9573ba485956` e hash dichiarati in `CurrentChallengerRelease.ts`.
-La proiezione delle foglie usa i supporti del training; il preparatore
-`prepare-current-challenger-release.js` conserva la matematica della candidata
-esatta con metadata di scelta operativa esplicita, senza attestare validazione
-scientifica. Non modificare l'identità dell'artefatto o disabilitare le guardie
+con identità e hash dichiarati in `CurrentChallengerRelease.ts`. Il preparatore
+`prepare-opportunity-guard-release.cjs` riusa esattamente classificatore e
+profili 2026 di opportunity_guard, senza nuovi fit. Il pacchetto conserva
+false le attestazioni di validazione indipendente. Prima dell'adozione
+verificare la parità operativa sulle 448 partite 2026 del replay e il contratto
+`c-opportunity-guard-markets-v1`: soltanto 1X2, totale gol 2,5 e AH. La Nightly
+C considera soltanto la principale per partita; A resta invariato. Non modificare l'identità dell'artefatto o disabilitare le guardie
 per renderlo compatibile.
 
 L'attivazione usa `replace-current-challenger.js`: prima il piano senza
 scritture, poi l'applicazione esplicita con backup JSON mirato del registro,
 hash del piano e verifica dello stato concorrente. Il comando registra la release
-e l'evento `ADOPT` con evidenza `explicit-current-challenger-replacement-v1`,
+e l'evento `ADOPT` con
+`evidence.protocol=explicit-current-challenger-replacement-v1` e
+`evidence.releaseProtocol=explicit-user-opportunity-guard-release-v1`.
+Quest'ultimo corrisponde al `releaseAdoption.protocol` dell'artefatto,
 senza dossier candidato o GO scientifico fabbricato. Il JSON nel pacchetto non
 viene importato automaticamente e non dimostra quale deployment remoto sia attivo.
 La [guida Research](../research-platform.md#attivazione-operativa-esplicita)

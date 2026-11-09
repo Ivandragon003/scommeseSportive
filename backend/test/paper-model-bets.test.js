@@ -62,21 +62,23 @@ function prepared(job, count = 1) {
       probabilityConfiguration: config(family), probabilityConfigurationHash: researchHash(config(family)) })) };
 }
 
-for (const count of [5, 10, 20, 50, 125]) test(`paper commits ${count} selections per model/match without count or capital gates`, async () => {
+for (const count of [5, 10, 20, 50, 125]) test(`paper commits ${count} A selections and one C primary per match without capital gates`, async () => {
   const f = await setup();
   try {
     const before = await f.fingerprint(), jobs = (await f.claim()).jobs, commits = jobs.map(job => prepared(job, count));
     const result = await f.recommendations.commitBatch(commits);
-    assert.equal(result.bets.length, count * 4); assert.equal(result.decisions.length, 4);
+    assert.equal(result.bets.length, (count + 1) * 2); assert.equal(result.decisions.length, 4);
+    assert.equal(result.bets.filter(row => row.family === 'A').length, count * 2);
+    assert.equal(result.bets.filter(row => row.family === 'C').length, 2);
     assert.ok(result.bets.every(row => row.stakeCents === 100 && row.stakeUnits === 1 && row.id.startsWith('paper:')));
     assert.equal(await f.fingerprint(), before);
     assert.equal((await f.research.listBets()).length, 0);
     assert.equal((await f.recommendations.listDecisionViews()).length, 0);
     const overview = paperBetOverview(await f.recommendations.listPaperBets());
-    assert.equal(overview.totalStakeUnits, count * 4); assert.equal(overview.openCount, count * 4); assert.equal(overview.roiPercent, null);
-    assert.equal((await f.recommendations.getRunMetrics('paper-test', f.registered.hash)).registeredBets, count * 4);
-    const again = await f.recommendations.commitBatch(commits); assert.equal(again.bets.length, count * 4);
-    assert.equal((await f.recommendations.listPaperBets()).length, count * 4); assert.equal(await f.fingerprint(), before);
+    assert.equal(overview.totalStakeUnits, (count + 1) * 2); assert.equal(overview.openCount, (count + 1) * 2); assert.equal(overview.roiPercent, null);
+    assert.equal((await f.recommendations.getRunMetrics('paper-test', f.registered.hash)).registeredBets, (count + 1) * 2);
+    const again = await f.recommendations.commitBatch(commits); assert.equal(again.bets.length, (count + 1) * 2);
+    assert.equal((await f.recommendations.listPaperBets()).length, (count + 1) * 2); assert.equal(await f.fingerprint(), before);
     await assert.rejects(f.client.execute('UPDATE paper_model_bets SET stake_cents=100'), /immutable/);
     await assert.rejects(f.client.execute('DELETE FROM paper_model_bets'), /immutable/);
   } finally { await f.close(); }
@@ -90,13 +92,14 @@ test('paper deduplicates semantic aliases, verifies keys and selects the best qu
     const forged = { ...base, selectionKey: 'forged', quote: { ...base.quote, odds: 3 } };
     const synthetic = { ...base, quote: { ...base.quote, odds: 4, source: 'synthetic' } };
     commit.inputSnapshot.quotes.push(best.quote, forged.quote, synthetic.quote);
-    for (const decision of commit.decisions) decision.selections = [forged, base, synthetic, best];
+    for (const decision of commit.decisions) { Object.assign(decision, best); decision.selections = [forged, base, synthetic, best]; }
     const result = await f.recommendations.commitBatch([commit]);
     assert.equal(result.bets.length, 2); assert.ok(result.bets.every(row => row.odds === 2.1));
     const later = await f.recommendations.registerPolicy({ ...policy, revision: 'different-policy-same-candidates' });
     const secondJob = (await f.claim(later)).jobs[0]; assert.ok(secondJob);
     const repeat = await f.recommendations.commitBatch([prepared(secondJob)]);
-    assert.equal(repeat.bets.length, 0); assert.ok(repeat.decisions.every(row => row.reason === 'paper_selection_already_recorded'));
+    assert.equal(repeat.bets.length, 0); assert.equal(repeat.decisions.find(row => row.family === 'A').reason, 'paper_selection_already_recorded');
+    assert.equal(repeat.decisions.find(row => row.family === 'C').reason, 'challenger_match_already_recorded');
     assert.equal((await f.recommendations.listPaperBets()).length, 2);
   } finally { await f.close(); }
 });
@@ -117,7 +120,7 @@ test('paper settlement handles void and quarter outcomes, repeated and concurren
     assert.ok(Math.abs(overview.winRatePercent - 100 / 3) < 1e-10); assert.equal(overview.history.at(-1).profitUnits, -1);
     const second = await f.recommendations.registerPolicy({ ...policy, revision: 'loss-does-not-block' });
     const more = await f.recommendations.commitBatch([prepared((await f.claim(second)).jobs[0], 5)]);
-    assert.equal(more.bets.length, 2); assert.equal(await f.fingerprint(), before);
+    assert.equal(more.bets.length, 1); assert.equal(await f.fingerprint(), before);
     await assert.rejects(f.client.execute('DELETE FROM paper_model_settlements'), /immutable/);
   } finally { await f.close(); }
 });
@@ -130,7 +133,7 @@ test('paper runtime settlement leaves missing statistics pending and settles goa
     const shots = selection(0, { market: 'shots', selection: 'shots_total_over_20.5', line: 20.5 });
     const cards = selection(0, { market: 'cards_total', selection: 'cards_total_over_4.5', line: 4.5 });
     commit.inputSnapshot.quotes = [quarter.quote, shots.quote, cards.quote];
-    commit.decisions[0].selections = [quarter, shots, cards]; commit.decisions[1].selections = [quarter];
+    commit.decisions[0].selections = [quarter, shots, cards]; Object.assign(commit.decisions[1], quarter); commit.decisions[1].selections = [quarter];
     await f.recommendations.commitBatch([commit]);
     const match = { match_id: f.fixtures[0].matchId, date: KICKOFF, home_goals: 1, away_goals: 1, source: 'fixture',
       home_yellow_cards: 1, away_yellow_cards: 2, home_red_cards: 1, away_red_cards: 0, home_shots: null, away_shots: 10 };
@@ -152,7 +155,7 @@ test('paper units preserve half-win and three-decimal odds precision in profit, 
     const commit = prepared((await f.claim()).jobs[0], 2);
     const children = [selection(0, { odds: 2.01 }), selection(1, { odds: 2.123 })];
     commit.inputSnapshot.quotes = children.map(child => child.quote);
-    for (const decision of commit.decisions) decision.selections = children;
+    for (const decision of commit.decisions) { Object.assign(decision, children[0]); decision.selections = children; }
     const result = await f.recommendations.commitBatch([commit]);
     const [halfWon, won] = result.bets.filter(row => row.family === 'A');
     const halfMultiplier = (halfWon.odds + 1) / 2;
@@ -170,7 +173,7 @@ test('paper units preserve half-win and three-decimal odds precision in profit, 
     close(overview.returnUnits, 3.628); close(overview.profitUnits, 1.628); close(overview.roiPercent, 81.4);
     close(overview.history[0].profitUnits, .505); close(overview.history[1].profitUnits, 1.628);
     close(overview.portfolios.find(row => row.family === 'A').profitUnits, 1.628);
-    assert.equal(overview.wonCount, 2); assert.equal(overview.openCount, 2);
+    assert.equal(overview.wonCount, 2); assert.equal(overview.openCount, 1);
   } finally { await f.close(); }
 });
 
@@ -213,8 +216,8 @@ test('paper records with negative funded balance and simultaneous retries withou
     });
     const before = await f.fingerprint(), commit = prepared((await f.claim()).jobs[0], 20);
     const retries = await Promise.all([f.recommendations.commitBatch([commit]), f.recommendations.commitBatch([commit])]);
-    assert.ok(retries.every(result => result.bets.length === 40));
-    assert.equal((await f.recommendations.listPaperBets()).length, 40);
+    assert.ok(retries.every(result => result.bets.length === 21));
+    assert.equal((await f.recommendations.listPaperBets()).length, 21);
     assert.equal((await f.research.listPortfolios()).find(row => row.family === 'A').availableCents, -500);
     assert.equal(await f.fingerprint(), before);
     const changed = structuredClone(commit); changed.decisions[0].selections[0].probability = .7;
@@ -233,7 +236,7 @@ test('paper policy is explicit and cannot carry a balance, exposure, count cap, 
   } finally { await f.close(); }
 });
 
-test('paper ignores existing A/C funded bets for admission and preserves their records and ledger', async () => {
+test('paper keeps A admission independent and blocks C with an existing funded match bet', async () => {
   const f = await setup({ matches: 1, funded: true });
   try {
     for (const family of ['A', 'C']) {
@@ -246,7 +249,7 @@ test('paper ignores existing A/C funded bets for admission and preserves their r
     }
     const before = await f.fingerprint(), jobs = (await f.claim()).jobs;
     assert.equal(jobs.length, 1);
-    assert.equal((await f.recommendations.commitBatch([prepared(jobs[0], 5)])).bets.length, 10);
+    assert.equal((await f.recommendations.commitBatch([prepared(jobs[0], 5)])).bets.length, 5);
     assert.equal(await f.fingerprint(), before);
     assert.equal((await f.research.listBets()).length, 2);
   } finally { await f.close(); }
@@ -347,13 +350,13 @@ test('paper diagnostic claiming alone ignores old match bets, preserving frozen 
   } finally { await f.close(); }
 });
 
-test('new nightly attempts do not replay a selection with irrelevant metadata but preserve distinct new lines and A/C', async () => {
+test('new nightly attempts keep A distinct lines and prevent a second C bet for the match', async () => {
   const f = await setup({ matches: 1 });
   try {
     const before = await f.fingerprint(), firstJob = (await f.claim()).jobs[0];
     const first = prepared(firstJob), home = selection(0, { market: '1x2', selection: 'homeWin', side: 'home', line: undefined });
     first.inputSnapshot.quotes = [home.quote];
-    first.decisions.forEach(decision => { decision.selections = [home]; });
+    first.decisions.forEach(decision => { Object.assign(decision, home); decision.selections = [home]; });
     assert.equal((await f.recommendations.commitBatch([first])).bets.length, 2);
     const retry = await f.recommendations.claimBatch({ policyHash: f.registered.hash, runId: 'next-nightly',
       windowStartAt: START, windowEndAt: END, fixtures: f.fixtures });
@@ -366,13 +369,13 @@ test('new nightly attempts do not replay a selection with irrelevant metadata bu
       line: 7, team: 'away', playerName: 'Ignored metadata', bookmaker: 'Other actual bookmaker' });
     const distinct = selection(1);
     next.inputSnapshot.quotes = [equivalent.quote, distinct.quote];
-    next.decisions.forEach(decision => { decision.selections = [equivalent, distinct]; });
-    assert.equal((await f.recommendations.commitBatch([next])).bets.length, 2);
+    next.decisions.forEach(decision => { Object.assign(decision, equivalent); decision.selections = [equivalent, distinct]; });
+    assert.equal((await f.recommendations.commitBatch([next])).bets.length, 1);
     const all = await f.recommendations.listPaperBets();
-    assert.equal(all.length, 4);
+    assert.equal(all.length, 3);
     for (const family of ['A', 'C']) {
       assert.equal(all.filter(row => row.family === family && row.market === '1x2').length, 1);
-      assert.equal(all.filter(row => row.family === family && row.market === 'totals').length, 1);
+      assert.equal(all.filter(row => row.family === family && row.market === 'totals').length, family === 'A' ? 1 : 0);
     }
     assert.equal(await f.fingerprint(), before);
   } finally { await f.close(); }

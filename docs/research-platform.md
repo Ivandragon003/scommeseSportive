@@ -2,7 +2,11 @@
 
 Questa guida descrive strumenti e protocollo del repository. L'algoritmo è nel
 [modello C](models/MODEL-C.md); gli esperimenti falliti sono nel
-[catalogo](FORMULARIO-scelte-scartate.md). La baseline research è una
+[catalogo](FORMULARIO-scelte-scartate.md). Le sezioni sui replay e sugli
+esperimenti conservano il contesto dei rispettivi studi: «C operativo» e i giudizi di nonadozione in quei confronti indicano la
+release precedente e lo stato dello studio originario. La scelta operativa
+successiva di opportunity_guard è descritta nelle sezioni di rilascio e non
+riscrive le prove. La baseline research è una
 ricostruzione cronologica basata sui componenti correnti di A, non una replica
 dell’intero A operativo. Training, valutazione, registrazione e adozione sono
 operazioni diverse.
@@ -20,7 +24,7 @@ operazioni diverse.
 | `research-lifecycle.js finalize-coherent` | Nuovi artefatti locali con calibrazione coerente |
 | `research-experiments.js` | Registro diagnostico su SQLite locale esplicito; rifiuta URL remoti |
 | `research-lifecycle.js register/register-candidate/review-challenger/rollback-health` | Accede al database e può modificare registro o stato C; la review scientifica conserva il proprio gate |
-| `prepare-current-challenger-release.js` | Clona la candidata esatta con metadata di scelta operativa esplicita; non allena e non scrive sul database |
+| `prepare-opportunity-guard-release.cjs` | Impacchetta classificatore e profili 2026 già stimati, con provenienza e hash; non allena e non scrive sul database |
 | `replace-current-challenger.js` | Piano senza scritture oppure applicazione esplicita con backup, hash e controllo concorrenza; registra e attiva la sola release corrente |
 | `research.js register-market` | Registra benchmark e stato del mercato sul database |
 | `enable-challenger-team-markets.js` | Piano in sola lettura; applicazione esplicita e separata per registrare i mercati C mancanti come sperimentali |
@@ -32,14 +36,14 @@ dimostra che l'ultimo training o l'adozione siano riusciti.
 
 ## Copertura squadra C e registro di ricerca
 
-La composizione `c-team-markets-v1` riguarda la release corrente con selettore
-canonico e mantiene distinta la configurazione gol C dallo specialista A per
-le statistiche. Per le nuove policy della release corrente i mercati supportati
-sono definiti dal codice, con `marketEligibilityVersion=code-supported-markets-v1`.
-Il registro qualitativo non determina più l'operatività C corrente e l'interfaccia
-mostra il modello e le misure disponibili, senza badge di certificazione.
-Quote reali, campioni e calibrazione restano necessari; le categorie bloccate
-rimangono tali. Vedi [Modello C](models/MODEL-C.md).
+La release `opportunity_guard` usa `c-resolved-engine-ranking-v1` e il
+contratto `c-opportunity-guard-markets-v1`: soltanto 1X2, totale gol 2,5 e
+handicap asiatici. Non compone le opportunità statistiche A. A conserva il
+proprio catalogo e la propria matematica. Le policy correnti definiscono
+l'ammissibilità nel codice (`code-supported-markets-v1`); il registro
+qualitativo non abilita mercati ulteriori. Quote reali, campioni e calibrazione
+restano necessari. La precedente composizione `c-team-markets-v1` rimane
+interpretabile per gli archivi. Vedi [Modello C](models/MODEL-C.md).
 
 I comandi seguenti restano per compatibilità degli studi e delle policy precedenti;
 non servono ad abilitare i mercati delle nuove policy C correnti e non promuovono
@@ -120,48 +124,50 @@ non costituiscono adozione.
 
 ## Preparazione della ricetta e della release
 
-La ricetta di base usa 40 feature, due regressori Poisson, 120 alberi per lato,
-profondità 5, learning rate 0,05, seed 20261027, 10 iterazioni Newton, peso ML
-0,75 e temperatura 0,8. La release `C-271c9573ba485956` applica inoltre la
-proiezione delle foglie descritta sotto e la calibrazione coerente ristimata.
-`prepare_current_challenger.py` prepara il fit di base: da solo non riproduce
-la release proiettata.
+La release corrente `opportunity_guard` riusa esattamente il classificatore
+congiunto e i profili del periodo 2026 già stimati nello studio congelato,
+senza nuovi fit. Non applica la vecchia proiezione delle foglie dei regressori.
+La testa a sei classi redistribuisce la matrice A, con peso ML 0,75 e
+temperatura 0,8; seguono calibrazione coerente 1X2, blending con terne reali
+complete e ripristino condizionale della dispersione con esponente 0,8.
+Il filtro sulle opportunità usa i coefficienti presequenziali originali e
+il ranking/percentuale dinamica nativi del motore condiviso.
+
+Con build e input congelati verificati, usare una directory di output nuova:
 
 ```powershell
-python backend/ml/prepare_current_challenger.py --input <nuovo-dataset.json> --split-plan <season-plan.json> --output <nuova-cartella-training>
-node backend/scripts/research-lifecycle.js finalize-coherent --artifact <training/artifact.json> --report <training/report.json> --out <nuova-cartella-coerente> --mode isotonic_1x2
-node --test backend/test/current-baseline-core.test.js backend/test/current-challenger-release.test.js
+node backend/scripts/prepare-opportunity-guard-release.cjs --source <artefatto-base.json> --joint <cartella-studio-testa-congiunta> --guard <cartella-studio-opportunity-guard> --output <nuova-cartella-release> --created-at <timestamp-UTC>
+node --test backend/test/current-baseline-core.test.js backend/test/current-challenger-release.test.js backend/test/joint-head-probability.test.js
 ```
 
-Il manifest del dataset deve coincidere integralmente con la build corrente;
-qualità ed esclusioni vengono ricontrollate. Timestamp e provenienza entrano
-nella nuova identità. Conservare dataset, piano, report e artefatti con hash:
-non sovrascrivere o rietichettare il file distribuito. I test della release
-verificano il JSON canonico in `backend/current-models`, senza registrare nuovi
-output. Registrazione, attivazione operativa e review scientifica restano
-operazioni distinte.
+Il preparatore verifica provenienza, baseline, schema, cronologia e hash,
+produce una nuova identità deterministica e i relativi manifest. Non modifica
+il manifest della release nel sorgente, non registra modelli e non attiva C.
+Conservare input, piano, report e hash; non rietichettare vecchi pesi per
+aggirare incompatibilità. Prima dell'adozione verificare la parità operativa
+sulle 448 partite 2026 del replay: matrici raw/calibrate/decision, opportunità,
+filtro, ranking, principale e percentuale dinamica. La verifica non usa nuovi
+prezzi provider e non certifica eseguibilità live delle quote di chiusura.
 
-Un esperimento cambia soltanto il fattore dichiarato, con ricetta, campione e
-calibrazione comparabili. `--include-c906-recipe` è un rifit diagnostico
-supportato dal trainer controllato: non retrodata un artefatto storico e non
-lo rende adottabile.
+`prepare_current_challenger.py` rimane uno strumento per rifit diagnostici
+della precedente ricetta a due regressori, non il preparatore della release
+corrente. Un esperimento conserva ricetta, campioni e calibrazione dichiarati;
+`--include-c906-recipe` non retrodata un artefatto né lo rende adottabile.
 
 ### Attivazione operativa esplicita
 
-La release `C-271c9573ba485956` deriva dalla candidata esatta
-`C-f6d4ac23de48fbfa`: alberi, calibrazione e probabilità restano identici.
-`prepare-current-challenger-release.js` richiede sorgente e candidata con gli
-hash previsti, controlla la pipeline corrente e scrive un nuovo pacchetto con
-identità deterministica e metadata `releaseAdoption`. L'artefatto mantiene
-`productionValidated: false` e `independentEvidence: false`. Non è un nuovo fit
-e non trasforma una diagnostica in validazione scientifica.
+Il pacchetto corrente conserva esattamente classificatore e profili 2026
+della ricetta scelta. La preparazione non è un training e mantiene
+`productionValidated: false` e `independentEvidence: false`.
+La scelta operativa esplicita non equivale al superamento del gate scientifico.
 
 `replace-current-challenger.js` separa piano e applicazione. Prima di scrivere
 verifica il backup JSON mirato del registro, hash del piano e stato persistente;
 ricontrolla la concorrenza nella transazione. Registra l'evento `ADOPT` con
-`candidate_id` nullo ed evidenza `explicit-current-challenger-replacement-v1`:
-questa provenienza dichiara la scelta dell'utente senza simulare un GO
-prospettico. Lo stato remoto si verifica dopo l'applicazione, non dalla presenza
+`candidate_id` nullo ed `evidence.protocol=explicit-current-challenger-replacement-v1`.
+Il campo `releaseAdoption.protocol` dell'artefatto e `evidence.releaseProtocol`
+valgono `explicit-user-opportunity-guard-release-v1`: dichiarano la scelta
+dell'utente senza simulare un GO prospettico. Lo stato remoto si verifica dopo l'applicazione, non dalla presenza
 del JSON nel pacchetto. Procedura nella
 [guida hosting](operations/hostless-deployment.md#compatibilità-del-modello-registrato-prima-del-rilascio).
 
@@ -171,7 +177,7 @@ Tre errori tecnici indipendenti sospendono il nuovo deployment; non riattivano
 una release precedente. Le candidature sottoposte a review scientifica mantengono
 il gate prospettico descritto sotto.
 
-### Proiezione delle foglie della release corrente
+### Proiezione delle foglie della release precedente
 
 La trasformazione elimina dagli alberi l'effetto diretto di `home_sample` e
 `away_sample`, senza rifare il training. Per ogni albero raggruppa le foglie
@@ -212,7 +218,7 @@ non sono una ricevuta dell'attivazione operativa corrente.
 ### Evidenza sulla proiezione
 
 Il confronto cronologico applica la stessa regola a cinque coppie di ricette
-riaddestrate, una per anno dal 2021 al 2025. I pesi della release corrente non
+riaddestrate, una per anno dal 2021 al 2025. I pesi del singolo file operativo non
 sono retrodatati. Per ogni fold, il training usa forecast e risultati disponibili
 prima del primo marzo; marzo–aprile restano riservati; maggio–giugno calibrano
 entrambi i bracci con label disponibili prima del primo luglio. Il test copre
@@ -247,8 +253,9 @@ Sono cinque finestre, non cinque calendari completi: il 2025/26 termina il
 sono proxy; i prezzi closing non provano la disponibilità Nightly. La regola è
 stata scelta su sviluppo già consultato: gli errori medi inferiori non
 dimostrano superiorità futura, beneficio stabile nelle cinque leghe o ROI/CLV.
-L'adozione operativa è la scelta esplicita dell'utente e non il superamento di
-un gate scientifico.
+La precedente adozione operativa della proiezione era una scelta esplicita
+dell'utente, distinta dal gate scientifico. La release corrente usa invece
+la testa congiunta e il filtro delle opportunità.
 
 I controlli conservati verificano parità CatBoost nativa su 42.372 righe lungo
 i fold, supporti, curve, probabilità e metriche. Le ripetizioni di training e
@@ -324,6 +331,47 @@ Restano esclusi target protetti/quarantena e periodi precedenti alla calibrazion
 del modello; i test già consultati non diventano indipendenti. I soli mercati
 valutabili sono quelli con prezzi reali presenti nel CSV. Il replay non cambia
 modello, soglie, registro o portafogli e non dimostra redditività reale.
+
+### Replay dinamico delle copie C
+
+Le prove storiche della ricetta adottata distinguono una principale per partita
+ed esecuzione Nightly; in questo confronto entrambe contengono la medesima
+selezione. Le sei stagioni usano componenti ristimati per periodo: il file
+operativo 2026 non viene retrodatato. I dossier completi restano input locali
+immutabili; per riprodurli occorrono i sorgenti originali congelati, oltre ai dati.
+
+### Filtro del vantaggio stimato sulle quote
+
+La ricetta `opportunity_guard`, scelta esplicitamente per l'operatività C,
+conserva il classificatore congiunto, la calibrazione 1X2 e l'affidabilità
+presequenziale dello studio. Prima di scegliere la principale applica a 1X2
+e Over/Under 2,5 una correzione conservativa del vantaggio sulle quote; gli AH
+conservano il payout completo. Non cambia le probabilità o la formula dinamica A.
+I coefficienti sono stimati su errori disponibili prima dei test, senza nuovi
+fit CatBoost o ricerca di soglie sui risultati del replay.
+
+| Misura delle principali con percentuali native | Risultato |
+|---|---:|
+| Giocate finanziate nei sei conti stagionali | 3.082 |
+| Volume puntato complessivo | €58.027,96 |
+| Profitto complessivo | −€937,56 |
+| ROI sul volume puntato | −1,62% |
+| ROI stagione corrente del replay | +3,29% |
+
+Il ROI aggrega sei conti stagionali indipendenti da €1.000 e non rappresenta
+il rendimento percentuale di un unico capitale iniziale. La ricetta appresa
+respinge tutte le opportunità binarie nel campione e lascia solo AH: non è
+un divieto manuale di mercato. Migliorano tre leghe e cinque stagioni; due
+leghe peggiorano e l'intervallo del beneficio comprende zero. Il criterio
+scientifico completo fallisce. L'adozione è una scelta operativa dell'utente,
+con `productionValidated: false` e `independentEvidence: false`.
+Le quote di chiusura e lo storico già consultato non dimostrano prezzi
+eseguibili alla Nightly, CLV o profitti futuri.
+
+Prove immutabili: [riepilogo economico](performance/evidence/c-opportunity-value-study-2026-11-08/opportunity_guard-summary.csv),
+[coefficienti](performance/evidence/c-opportunity-value-study-2026-11-08/guard-profiles.csv),
+[piano](performance/evidence/c-opportunity-value-study-2026-11-08/study-plan.json)
+e [verifica](performance/evidence/c-opportunity-value-study-2026-11-08/verification.json).
 
 ## Metriche e decisione
 

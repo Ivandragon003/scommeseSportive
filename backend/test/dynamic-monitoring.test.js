@@ -79,21 +79,22 @@ async function setup(t, { migrateDynamic = true, migrateCancellation = true } = 
 }
 
 
-test('dynamic accounting preserves native percentages on equity and accepts multiple selections beyond five percent', async t => {
+test('dynamic accounting preserves all A percentages while an existing funded C bet blocks another match stake', async t => {
   const f = await setup(t);
   await f.commit(fundedExecutionPolicy(f.state), ['MEDIUM', 'MEDIUM', 'MEDIUM']);
   const result = await f.commit(undefined, undefined, 3);
-  assert.equal(result.bets.length, 6);
+  assert.equal(result.bets.length, 3);
   for (const family of ['A', 'C']) {
     const own = result.bets.filter(bet => bet.family === family);
-    assert.deepEqual(own.map(bet => bet.stakeCents).sort((a,b) => a-b), [1530,2010,4370]);
+    assert.deepEqual(own.map(bet => bet.stakeCents).sort((a,b) => a-b), family === 'A' ? [1530,2010,4370] : []);
     assert.ok(own.every(bet => bet.snapshot.baseEquityCents === 100000));
   }
   assert.deepEqual((await inspectDynamicAccounting(f.readonly)).failures, []);
   const monitored = await inspectDatabase(f.readonly, { now: NOW });
   assert.deepEqual(monitored.issues, []); assert.equal(monitored.dynamicAccounting.errors, 0);
   const bets = await f.research.listBets(), portfolios = await f.research.listPortfolios(), ledger = await f.research.listLedger();
-  assert.equal(bets.length, 12);
+  assert.equal(bets.length, 7);
+  assert.equal(bets.filter(bet => bet.family === 'C').length, 1);
   assert.deepEqual(researchCriticalIncidents({ now: START, schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios, bets, ledger }), []);
 });
 
@@ -155,12 +156,12 @@ test('fixed cancellations refund exactly once while preserving immutable evidenc
   assert.deepEqual((await inspectDatabase(f.readonly, { now: NOW })).issues, []);
   await assert.rejects(f.db.execute({ sql: 'INSERT INTO funded_model_bet_cancellations VALUES(?,?,?)', args: [fixed.bets[0].id, START, 'duplicate'] }));
   await assert.rejects(f.research.settleBet(fixed.bets[0].id, 0, { status: 'LOST' }), /Cancelled/);
-  const replacement = await f.commit(); assert.equal(replacement.bets.length, 6);
+  const replacement = await f.commit(); assert.equal(replacement.bets.length, 4);
   assert.deepEqual((await inspectDynamicAccounting(f.readonly)).failures, []);
   assert.deepEqual((await inspectDatabase(f.readonly, { now: NOW })).issues, []);
   await f.db.execute("UPDATE matches SET home_goals=1,away_goals=0 WHERE match_id='fixture-match'");
   const monitored = await inspectDatabase(f.readonly, { now: NOW });
-  assert.equal(monitored.pendingSettlements, 6); assert.equal(monitored.fundedAccounting.pendingSettlements, 0);
+  assert.equal(monitored.pendingSettlements, 4); assert.equal(monitored.fundedAccounting.pendingSettlements, 0);
   assert.deepEqual(monitored.issues, ['settlement_backlog']);
 });
 

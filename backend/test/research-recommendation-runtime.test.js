@@ -498,82 +498,172 @@ test('incompatible or unclean quality-tagged C fails closed while A retains its 
   }
 });
 
-function parityFixture(paperMode = false) {
+function parityFixture(paperMode = false, executionOptions = {}) {
   const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
+  const { buildJointHeadProbabilityConfiguration } = require('../dist/research/JointHeadConfiguration');
   const artifact = require('../current-models/challenger.json');
-  const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
-    pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C });
+  const row = require('./fixtures/c-opportunity-guard-2026.json').cases.find(item => item.expected);
+  const configuration = buildJointHeadProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+    pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C },
+  artifact.jointHeadIdentity.classifierHash);
+  const goalQuotes = row.quotes.map(q => quote(q.selection, q.side, q.odds, { market: q.market, line: q.line, team: q.team }));
   const count = ['over', 'under'].map(side => quote(`cards_total_${side}_4.5`, side, side === 'over' ? 2.5 : 1.8,
     { market: 'cards_total', line: 4.5 }));
   const selected = opportunity({ selection: count[0].selection, marketCategory: 'yellow_cards', bookmakerOdds: 2.5,
     expectedValue: 50, evReason: 'computed', suggestedStakePercent: 2 });
-  const f = fixture({ appQuotes: [...quotes(), ...count], selected, challenger: challenger({
-    probabilityConfiguration: configuration.descriptor, probabilityConfigurationHash: configuration.hash }) });
+  const f = fixture({ quotes: goalQuotes, appQuotes: [...goalQuotes, ...count], selected, challenger: challenger({
+    probabilityConfiguration: configuration.descriptor, probabilityConfigurationHash: configuration.hash,
+    prospectiveMatrix: row.matrix, probabilityStages: { raw: scoreMatrixMarkets(row.matrix), decision: scoreMatrixMarkets(row.matrix) },
+    opportunityGuard: structuredClone(artifact.opportunityGuard), opportunityGuardQuality: structuredClone(row.quality) }) });
   f.packet.probabilities.decision[selected.selection] = .6;
   const predict = f.predictionService.predict;
   f.predictionService.predict = async (...args) => ({ ...await predict(...args), valueOpportunities: [selected] });
-  f.db.research.setMarketState({ family: 'C', market: 'cards_total', state: 'EXPERIMENTAL' });
   f.setTime(at);
-  const deploymentC = { source: 'fallback', revision: 'current-release-fixture', deployment: { ...CURRENT_CHALLENGER_RELEASE } };
+  const deploymentC = { source: 'fallback', revision: 'current-release-fixture', deployment: { ...CURRENT_CHALLENGER_RELEASE,
+    probabilityConfigurationHash: configuration.hash } };
   f.runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, researchRuntime: f.researchRuntime,
-    predictionService: f.predictionService, appOdds: f.appOdds, deploymentC, paperMode });
+    predictionService: f.predictionService, appOdds: f.appOdds, deploymentC, paperMode, ...executionOptions });
+  f.goalCase = row;
   return f;
 }
 
-test('current C admits qualified statistical markets with original specialist evidence and composite identity', async () => {
+test('current C excludes statistical markets while preserving the exact independent A specialist recommendation', async () => {
   for (const paper of [false, true]) {
     const f = parityFixture(paper), result = await f.runtime.prepare(f.job);
-    const decision = result.decisions[1];
-    const c = paper ? decision.selections.find(item => item.market === 'cards_total') : decision;
-    assert.ok(c);
-    assert.equal(decision.action, 'BET'); assert.equal(c.market, 'cards_total');
-    assert.equal(c.qualificationEvidence.source, 'shared_A_specialist');
-    assert.equal(c.qualificationEvidence.model.stateHash, f.packet.model.stateHash);
+    const [a, c] = result.decisions;
+    assert.equal(a.action, 'BET'); assert.equal(a.market, 'cards_total');
+    assert.equal(a.suggestedStakePercent, f.packet.selected.suggestedStakePercent);
+    assert.equal(c.action, 'BET'); assert.equal(c.market, 'asian_handicap');
+    assert.equal(c.selection, f.goalCase.expected.selection);
+    if (paper) assert.equal(c.selections.length, 1);
+    assert.equal(c.qualificationEvidence.source, 'C_goal');
     assert.equal(c.probabilityConfigurationHash, researchHash(c.probabilityConfiguration));
-    assert.equal(c.probabilityConfigurationHash, decision.probabilityConfigurationHash);
     assert.equal(c.probabilityConfiguration.goalConfigurationHash, f.prepared.decisions[1].probabilityConfigurationHash);
     assert.equal(result.inputSnapshot.forecasts.A, f.packet);
-    assert.ok(result.inputSnapshot.quotes.some(q => q.market === 'cards_total' && q.bookmaker === c.quote.bookmaker));
+    assert.ok(result.inputSnapshot.forecasts.C.recommendation.opportunities.every(op => op.quote.market !== 'cards_total'));
+    assert.equal(f.calls.predict.length, paper ? 2 : 1);
   }
 });
 
-test('current C still requires its own valid forecast and registered statistical markets', async () => {
+test('current C still requires its own valid forecast before any goal recommendation', async () => {
   const invalid = parityFixture(); invalid.prepared.decisions[1].validated = false;
-  const a = await invalid.runtime.prepare(invalid.job);
-  assert.equal(a.decisions[0].action, 'BET'); assert.equal(a.decisions[1].action, 'ABSTAIN');
-  const unregistered = parityFixture();
-  await unregistered.db.research.setMarketState({ family: 'C', market: 'cards_total', state: 'SUSPENDED' });
-  const list = unregistered.db.research.listMarkets;
-  unregistered.db.research.listMarkets = async options => (await list(options)).filter(m => m.market !== 'cards_total');
-  const b = await unregistered.runtime.prepare(unregistered.job);
-  assert.notEqual(b.decisions[1].market, 'cards_total');
+  const result = await invalid.runtime.prepare(invalid.job);
+  assert.equal(result.decisions[0].action, 'BET'); assert.equal(result.decisions[0].market, 'cards_total');
+  assert.equal(result.decisions[1].action, 'ABSTAIN');
+  assert.equal(result.decisions[1].reason, 'challenger_technical_validation_failed');
 });
 
-test('current C uses each complete bookmaker sheet and preserves the specialist state for each sheet', async () => {
+test('current C compares complete bookmaker sheets and keeps the archived principal price', async () => {
   for (const paper of [false, true]) for (const sameBook of [false, true]) {
-  const f = parityFixture(paper), original = await f.appOdds.load(f.row);
-  const sheets = ['First Book', sameBook ? 'First Book' : 'Second Book'].map((book, i) => {
-    const qs = original.quotes.filter(q => q.market === 'cards_total').map(q => ({ ...q, bookmaker: book, odds: q.side === 'over' ? 2.5 + i * .1 : 1.8 }));
-    return { quotes: qs, sharedOdds: { odds: Object.fromEntries(qs.map(q => [q.selection, q.odds])),
-      bookmakerBySelection: Object.fromEntries(qs.map(q => [q.selection, book])), source: 'odds_api', capturedAt: at } };
-  });
-  f.appOdds.load = async () => ({ ...original, sheets });
-  const states = new Map();
-  f.predictionService.predict = async (_request, settings) => {
-    const book = settings.sharedOdds.bookmakerBySelection.cards_total_over_4_5
-      ?? settings.sharedOdds.bookmakerBySelection['cards_total_over_4.5'];
-    const price = settings.sharedOdds.odds['cards_total_over_4.5'];
-    const stateHash = price === 2.6 ? '8'.repeat(64) : '7'.repeat(64);
-    states.set(`${book}:${price}`, stateHash);
-    const op = { ...f.packet.selected, bookmakerOdds: price, expectedValue: (.6 * price - 1) * 100 };
-    const packet = { ...f.packet, selected: op, ranked: [op], model: { ...f.packet.model, stateHash },
-      odds: { ...f.packet.odds, bookmakerBySelection: settings.sharedOdds.bookmakerBySelection } };
-    return { canonicalRecommendation: packet, valueOpportunities: [op] };
-  };
-  const result = await f.runtime.prepare(f.job), c = result.decisions[1];
-  assert.equal(c.action, 'BET'); assert.equal(c.quote.bookmaker, sameBook ? 'First Book' : 'Second Book');
-  assert.equal(c.quote.odds, 2.6);
-  assert.equal(c.qualificationEvidence.model.stateHash, states.get(`${c.quote.bookmaker}:2.6`));
-  if (paper) assert.equal(c.selections.filter(s => s.market === 'cards_total').length, 1);
+    const f = parityFixture(paper), original = await f.appOdds.load(f.row), selected = f.goalCase.expected;
+    const sheets = ['First Book', sameBook ? 'First Book' : 'Second Book'].map((book, i) => {
+      const qs = original.quotes.filter(q => q.market !== 'cards_total').map(q => ({ ...q, bookmaker: book,
+        odds: q.selection === selected.selection ? q.odds + i * .1 : q.odds }));
+      return { quotes: qs, sharedOdds: { odds: Object.fromEntries(qs.map(q => [q.selection, q.odds])),
+        bookmakerBySelection: Object.fromEntries(qs.map(q => [q.selection, book])), source: 'odds_api', capturedAt: at } };
+    });
+    f.appOdds.load = async () => ({ ...original, sheets });
+    const result = await f.runtime.prepare(f.job), c = result.decisions[1];
+    assert.equal(c.action, 'BET'); assert.equal(c.quote.bookmaker, sameBook ? 'First Book' : 'Second Book');
+    assert.equal(c.quote.odds, selected.odds + .1);
+    assert.deepEqual(c.quote, result.inputSnapshot.forecasts.C.recommendation.selected.quote);
+    if (paper) assert.equal(c.selections.length, 1);
   }
+});
+
+test('current C uses its archived principal in dynamic and fixed-confidence execution', async () => {
+  for (const mode of ['fundedMode', 'dynamicMode']) {
+    const f = parityFixture(false, { [mode]: true }), result = await f.runtime.prepare(f.job), c = result.decisions[1];
+    const packet = result.inputSnapshot.forecasts.C.recommendation;
+    assert.ok(packet.opportunities.length >= 1);
+    assert.equal(c.action, 'BET'); assert.equal(c.selections.length, 1);
+    assert.equal(c.selection, packet.selected.selection);
+    assert.equal(c.suggestedStakePercent, packet.selected.engineSuggestedStakePercent);
+    assert.deepEqual(c.quote, packet.selected.quote);
+  }
+});
+
+function executionModeFixture(mode, settings = {}) {
+  const f = fixture(settings);
+  const deploymentC = { source: 'fallback', revision: 'primary-selection-fixture', deployment: {
+    modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C,
+    selectorPolicy: 'canonical-binary-v1', probabilityConfigurationHash: challenger().probabilityConfigurationHash, artifactHash: null,
+  } };
+  f.runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, researchRuntime: f.researchRuntime,
+    predictionService: f.predictionService, appOdds: f.appOdds, deploymentC, [mode]: true });
+  return f;
+}
+
+for (const mode of ['paperMode', 'fundedMode', 'dynamicMode']) {
+  test(`${mode}: C executes only the archived principal while A retains all qualified opportunities`, async t => {
+    const secondary = opportunity({ selection: 'draw', marketName: 'Pareggio', bookmakerOdds: 4, expectedValue: 10 });
+    const principal = opportunity({ expectedValue: 50 });
+    t.mock.method(ValueBettingEngine.prototype, 'analyzeMarketsWithVigRemoval', () => [secondary, principal]);
+    const f = executionModeFixture(mode), predict = f.predictionService.predict;
+    f.predictionService.predict = async (...args) => ({ ...await predict(...args), valueOpportunities: [secondary, principal] });
+    const result = await f.runtime.prepare(f.job), [a, c] = result.decisions;
+    const packet = result.inputSnapshot.forecasts.C.recommendation;
+    assert.equal(packet.opportunities[0].selection, secondary.selection);
+    assert.equal(packet.selected.selection, principal.selection);
+    assert.equal(c.action, 'BET'); assert.equal(c.selections.length, 1);
+    assert.equal(c.selection, packet.selected.selection);
+    assert.equal(c.selections[0].selection, packet.selected.selection);
+    assert.equal(c.suggestedStakePercent, packet.selected.engineSuggestedStakePercent);
+    assert.deepEqual(a.selections.map(item => item.selection).sort(), ['draw', 'homeWin']);
+  });
+}
+
+test('C never promotes a secondary opportunity when the principal has an invalid dynamic stake', async t => {
+  const secondary = opportunity({ selection: 'draw', marketName: 'Pareggio', bookmakerOdds: 4, expectedValue: 10 });
+  for (const suggestedStakePercent of [undefined, 0, NaN, 1.531, 5.01]) {
+    const principal = opportunity({ expectedValue: 50, suggestedStakePercent });
+    t.mock.method(ValueBettingEngine.prototype, 'analyzeMarketsWithVigRemoval', () => [secondary, principal]);
+    const f = executionModeFixture('dynamicMode'), result = await f.runtime.prepare(f.job), c = result.decisions[1];
+    assert.equal(result.inputSnapshot.forecasts.C.recommendation.selected.selection, 'homeWin');
+    assert.equal(c.action, 'ABSTAIN'); assert.equal(c.reason, 'dynamic_stake_unavailable');
+    assert.equal(c.selections, undefined);
+    t.mock.restoreAll();
+  }
+});
+
+test('C never promotes a secondary opportunity when the archived principal quote mismatches', async t => {
+  const secondary = opportunity({ selection: 'draw', marketName: 'Pareggio', bookmakerOdds: 4, expectedValue: 10 });
+  const principal = opportunity({ expectedValue: 50, bookmakerOdds: 3 });
+  t.mock.method(ValueBettingEngine.prototype, 'analyzeMarketsWithVigRemoval', () => [secondary, principal]);
+  const f = executionModeFixture('dynamicMode'), result = await f.runtime.prepare(f.job), c = result.decisions[1];
+  assert.equal(result.inputSnapshot.forecasts.C.recommendation.selected.selection, 'homeWin');
+  assert.equal(c.action, 'ABSTAIN'); assert.equal(c.selections, undefined);
+});
+
+test('C abstains when its principal quote expires during preparation even if the secondary quote remains fresh', async t => {
+  const secondary = opportunity({ selection: 'draw', marketName: 'Pareggio', bookmakerOdds: 4, expectedValue: 10 });
+  t.mock.method(ValueBettingEngine.prototype, 'analyzeMarketsWithVigRemoval', () => [secondary, opportunity({ expectedValue: 50 })]);
+  const sheet = quotes(); sheet[0].updatedAt = new Date(Date.parse(at) - 299995).toISOString();
+  const f = executionModeFixture('dynamicMode', { quotes: sheet }), result = await f.runtime.prepare(f.job), c = result.decisions[1];
+  assert.equal(result.inputSnapshot.forecasts.C.recommendation.selected.selection, 'homeWin');
+  assert.equal(c.action, 'ABSTAIN'); assert.equal(c.reason, 'real_fresh_quotes_unavailable');
+  assert.equal(c.selections, undefined);
+});
+
+test('the opportunity-guard deployment never performs extra A specialist predictions', async t => {
+  const coverage = require('../dist/research/ChallengerMarketCoverage');
+  const { C_OPPORTUNITY_GUARD_POLICY } = require('../dist/research/COpportunityGuardRecommendation');
+  const guardFixture = require('./fixtures/c-opportunity-guard-2026.json');
+  t.mock.method(coverage, 'usesChallengerTeamMarkets', () => true);
+  const cards = ['over', 'under'].map(side => quote(`cards_total_${side}_4.5`, side, 2,
+    { market: 'cards_total', line: 4.5 }));
+  const f = fixture({ appQuotes: [...quotes(), ...cards] }), predict = f.predictionService.predict;
+  f.predictionService.predict = async (...args) => ({ ...await predict(...args), valueOpportunities: [opportunity()] });
+  f.prepared.decisions[1].opportunityGuard = structuredClone(guardFixture.guard);
+  f.prepared.decisions[1].opportunityGuardQuality = structuredClone(guardFixture.cases[0].quality);
+  const deploymentC = { source: 'fallback', revision: 'guard-invariance-fixture', deployment: {
+    modelVersion: RECOMMENDATION_MODEL_C, baselineVersion: RECOMMENDATION_BASELINE_C,
+    selectorPolicy: C_OPPORTUNITY_GUARD_POLICY, probabilityConfigurationHash: challenger().probabilityConfigurationHash, artifactHash: null } };
+  const runtime = new ResearchRecommendationRuntime(f.db, { clock: f.clock, researchRuntime: f.researchRuntime,
+    predictionService: f.predictionService, appOdds: f.appOdds, deploymentC, dynamicMode: true });
+  const result = await runtime.prepare(f.job);
+  assert.equal(f.calls.predict.length, 2, 'only the original A packet and A paper sheet prediction run');
+  assert.equal(result.inputSnapshot.forecasts.A, f.packet);
+  assert.equal(result.decisions[0].selection, f.packet.selected.selection);
+  assert.equal(result.decisions[0].suggestedStakePercent, f.packet.selected.suggestedStakePercent);
 });

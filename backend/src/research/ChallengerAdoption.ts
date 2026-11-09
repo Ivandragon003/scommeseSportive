@@ -7,13 +7,15 @@ import { withChallengerFeatures, CHALLENGER_FEATURE_SCHEMA_VERSION, ChallengerFe
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { applyCoherentProbabilityPipeline, COHERENT_PROBABILITY_PROTOCOL, coherentProbabilityPipelineHash, CoherentCalibrationMode } from './CoherentProbabilityPipeline';
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
+import { buildJointHeadProbabilityConfiguration } from './JointHeadConfiguration';
+import { jointHeadMarkets, restoreJointHeadSpread } from './JointHeadProbability';
 import { evaluateResearchBenchmark, EvaluationRow, ResearchQuote } from './ResearchEvaluation';
 import { ORIGINAL_HOLDOUT_POLICY } from './ResearchHoldoutPolicy';
 import { prospectivePartition } from './ResearchProspectiveEvidence';
 import { researchHash, researchJson } from './ResearchStore';
 import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
-export type ChallengerSelectorPolicy = 'canonical-binary-v1' | 'payout-aware-v1';
+export type ChallengerSelectorPolicy = 'canonical-binary-v1' | 'payout-aware-v1' | 'c-resolved-engine-ranking-v1';
 export type ChallengerDeployment = { modelVersion: string; baselineVersion: string; selectorPolicy: ChallengerSelectorPolicy;
   probabilityConfigurationHash: string | null; artifactHash: string | null };
 export type ChallengerAdoptionState = { deployment: ChallengerDeployment; revision: string;
@@ -35,7 +37,7 @@ type Executor = Pick<Client, 'execute'> | Pick<Transaction, 'execute'>;
 const parse = (value: unknown): any => typeof value === 'string' ? JSON.parse(value) : value;
 const timestamp = (value: unknown) => typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
 const same = (left: unknown, right: unknown) => researchHash(left) === researchHash(right);
-const selectors: ChallengerSelectorPolicy[] = ['canonical-binary-v1', 'payout-aware-v1'];
+const selectors: ChallengerSelectorPolicy[] = ['canonical-binary-v1', 'payout-aware-v1', 'c-resolved-engine-ranking-v1'];
 const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
 const ciPasses = (value: unknown): boolean => Array.isArray(value) && value.length === 2
   && value.every((entry) => typeof entry === 'number' && Number.isFinite(entry)) && value[0] <= value[1] && value[1] < 0;
@@ -49,9 +51,12 @@ function configuration(artifact: HybridArtifact) {
     || artifact.productionAdoptionEligible === false || artifact.comparisonRole === 'retrospective_recipe_control') {
     throw new Error('challenger_configuration_not_operational');
   }
-  return buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+  const input = { family: 'C' as const, baselineVersion: artifact.baselineVersion,
     pipelineHashV2: artifact.pipelineHashV2 as string, mode: artifact.probabilityCalibrationMode as CoherentCalibrationMode,
-    temperature: artifact.probabilityTemperature as number, profile: (artifact.calibrationProfilesV2 as any)?.C });
+    temperature: artifact.probabilityTemperature as number, profile: (artifact.calibrationProfilesV2 as any)?.C };
+  return artifact.candidateKind === 'joint_head_v1'
+    ? buildJointHeadProbabilityConfiguration(input, (artifact.jointHeadIdentity as any).classifierHash)
+    : buildProbabilityConfiguration(input);
 }
 function deployment(artifact: HybridArtifact, selectorPolicy: ChallengerSelectorPolicy): ChallengerDeployment {
   if (!selectors.includes(selectorPolicy)) throw new Error('explicit_challenger_selector_policy_required');
@@ -78,9 +83,12 @@ function forecast(artifact: HybridArtifact, input: ForecastInput, quotes: Resear
     modelInput = withChallengerFeatures(modelInput, modelHistory, artifact.featureBlocks as ChallengerFeatureBlock[]);
   }
   const predicted = predictHybrid(modelInput, artifact);
-  return applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
+  const pipeline = applyCoherentProbabilityPipeline({ matrix: predicted.matrix, rawProbabilities: predicted.probabilities,
     profile: (artifact.calibrationProfilesV2 as any)?.C, quotes, forecastAt: input.forecastAt,
     mode: artifact.probabilityCalibrationMode as CoherentCalibrationMode, temperature: artifact.probabilityTemperature as number });
+  if (artifact.candidateKind !== 'joint_head_v1') return pipeline;
+  const matrix = restoreJointHeadSpread(pipeline.matrix);
+  return { ...pipeline, matrix, decision: jointHeadMarkets(matrix, quotes, pipeline.decision) };
 }
 
 /** Immutable, genuinely pre-outcome forecasts are the only observations scored for adoption. */

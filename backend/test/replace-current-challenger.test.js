@@ -5,7 +5,7 @@ const { readFileSync, writeFileSync, mkdtempSync, rmSync } = require('node:fs');
 const { resolve, join, sep } = require('node:path');
 const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { endpoint, packagedRelease, deployment, planReplacement, applyReplacement, parseArgs, main } = require('../scripts/replace-current-challenger');
+const { endpoint, packagedRelease, validatePackagedRelease, deployment, planReplacement, applyReplacement, parseArgs, main, RELEASE_PROTOCOL, SELECTOR_POLICY } = require('../scripts/replace-current-challenger');
 const compiled = process.env.RESEARCH_TEST_DIST || '../dist';
 const { researchHash } = require(resolve(__dirname, compiled, 'research/ResearchStore'));
 const HOST = 'footpredictor-selloneciompi.aws-eu-west-1.turso.io';
@@ -18,7 +18,7 @@ async function fixture() {
     await db.executeMultiple(readFileSync(join(__dirname, '../migrations', migration), 'utf8'));
   }
   const { artifact, target } = packagedRelease();
-  const previousArtifact = { ...artifact, version: 'C-previous' };
+  const previousArtifact = { ...artifact, version: 'C-previous', candidateKind: 'no_ml', weight: 0, temperature: 1, models: {} };
   const previous = deployment(previousArtifact);
   await db.execute({ sql: "INSERT INTO research_models(family,version,artifact_json,artifact_hash,created_at) VALUES ('C',?,?,?,'2026-01-01')",
     args: [previousArtifact.version, JSON.stringify(previousArtifact), previous.artifactHash] });
@@ -59,6 +59,47 @@ test('replacement requires pinned host, separate modes and explicit incumbent id
   assert.throws(() => parseArgs(['--plan', 'p', '--backup', 'b']), /explicit_plan/);
   assert.throws(() => parseArgs([...base, '--plan', 'p', '--backup', 'b', '--plan', 'p']), /arguments/);
 });
+
+test('packaged release requires the exact opportunity guard authorization and pinned content', () => {
+  const artifact = JSON.parse(readFileSync(join(__dirname, '../current-models/challenger.json'), 'utf8'));
+  artifact.releaseAdoption = { ...artifact.releaseAdoption, protocol: RELEASE_PROTOCOL };
+  const manifest = deployment(artifact);
+  assert.equal(manifest.selectorPolicy, SELECTOR_POLICY);
+  assert.equal(artifact.candidateKind, 'joint_head_v1');
+  assert.deepEqual(validatePackagedRelease(artifact, manifest).target, manifest);
+  assert.throws(() => validatePackagedRelease(artifact, { ...manifest, selectorPolicy: 'canonical-binary-v1' }), /packaged_manual_release_invalid/);
+  const legacy = { ...artifact, candidateKind: 'no_ml', weight: 0, temperature: 1, models: {} };
+  assert.throws(() => validatePackagedRelease(legacy, deployment(legacy)), /packaged_manual_release_invalid/);
+  for (const protocol of ['explicit-user-tree-sample-projection-release-v1', 'forged-release-v1', undefined]) {
+    const changed = structuredClone(artifact);
+    changed.releaseAdoption.protocol = protocol;
+    assert.throws(() => validatePackagedRelease(changed, deployment(changed)), /packaged_manual_release_invalid/);
+  }
+  for (const field of ['productionValidated', 'independentEvidence']) {
+    const changed = structuredClone(artifact);
+    changed.releaseAdoption[field] = true;
+    assert.throws(() => validatePackagedRelease(changed, deployment(changed)), /packaged_manual_release_invalid/);
+  }
+  const unauthorized = structuredClone(artifact);
+  unauthorized.releaseAdoption.authorization = 'automatic_promotion';
+  assert.throws(() => validatePackagedRelease(unauthorized, deployment(unauthorized)), /packaged_manual_release_invalid/);
+  const changedContent = { ...artifact, createdAt: new Date(Date.parse(artifact.createdAt) + 1).toISOString() };
+  assert.throws(() => validatePackagedRelease(changedContent, manifest), /packaged_manual_release_invalid/);
+});
+
+test('replacement inspects the incumbent canonical deployment while adopting the resolved selector', async () => {
+  const f = await fixture();
+  try {
+    assert.equal(f.previous.selectorPolicy, 'canonical-binary-v1');
+    assert.equal(f.target.selectorPolicy, SELECTOR_POLICY);
+    await f.db.execute({ sql: "INSERT INTO challenger_adoption_events(id,action,deployment_json,previous_json,evidence_json,evidence_hash,created_at) VALUES ('incumbent','ADOPT',?,?,'{}','hash','2026-01-01')",
+      args: [JSON.stringify(f.previous), JSON.stringify(f.previous)] });
+    const { plan, backup } = await planReplacement(f.db, f.options, join(f.directory, 'adopted-backup.json'));
+    assert.equal(backup.snapshot.latestEvent.id, 'incumbent');
+    assert.deepEqual(backup.snapshot.previous, f.previous);
+    assert.deepEqual(plan.target, f.target);
+  } finally { f.close(); }
+});
 test('plan reads a consistent scoped snapshot using only SELECTs', async () => {
   const f = await fixture();
   try {
@@ -95,6 +136,7 @@ test('apply inserts C registry records and preserves history and account values'
     assert.equal(evidence.independentEvidence, false);
     assert.equal(evidence.retirePrevious, true);
     assert.equal(evidence.productionValidated, false);
+    assert.equal(evidence.releaseProtocol, RELEASE_PROTOCOL);
     assert.equal(evidence.planHash, researchHash(f.plan));
     assert.equal(JSON.stringify((await f.db.execute('SELECT * FROM protected_account ORDER BY id')).rows), account);
     assert.equal((await f.db.execute({ sql: 'SELECT artifact_json FROM research_models WHERE version=?', args: [f.previous.modelVersion] })).rows[0].artifact_json, previousModel);

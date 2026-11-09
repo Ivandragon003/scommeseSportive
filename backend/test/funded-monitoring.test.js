@@ -77,14 +77,15 @@ async function setup(t, { migrateFunded = true } = {}) {
   return { db, research, recommendations, commit, readonly };
 }
 
-test('funded monitoring accepts multiple same-match confidence stakes above five percent and remains SELECT-only', async t => {
+test('funded monitoring accepts all A stakes and one C primary and remains SELECT-only', async t => {
   const f = await setup(t), committed = await f.commit();
-  assert.equal(committed.bets.length, 6);
+  assert.equal(committed.bets.length, 4);
   const audit = await inspectFundedAccounting(f.readonly);
   assert.deepEqual(audit.failures, []); assert.equal(audit.errors, 0); assert.equal(audit.stable, true);
   const bets = await f.research.listBets(), portfolios = await f.research.listPortfolios(), ledger = await f.research.listLedger();
-  assert.equal(bets.length, 6);
+  assert.equal(bets.length, 4);
   assert.deepEqual(bets.filter(bet => bet.family === 'A').map(bet => bet.stakeCents).sort((a,b) => a-b), [1000, 3000, 5000]);
+  assert.deepEqual(bets.filter(bet => bet.family === 'C').map(bet => bet.stakeCents), [1000]);
   assert.deepEqual(researchCriticalIncidents({ now: START, schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios, bets, ledger }), []);
   const result = await inspectDatabase(f.readonly, { now: NOW });
   assert.deepEqual(result.issues, []); assert.equal(result.fundedAccounting.errors, 0); assert.equal(result.accounting.errors, 0);
@@ -135,7 +136,7 @@ test('cancelled old paper retains its evidence audit while leaving the operation
   const audit = await inspectPaperAccounting(f.readonly);
   assert.equal(audit.pendingSettlements, 0); assert.deepEqual(audit.failures, []);
   const monitored = await inspectDatabase(f.readonly, { now: NOW });
-  assert.equal(monitored.pendingSettlements, 6); assert.deepEqual(monitored.issues, ['settlement_backlog']);
+  assert.equal(monitored.pendingSettlements, 4); assert.deepEqual(monitored.issues, ['settlement_backlog']);
   assert.equal((await f.db.execute('SELECT COUNT(*) AS count FROM paper_model_bets')).rows[0].count, 2);
 });
 
@@ -153,7 +154,8 @@ test('old research, manual, immutable paper and confidence-funded bets coexist w
   assert.deepEqual(result.issues, []); assert.equal(result.accounting.errors, 0);
   assert.equal(result.fundedAccounting.errors, 0); assert.equal(result.paperAccounting.errors, 0);
   const bets = await f.research.listBets(), portfolios = await f.research.listPortfolios(), ledger = await f.research.listLedger();
-  assert.equal(bets.length, 8);
+  assert.equal(bets.length, 5);
+  assert.equal(bets.filter(bet => bet.family === 'C').length, 0);
   assert.deepEqual(researchCriticalIncidents({ now: START, schedulerEnabled: false, runs: [], models: [], markets: [], jobs: [], portfolios, bets, ledger }), []);
 });
 

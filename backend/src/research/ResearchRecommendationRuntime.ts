@@ -3,7 +3,7 @@ import { PredictionService } from '../services/PredictionService';
 import { OddsApiService } from '../services/OddsApiService';
 import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
 import { CanonicalRecommendationPacket,
-  SharedPredictionOdds, CANONICAL_RECOMMENDATION_POLICY, isVisibleCanonicalTeamBet, pickCanonicalBetRecommendation, rankCanonicalOpportunity } from '../services/CanonicalBetRecommendation';
+  SharedPredictionOdds, CANONICAL_RECOMMENDATION_POLICY, isVisibleCanonicalTeamBet } from '../services/CanonicalBetRecommendation';
 import { ResearchRuntime } from './ResearchRuntime';
 import { RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
@@ -16,7 +16,8 @@ import { bestPaperSelections, paperSelectionKey } from './PaperBetSelections';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH } from './ChallengerDataQuality';
 import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
-import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } from './ChallengerTeamRecommendation';
+import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration, selectChallengerTeamRecommendation } from './ChallengerTeamRecommendation';
+import { C_OPPORTUNITY_GUARD_POLICY, usesOpportunityGuardDecision } from './COpportunityGuardRecommendation';
 import type { AdmissionMarket, FixtureAdmissionResult } from './FixtureAdmission';
 
 export type FixtureAdmissionCheck = (matchId: string, asOf: string, deployment?: ChallengerExecutionState) => Promise<FixtureAdmissionResult>;
@@ -84,7 +85,8 @@ export class ResearchRecommendationRuntime {
       || Date.parse(at) >= Date.parse(row.date) || Date.parse(at) < Date.parse(job.windowStartAt)
       || Date.parse(at) >= Date.parse(job.windowEndAt)) throw new Error('recommendation_fixture_not_eligible');
     const admission = await this.fixtureAdmission?.(job.matchId, at, this.deploymentC);
-    const teamMarketsC = usesChallengerTeamMarkets(this.deploymentC.deployment);
+    const opportunityGuardC = this.deploymentC.deployment.selectorPolicy === C_OPPORTUNITY_GUARD_POLICY;
+    const teamMarketsC = opportunityGuardC || usesChallengerTeamMarkets(this.deploymentC.deployment);
     const deniedA = admission && (!admission.families.A.eligible
       || !Object.values(admission.markets).some(market => market.A.eligible));
     const deniedC = admission && !admission.markets.goal.C.eligible;
@@ -142,7 +144,6 @@ export class ResearchRecommendationRuntime {
         bookmakerBySelection: Object.fromEntries(Object.entries(sharedOdds.bookmakerBySelection).filter(([selection]) => selections.has(selection))) };
     }
     let packetA: CanonicalRecommendationPacket | null = null;
-    let specialistOpportunities: Awaited<ReturnType<AppPrediction['predict']>>['valueOpportunities'] = [];
     if (!appFailure && !usableAppQuotes.length) appFailure = 'real_fresh_quotes_unavailable';
     if (!appFailure) {
       try {
@@ -151,7 +152,6 @@ export class ResearchRecommendationRuntime {
         { asOf: observedAt, recordAudit: false, sharedOdds, prospectiveOrigin: 'shared_ac',
           ...(this.paperMode ? { suppressProspective: true } : {}) });
         packetA = prediction.canonicalRecommendation;
-        specialistOpportunities = prediction.valueOpportunities ?? [];
       } catch (error) { appFailure = error && typeof error === 'object' && 'code' in error
         && error.code === 'CALIBRATION_PROFILE_UNAVAILABLE' ? 'a_calibration_profile_unavailable' : 'app_prediction_unavailable'; }
     }
@@ -215,14 +215,14 @@ export class ResearchRecommendationRuntime {
     if (!failureC && decisionC) {
       const markets = teamMarketsC ? [] : await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
       const allowedMarkets = challengerAllowedMarkets(this.deploymentC.deployment, markets);
-      if (teamMarketsC && !this.paperMode) {
+      if (teamMarketsC) {
         const recommendations: ReturnType<typeof buildChallengerTeamRecommendation>[] = [];
         for (const sheet of cSheets) {
           const sheetC = sheet.quotes.filter(quote => !recommendationQuoteReason(quote, new Date(observedAt), 'C', CHALLENGER_TEAM_MARKET_POLICY)
             && (!admission || admission.markets[admissionMarket(quote.market)].C.eligible));
           if (!sheetC.length) continue;
           let specialist: Parameters<typeof buildChallengerTeamRecommendation>[0]['specialist'];
-          if (!appFailure && packetA && modelA && sheetC.some(quote => isChallengerStatMarket(quote.market))) {
+          if (!opportunityGuardC && !appFailure && packetA && modelA && sheetC.some(quote => isChallengerStatMarket(quote.market))) {
             const eligible = sheet.quotes.filter(quote => !recommendationQuoteReason(quote, new Date(observedAt), 'A')
               && (!admission || admission.markets[admissionMarket(quote.market)].A.eligible));
             const keys = new Set(eligible.map(quote => quote.selection));
@@ -250,18 +250,13 @@ export class ResearchRecommendationRuntime {
         if (!recommendations.length) recommendations.push(buildChallengerTeamRecommendation({ decision: decisionC, quotes: usableCQuotes,
           observedAt, competition: row.competition, expectedIdentity: this.deploymentC.deployment, allowedMarkets }));
         const opportunities = recommendations.flatMap(recommendation => recommendation.opportunities);
-        const ordered = [...opportunities].sort((a, b) => Number(['HIGH', 'MEDIUM'].includes(b.confidence))
-          - Number(['HIGH', 'MEDIUM'].includes(a.confidence)) || rankCanonicalOpportunity(b) - rankCanonicalOpportunity(a));
-        const selected = pickCanonicalBetRecommendation({ valueOpportunities: ordered });
+        const selected = selectChallengerTeamRecommendation(decisionC, opportunities, this.deploymentC.deployment);
         const probabilityConfiguration = buildChallengerTeamConfiguration(decisionC, !appFailure ? packetA ?? undefined : undefined);
         packetC = { ...selected, opportunities, exclusions: Object.assign({}, ...recommendations.map(value => value.exclusions)),
           marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY, probabilityConfiguration,
           probabilityConfigurationHash: researchHash(probabilityConfiguration) };
       } else {
-        packetC = teamMarketsC ? buildChallengerTeamRecommendation({ decision: decisionC, quotes: usableCQuotes, observedAt,
-          competition: row.competition, expectedIdentity: this.deploymentC.deployment, allowedMarkets,
-          ...(!appFailure && packetA ? { specialist: { packet: packetA, opportunities: specialistOpportunities, matchId: job.matchId } } : {}) })
-          : buildChallengerRecommendation({ decision: decisionC, quotes: usableQuotes, observedAt, competition: row.competition,
+        packetC = buildChallengerRecommendation({ decision: decisionC, quotes: usableQuotes, observedAt, competition: row.competition,
           expectedIdentity: this.deploymentC.deployment,
           ...(this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}), allowedMarkets });
       }
@@ -297,8 +292,6 @@ export class ResearchRecommendationRuntime {
         probability: number; ev: number; confidence?: string; suggestedStakePercent?: number; probabilityConfiguration: Record<string, unknown>;
         probabilityConfigurationHash: string; payout?: unknown; quality?: unknown; qualificationEvidence?: Record<string, unknown> };
       const appCandidates: PaperCandidate[] = [];
-      const specialistSheets: Array<{ quotes: RecommendationQuote[]; packet: CanonicalRecommendationPacket;
-        opportunities: typeof specialistOpportunities }> = [];
       const sheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
       if (!appFailure && modelA) for (const sheet of sheets) {
         const eligible = sheet.quotes.filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'A')
@@ -318,7 +311,6 @@ export class ResearchRecommendationRuntime {
           || packet.odds.source !== 'odds_api' || packet.odds.capturedAt !== shared.capturedAt) {
           throw new Error('paper_app_prediction_identity_invalid');
         }
-        specialistSheets.push({ quotes: sheet.quotes, packet, opportunities: result.valueOpportunities });
         const configuration = { version: 'app-probability-configuration-v1', family: 'A', source: modelA.source,
           modelVersion: modelA.version, codeHash: modelA.codeHash, configHash: modelA.configHash };
         for (const opportunity of result.valueOpportunities ?? []) {
@@ -341,59 +333,26 @@ export class ResearchRecommendationRuntime {
             } });
         }
       }
+      // C executes the same principal recommendation archived in the forecast packet.
+      // Admission failures below must abstain rather than promote a secondary opportunity.
       const challengerCandidates: PaperCandidate[] = [];
-      if (!failureC && decisionC) {
-        const markets = teamMarketsC ? [] : await this.db.research.listMarkets({ family: 'C', modelVersion: decisionC.modelVersion });
-        const allowedMarkets = challengerAllowedMarkets(this.deploymentC.deployment, markets);
-        const groups = new Map<string, RecommendationQuote[]>();
-        const paritySheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
-        const allCQuotes = teamMarketsC ? paritySheets.flatMap(sheet => sheet.quotes).filter(quote =>
-          !recommendationQuoteReason(quote, new Date(observedAt), 'C', CHALLENGER_TEAM_MARKET_POLICY)
-          && (!admission || admission.markets[admissionMarket(quote.market)].C.eligible)) : usableQuotes;
-        paperQuotes.push(...allCQuotes);
-        if (teamMarketsC && paritySheets.length) {
-          for (const [index, sheet] of paritySheets.entries()) {
-            const eligible = sheet.quotes.filter(quote => !recommendationQuoteReason(quote, new Date(observedAt), 'C', CHALLENGER_TEAM_MARKET_POLICY)
-              && (!admission || admission.markets[admissionMarket(quote.market)].C.eligible));
-            if (eligible.length) groups.set(`source-sheet:${index}`, eligible);
-          }
-        } else for (const quote of allCQuotes.length ? allCQuotes : usableCQuotes) {
-          const key = JSON.stringify([quote.bookmaker, quote.source, quote.capturedAt, quote.updatedAt]);
-          const group = groups.get(key) ?? []; group.push(quote); groups.set(key, group);
-        }
-        for (const group of groups.values()) {
-          const sharedSpecialists = specialistSheets.filter(sheet => sheet.quotes.some(quote => group.some(other =>
-            quote.selection === other.selection && quote.bookmaker === other.bookmaker && quote.odds === other.odds
-            && quote.capturedAt === other.capturedAt && quote.updatedAt === other.updatedAt)));
-          // Each specialist keeps the exact packet/state that produced its probability.
-          const specialists = !appFailure && sharedSpecialists.length ? sharedSpecialists.map(sheet => ({
-            packet: sheet.packet, opportunities: sheet.opportunities, matchId: job.matchId,
-          })) : [undefined];
-          const recommendations = teamMarketsC ? specialists.map(specialist => buildChallengerTeamRecommendation({ decision: decisionC, quotes: group, observedAt,
-            competition: row.competition, expectedIdentity: this.deploymentC.deployment, allowedMarkets, specialist }))
-            : [buildChallengerRecommendation({ decision: decisionC, quotes: group as ResearchQuote[], observedAt,
-            competition: row.competition, expectedIdentity: this.deploymentC.deployment, allowedMarkets, paperFixedUnit: true,
-            ...(this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1' ? { selectionPolicy: 'payout-aware-v1' as const } : {}) })];
-          const configuration = teamMarketsC ? buildChallengerTeamConfiguration(decisionC, !appFailure ? packetA ?? undefined : undefined)
-            : object(decisionC.probabilityConfiguration);
-          const allOpportunities: Array<ReturnType<typeof buildChallengerTeamRecommendation>['opportunities'][number]
-            | ReturnType<typeof buildChallengerRecommendation>['opportunities'][number]> = [];
-          for (const recommendation of recommendations) allOpportunities.push(...recommendation.opportunities);
-          for (const opportunity of allOpportunities) {
-            if (this.deploymentC.deployment.selectorPolicy !== 'payout-aware-v1'
-              && !isVisibleCanonicalTeamBet({ ...opportunity, kellyFraction: 1, suggestedStakePercent: 1 })) continue;
-            const quote = 'quote' in opportunity ? opportunity.quote : group.find((value) => value.selection === opportunity.selection
-              && value.odds === Number(opportunity.bookmakerOdds));
-            const probability = Number(opportunity.ourProbability) / 100, ev = Number(opportunity.expectedValue) / 100;
-            if (!quote || !finiteProbability(probability) || !Number.isFinite(ev) || ev <= 0) continue;
-            challengerCandidates.push({ market: quote.market, selection: quote.selection, selectionKey: paperSelectionKey(quote), quote,
-              probability, ev, ...(typeof opportunity.confidence === 'string' ? { confidence: opportunity.confidence } : {}),
-              ...('engineSuggestedStakePercent' in opportunity && typeof opportunity.engineSuggestedStakePercent === 'number'
-                ? { suggestedStakePercent: opportunity.engineSuggestedStakePercent } : {}),
-              ...('payout' in opportunity ? { payout: opportunity.payout, quality: 'quality' in opportunity ? opportunity.quality : undefined } : {}),
-              ...('qualificationEvidence' in opportunity ? { qualificationEvidence: object(opportunity.qualificationEvidence) } : {}),
-              probabilityConfiguration: configuration, probabilityConfigurationHash: teamMarketsC ? researchHash(configuration) : String(decisionC.probabilityConfigurationHash) });
-          }
+      const principal = packetC?.selected;
+      if (!failureC && decisionC && packetC && principal) {
+        const quote = 'quote' in principal ? principal.quote : usableQuotes.find(value =>
+          value.selection === principal.selection && value.odds === Number(principal.bookmakerOdds));
+        const probability = Number(principal.ourProbability) / 100, ev = Number(principal.expectedValue) / 100;
+        if (quote && finiteProbability(probability) && Number.isFinite(ev) && ev > 0) {
+          const configuration = 'probabilityConfiguration' in packetC
+            ? packetC.probabilityConfiguration : object(decisionC.probabilityConfiguration);
+          challengerCandidates.push({ market: quote.market, selection: quote.selection, selectionKey: paperSelectionKey(quote), quote,
+            probability, ev, ...(typeof principal.confidence === 'string' ? { confidence: principal.confidence } : {}),
+            ...('engineSuggestedStakePercent' in principal && typeof principal.engineSuggestedStakePercent === 'number'
+              ? { suggestedStakePercent: principal.engineSuggestedStakePercent } : {}),
+            ...('payout' in principal ? { payout: principal.payout, quality: 'quality' in principal ? principal.quality : undefined } : {}),
+            ...('qualificationEvidence' in principal ? { qualificationEvidence: object(principal.qualificationEvidence) } : {}),
+            probabilityConfiguration: configuration,
+            probabilityConfigurationHash: 'probabilityConfigurationHash' in packetC ? String(packetC.probabilityConfigurationHash)
+              : String(decisionC.probabilityConfigurationHash) });
         }
       }
       for (const [family, candidates] of [['A', appCandidates], ['C', challengerCandidates]] as const) {
@@ -439,7 +398,7 @@ export class ResearchRecommendationRuntime {
     const challengerErrors: string[] = [];
     if (this.deploymentC.source !== 'fallback') {
       const checks = { inference: !!decisionC, technicalValidation: !failureC,
-        selectorPolicy: !!packetC && packetC.policyVersion === (this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1'
+        selectorPolicy: !!packetC && packetC.policyVersion === (decisionC && usesOpportunityGuardDecision(decisionC, this.deploymentC.deployment) ? C_OPPORTUNITY_GUARD_POLICY : this.deploymentC.deployment.selectorPolicy === 'payout-aware-v1'
           ? 'challenger-payout-selection-v1' : CANONICAL_RECOMMENDATION_POLICY),
         probabilityConfiguration: !!decisionC && (this.deploymentC.deployment.probabilityConfigurationHash === null
           || decisionC.probabilityConfigurationHash === this.deploymentC.deployment.probabilityConfigurationHash),

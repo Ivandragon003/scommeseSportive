@@ -8,13 +8,21 @@ import { ResearchQuote } from './ResearchEvaluation';
 import { researchHash } from './ResearchStore';
 import { recommendationQuoteReason } from './ResearchRecommendationPolicy';
 import { T15Decision } from './T15Scheduler';
+import { buildCOpportunityGuardRecommendation, COpportunityGuardState, selectOpportunityGuardRecommendation, usesOpportunityGuardDecision } from './COpportunityGuardRecommendation';
 
 type Specialist = { packet: CanonicalRecommendationPacket<any>; opportunities: BetOpportunity[]; matchId: string };
-type TeamOpportunity = BetOpportunity & { quote: RecommendationQuote; engineSuggestedStakePercent: number; qualificationEvidence: Record<string, unknown>; payout?: ReturnType<typeof evaluateChallengerPayout> };
+export type TeamOpportunity = BetOpportunity & { quote: RecommendationQuote; engineSuggestedStakePercent: number; qualificationEvidence: Record<string, unknown>; payout?: ReturnType<typeof evaluateChallengerPayout> };
 type Input = Omit<ChallengerRecommendationInput, 'quotes'> & { quotes: RecommendationQuote[]; specialist?: Specialist };
+export type ChallengerTeamInput = Input;
 
 /** Identity describes the composition, while the particular A state remains in the evidence. */
 export function buildChallengerTeamConfiguration(decision: T15Decision, packet?: CanonicalRecommendationPacket<any>) {
+  if (usesOpportunityGuardDecision(decision)) {
+    const state = decision.opportunityGuard as COpportunityGuardState;
+    return { version: 'c-opportunity-guard-probability-configuration-v1', family: 'C', marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY,
+      goalConfiguration: decision.probabilityConfiguration, goalConfigurationHash: decision.probabilityConfigurationHash,
+      opportunityGuard: { protocol: state?.protocol, planSha256: state?.planSha256, profilesSha256: state?.profilesSha256 } };
+  }
   const model = packet?.model;
   return { version: 'c-team-probability-configuration-v1', family: 'C', marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY,
     goalConfiguration: decision?.probabilityConfiguration, goalConfigurationHash: decision?.probabilityConfigurationHash,
@@ -32,6 +40,7 @@ const validModel = (p: CanonicalRecommendationPacket<any>, asOf: string) => p?.p
   && hashValid(p.model.codeHash) && hashValid(p.model.configHash) && hashValid(p.model.stateHash) && p.odds?.source === 'odds_api';
 
 export function buildChallengerTeamRecommendation(input: Input) {
+  if (usesOpportunityGuardDecision(input.decision, input.expectedIdentity)) return buildCOpportunityGuardRecommendation(input);
   const exclusions: Record<string, number> = {};
   const exclude = (reason: string) => { exclusions[reason] = (exclusions[reason] ?? 0) + 1; };
   const probabilityConfiguration = buildChallengerTeamConfiguration(input.decision, input.specialist?.packet);
@@ -148,4 +157,12 @@ export function buildChallengerTeamRecommendation(input: Input) {
     }
   }
   return result(opportunities);
+}
+
+/** The same global ordering is used by Nightly and the match preview. */
+export function selectChallengerTeamRecommendation(decision: T15Decision, opportunities: readonly TeamOpportunity[], expected?: { modelVersion: string; selectorPolicy?: string }) {
+  if (usesOpportunityGuardDecision(decision, expected)) return selectOpportunityGuardRecommendation(opportunities);
+  const ordered = [...opportunities].sort((a, b) => Number(['HIGH', 'MEDIUM'].includes(b.confidence))
+    - Number(['HIGH', 'MEDIUM'].includes(a.confidence)) || rankCanonicalOpportunity(b) - rankCanonicalOpportunity(a));
+  return pickCanonicalBetRecommendation({ valueOpportunities: ordered });
 }

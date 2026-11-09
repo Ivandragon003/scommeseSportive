@@ -3,9 +3,8 @@ import { OddsApiService } from '../services/OddsApiService';
 import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
 import { OddsApiProvider } from '../services/odds-provider/OddsApiProvider';
 import { PredictionService } from '../services/PredictionService';
-import { pickCanonicalBetRecommendation, rankCanonicalOpportunity } from '../services/CanonicalBetRecommendation';
 import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, isChallengerStatMarket, usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
-import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration } from './ChallengerTeamRecommendation';
+import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration, selectChallengerTeamRecommendation } from './ChallengerTeamRecommendation';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
 import { previewInterruptedReadCode, ResearchRuntime } from './ResearchRuntime';
 import { TOP5_COMPETITIONS } from './ForecastCore';
@@ -16,6 +15,7 @@ import { RecommendationQuote } from './AppRecommendationQuotes';
 import { PreparedT15Job, safeOddsFailureCode } from './T15Scheduler';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { researchHash } from './ResearchStore';
+import { C_OPPORTUNITY_GUARD_POLICY } from './COpportunityGuardRecommendation';
 
 const QUOTE_MAX_AGE_MS = 300_000;
 const PREVIEW_CACHE_MS = 30_000;
@@ -219,7 +219,7 @@ export class ChallengerPreviewService {
     if (prepared.status !== 'upcoming') return this.response(matchId, 'UNAVAILABLE', 'challenger_fixture_unavailable', row, state);
     const observedAt = this.clock().toISOString();
     let quotes: RecommendationQuote[] = (prepared.quotes as ResearchQuote[]).filter((quote) => !recommendationQuoteReason(quote, new Date(observedAt), 'C'));
-    const teamMarkets = usesChallengerTeamMarkets(state.deployment);
+    const teamMarkets = state.deployment.selectorPolicy === C_OPPORTUNITY_GUARD_POLICY || usesChallengerTeamMarkets(state.deployment);
     if (!teamMarkets && !quotes.length) return this.response(matchId, 'UNAVAILABLE', 'real_fresh_quotes_unavailable', row, state);
     const decisions = prepared.decisions.filter((decision) => decision.family === 'C');
     if (decisions.length !== 1) return this.response(matchId, 'UNAVAILABLE', 'challenger_technical_validation_failed', row, state);
@@ -248,7 +248,7 @@ export class ChallengerPreviewService {
       for (const sheet of validSheets) {
         if (!sheet.quotes.length) continue;
         let specialist: Parameters<typeof buildChallengerTeamRecommendation>[0]['specialist'];
-        if (sheet.quotes.some(quote => isChallengerStatMarket(quote.market))) try {
+        if (state.deployment.selectorPolicy !== C_OPPORTUNITY_GUARD_POLICY && sheet.quotes.some(quote => isChallengerStatMarket(quote.market))) try {
           const prediction = await this.predictionService.predict({ homeTeamId: row.home_team_id, awayTeamId: row.away_team_id,
             matchId, competition: row.competition, season: row.season },
           { asOf: observedAt, recordAudit: false, sharedOdds: sheet.sharedOdds, prospectiveOrigin: 'shared_ac', suppressProspective: true });
@@ -269,9 +269,7 @@ export class ChallengerPreviewService {
       if (!recommendations.length) recommendations.push(buildChallengerTeamRecommendation({ decision, quotes, observedAt,
         competition: row.competition, expectedIdentity: state.deployment, allowedMarkets }));
       const opportunities = recommendations.flatMap(value => value.opportunities);
-      const ordered = [...opportunities].sort((a, b) => Number(['HIGH', 'MEDIUM'].includes(b.confidence))
-        - Number(['HIGH', 'MEDIUM'].includes(a.confidence)) || rankCanonicalOpportunity(b) - rankCanonicalOpportunity(a));
-      const selected = pickCanonicalBetRecommendation({ valueOpportunities: ordered });
+      const selected = selectChallengerTeamRecommendation(decision, opportunities, state.deployment);
       const probabilityConfiguration = buildChallengerTeamConfiguration(decision, sharedPacket);
       packet = { ...selected, opportunities, exclusions: Object.assign({}, ...recommendations.map(value => value.exclusions)),
         marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY, probabilityConfiguration,

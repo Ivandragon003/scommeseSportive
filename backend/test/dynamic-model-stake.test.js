@@ -121,18 +121,18 @@ test('model percentages calculate whole stakes from opening equity and only avai
   for (const family of ['A','C']) await f.client.execute({sql:"INSERT INTO research_ledger(id,portfolio_id,bet_id,event,available_delta_cents,committed_delta_cents,created_at) VALUES (?,?,NULL,'STAKE',?,?,?)",args:['seed-'+family,'shadow_'+family,-10000,10000,START]});
   const job=(await claim(f)).jobs[0], data=withSelections(f,job);
   for (const d of data.decisions) d.selections.forEach((c,i)=>c.suggestedStakePercent=[0.84,1.72,3.72][i]);
-  const result=await f.execution.commitBatch([data]); assert.equal(result.bets.length,6);
+  const result=await f.execution.commitBatch([data]); assert.equal(result.bets.length,4);
   for (const family of ['A','C']) { const bets=result.bets.filter(b=>b.family===family);
-   assert.deepEqual(bets.map(b=>b.stakeCents).sort((a,b)=>a-b),[840,1720,3720]);
+   assert.deepEqual(bets.map(b=>b.stakeCents).sort((a,b)=>a-b),family==='A'?[840,1720,3720]:[840]);
    assert.ok(bets.every(b=>b.snapshot.baseEquityCents===100000 && b.snapshot.suggestedStakePercent===b.snapshot.stakePercent));
-   assert.equal((await f.research.listPortfolios()).find(x=>x.family===family).availableCents,83720);
+   assert.equal((await f.research.listPortfolios()).find(x=>x.family===family).availableCents,family==='A'?83720:89160);
   }
-  assert.equal((await f.execution.commitBatch([data])).bets.length,6);
+  assert.equal((await f.execution.commitBatch([data])).bets.length,4);
   const bet=result.bets[0]; assert.equal((await f.research.settleBet(bet.id,0,{status:'LOST'})).settled,true);
   assert.equal((await f.research.settleBet(bet.id,0,{status:'LOST'})).settled,false);
-  assert.equal((await f.research.listBets()).length,6);
+  assert.equal((await f.research.listBets()).length,4);
   assert.ok((await f.execution.listDecisionViews({matchId:job.matchId})).every(x=>x.betId?.startsWith('dynamic:')));
-  assert.equal((await f.execution.getRunMetrics(RUN)).registeredBets,6);
+  assert.equal((await f.execution.getRunMetrics(RUN)).registeredBets,4);
   assert.equal((await f.execution.getComparisonDecisionPairs({from:'2026-10-29T00:00:00.000Z',to:END})).comparedCount,1);
  } finally {await f.close();}
 });
@@ -145,7 +145,7 @@ test('percent precision, zero and balance limits reject rather than alter the pr
 
 test('switching policy never repeats an existing fixed-confidence semantic selection',async()=>{
  const f=await setup({matches:1}); try {await migrations(f); f.policy=await f.execution.registerPolicy(policyFor());
-  const first=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(first.bets.length,6);
+  const first=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(first.bets.length,4);
   const before=JSON.stringify(await f.research.listLedger()); f.policy=await f.execution.registerPolicy(dynamicPolicy());
   const result=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(result.bets.length,0);
   assert.equal(JSON.stringify(await f.research.listLedger()),before);
@@ -154,7 +154,7 @@ test('switching policy never repeats an existing fixed-confidence semantic selec
 
 test('fixed pending cancellations refund exactly once, preserve evidence, and permit dynamic replacement',async()=>{
  const f=await setup({matches:1}); try {await migrations(f); f.policy=await f.execution.registerPolicy(policyFor());
-  const fixed=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(fixed.bets.length,6);
+  const fixed=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(fixed.bets.length,4);
   const originals=JSON.stringify((await f.client.execute('SELECT * FROM funded_model_bets ORDER BY id')).rows);
   const opening=(await f.research.listPortfolios()).map(x=>[x.id,x.availableCents,x.committedCents]);
   await f.client.executeMultiple(readFileSync(join(__dirname,'../migrations/031_dynamic_funded_cancellations.sql'),'utf8'));
@@ -166,9 +166,9 @@ test('fixed pending cancellations refund exactly once, preserve evidence, and pe
   assert.equal((await f.execution.listDecisionViews({matchId:f.fixtures[0].matchId})).length,0);
   await assert.rejects(f.research.settleBet(fixed.bets[0].id,0,{status:'LOST'}),/Cancelled/);
   await assert.rejects(f.client.execute({sql:'INSERT INTO funded_model_bet_cancellations VALUES (?,?,?)',args:[fixed.bets[0].id,START,'duplicate']}));
-  assert.equal(Number((await f.client.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE id LIKE 'cancel:funded:%'")).rows[0].n),6);
+  assert.equal(Number((await f.client.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE id LIKE 'cancel:funded:%'")).rows[0].n),4);
   f.policy=await f.execution.registerPolicy(dynamicPolicy()); const result=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]);
-  assert.equal(result.bets.length,6); assert.ok(result.bets.every(x=>x.id.startsWith('dynamic:')));
+  assert.equal(result.bets.length,4); assert.ok(result.bets.every(x=>x.id.startsWith('dynamic:')));
  } finally {await f.close();}
 });
 

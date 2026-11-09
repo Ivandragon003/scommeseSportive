@@ -1,17 +1,22 @@
 import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
-/** Operational composition only: the frozen goal model and calibration stay unchanged. */
-export const CHALLENGER_TEAM_MARKET_POLICY = 'c-team-markets-v1';
+/** The adopted recipe covers only the three historical goal market families. */
+export const CHALLENGER_TEAM_MARKET_POLICY = 'c-opportunity-guard-markets-v1';
+const LEGACY_CHALLENGER_TEAM_MARKET_POLICY = 'c-team-markets-v1';
 export const CHALLENGER_MARKET_ELIGIBILITY = 'code-supported-markets-v1';
 export const CHALLENGER_TEAM_MARKETS = [
-  '1x2', 'double_chance', 'dnb', 'btts', 'totals', 'team_totals',
-  'european_handicap', 'asian_handicap', 'shots', 'shots_on_target', 'yellow_cards', 'cards_total',
+  '1x2', 'totals', 'asian_handicap',
 ] as const;
+
+/** Recognize immutable historical evidence without enabling its markets for the current release. */
+export function isChallengerTeamMarketPolicy(value: unknown): boolean {
+  return value === CHALLENGER_TEAM_MARKET_POLICY || value === LEGACY_CHALLENGER_TEAM_MARKET_POLICY;
+}
 
 export function usesChallengerTeamMarkets(deployment: { modelVersion: string; selectorPolicy: string;
   baselineVersion?: string; probabilityConfigurationHash?: string | null; artifactHash?: string | null } | undefined): boolean {
   return deployment?.modelVersion === CURRENT_CHALLENGER_RELEASE.modelVersion
-    && deployment.selectorPolicy === 'canonical-binary-v1'
+    && deployment.selectorPolicy === CURRENT_CHALLENGER_RELEASE.selectorPolicy
     && deployment.baselineVersion === CURRENT_CHALLENGER_RELEASE.baselineVersion
     && deployment.probabilityConfigurationHash === CURRENT_CHALLENGER_RELEASE.probabilityConfigurationHash
     && deployment.artifactHash === CURRENT_CHALLENGER_RELEASE.artifactHash;
