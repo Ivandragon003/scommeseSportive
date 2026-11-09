@@ -60,10 +60,17 @@ diversi: una lista parziale non sostituisce il totale del portafoglio.
 
 La Nightly automatica usa la policy `funded-dynamic-stake-v1`, con
 `stakeMode=MODEL_RECOMMENDED_PERCENT`: considera
-tutte le opportunità dei mercati già supportati che superano i criteri del
-modello, EV e controlli prudenziali esistenti. Non applica top N né massimi
-per esecuzione, giorno, campionato, partita o modello. Più mercati della
-stessa partita e la medesima selezione di A e C sono registrazioni distinte.
+tutte le opportunità A dei mercati già supportati che superano i criteri del
+modello, EV e controlli prudenziali esistenti. Per C considera soltanto la
+giocata principale consigliata per partita; se non è finanziabile o la quota
+non è valida, si astiene senza ripiegare su una secondaria. Più partite possono
+essere giocate nella stessa esecuzione. A può ancora giocare più mercati della
+stessa partita; la medesima selezione di A e C resta una registrazione distinta.
+Il vincolo C sulla partita viene verificato nella transazione anche tra retry,
+versioni del modello, policy e registri paper/finanziati. Una giocata C già
+esistente, anche manuale, blocca una nuova registrazione automatica per la
+partita. Le giocate annullate logicamente non bloccano; le partite con più
+giocate storiche restano immutate. Il flusso delle azioni manuali non cambia.
 La chiave `(famiglia, partita, mercato/esito/linea/squadra)` impedisce
 di rigiocare la stessa selezione per un cambio di bookmaker, prezzo o versione.
 Linea e squadra entrano nella chiave solo nei mercati che le usano: campi
@@ -75,7 +82,10 @@ migliore prezzo ammissibile; non si aumenta il numero di chiamate per selezione.
 
 Ogni opportunità fornisce la propria percentuale dinamica suggerita: A usa i
 controlli Kelly/rischio esistenti; per i mercati gol C usa il motore sulle
-proprie probabilità, mentre per le statistiche usa lo specialista A condiviso. Non è
+proprie probabilità. La release C opportunity_guard ammette solo 1X2, totale
+gol 2,5 e handicap asiatici, con ranking e percentuale dinamica nativi e
+filtro presequenziale sulle opportunità binarie. A conserva il proprio
+catalogo e tutte le opportunità qualificate. Non è
 la mappa fissa LOW 1% / MEDIUM 3% / HIGH 5%. La percentuale valida, espressa
 con due decimali, si applica al **patrimonio della famiglia a inizio gruppo**,
 cioè saldo disponibile più importo già impegnato, letto nella transazione.
@@ -118,8 +128,8 @@ Nessun percorso trasmette puntate a un bookmaker.
 Restano obbligatori dati affidabili, quota reale recente, identità, timing
 prepartita, configurazione/versione del modello, idempotenza e budget API.
 I mercati disabilitati e i player props non diventano automaticamente ammessi.
-Per la copertura squadra della release corrente C e la registrazione esplicita
-dei mercati vedi [Modello C](../models/MODEL-C.md) e
+Per la copertura squadra C corrente e la compatibilità dei registri di
+mercato precedenti vedi [Modello C](../models/MODEL-C.md) e
 [Research](../research-platform.md#copertura-squadra-c-e-registro-di-ricerca).
 La modalità finanziata sopprime la registrazione prospettica opzionale delle sue
 inferenze aggiuntive: non avvia né modifica il pilot scientifico.

@@ -3,7 +3,8 @@ import { settleGoalQuote } from './GoalSettlement';
 import { appQuoteSettlementSupported, RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { quoteFreshnessReason } from './T15Scheduler';
-import { CHALLENGER_TEAM_MARKET_POLICY, CHALLENGER_MARKET_ELIGIBILITY, usesChallengerTeamMarkets, isChallengerStatMarket } from './ChallengerMarketCoverage';
+import { CHALLENGER_TEAM_MARKET_POLICY, CHALLENGER_MARKET_ELIGIBILITY, usesChallengerTeamMarkets,
+  isChallengerStatMarket, isChallengerTeamMarketPolicy } from './ChallengerMarketCoverage';
 import { researchHash } from './ResearchStore';
 import { CURRENT_CHALLENGER_RELEASE } from './CurrentChallengerRelease';
 
@@ -11,7 +12,8 @@ export const RECOMMENDATION_MODEL_C = CURRENT_CHALLENGER_RELEASE.modelVersion;
 export const RECOMMENDATION_BASELINE_C = CURRENT_CHALLENGER_RELEASE.baselineVersion;
 
 export type ChallengerExecutionDeployment = {
-  modelVersion: string; baselineVersion: string; selectorPolicy: 'canonical-binary-v1' | 'payout-aware-v1';
+  modelVersion: string; baselineVersion: string;
+  selectorPolicy: 'canonical-binary-v1' | 'payout-aware-v1' | 'c-resolved-engine-ranking-v1';
   probabilityConfigurationHash: string | null; artifactHash: string | null;
 };
 export type ChallengerExecutionState = {
@@ -123,7 +125,7 @@ export function validCStatEvidence(configuration: any, qualification: any): bool
   const specialist = configuration?.sharedSpecialistModel, model = qualification?.model;
   const hash = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
   return configuration?.version === 'c-team-probability-configuration-v1' && configuration.family === 'C'
-    && configuration.marketPolicyVersion === CHALLENGER_TEAM_MARKET_POLICY
+    && isChallengerTeamMarketPolicy(configuration.marketPolicyVersion)
     && configuration.goalConfiguration?.family === 'C' && hash(configuration.goalConfigurationHash)
     && researchHash(configuration.goalConfiguration) === configuration.goalConfigurationHash
     && specialist?.source === 'PredictionService' && typeof specialist.version === 'string' && !!specialist.version.trim()
@@ -142,7 +144,7 @@ export function recommendationQuoteReason(quote: RecommendationQuote, now: Date,
     && quote.probabilityConfiguration?.goalConfigurationHash === CURRENT_CHALLENGER_RELEASE.probabilityConfigurationHash
     && validCStatEvidence(quote.probabilityConfiguration, quote.qualificationEvidence)
     && quote.probabilityConfigurationHash === researchHash(quote.probabilityConfiguration);
-  if (family === 'A' || marketPolicy === CHALLENGER_TEAM_MARKET_POLICY || quotePolicy ? !appQuoteSettlementSupported(quote)
+  if (family === 'A' || isChallengerTeamMarketPolicy(marketPolicy) || quotePolicy ? !appQuoteSettlementSupported(quote)
     : settleGoalQuote(quote as ResearchQuote, 0, 0).status === 'UNRESOLVED') return 'unsupported_quote_settlement';
   return null;
 }

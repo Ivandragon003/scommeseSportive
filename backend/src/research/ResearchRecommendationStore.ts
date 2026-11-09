@@ -1,5 +1,5 @@
 import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
-import { CHALLENGER_TEAM_MARKET_POLICY, challengerMarketAllowed, isChallengerStatMarket, usesCodeMarketEligibility } from './ChallengerMarketCoverage';
+import { challengerMarketAllowed, isChallengerStatMarket, isChallengerTeamMarketPolicy, usesCodeMarketEligibility } from './ChallengerMarketCoverage';
 import type { Client, Transaction } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
 import { ResearchStore, researchHash, researchJson, ResearchFamily } from './ResearchStore';
@@ -58,6 +58,18 @@ const object = (row: any): any => row ? Object.fromEntries(Object.entries(row).f
 async function rows(db: Executor, sql: string, args: any[] = []): Promise<any[]> { return (await db.execute({ sql, args })).rows.map(object); }
 async function first(db: Executor, sql: string, args: any[] = []): Promise<any> { return (await rows(db, sql, args))[0] ?? null; }
 const RECOVERY_PROTOCOL = 'virtual-recommendation-technical-recovery-v1';
+const CHALLENGER_BET_SCHEMA_SQL = `SELECT name FROM sqlite_master WHERE type='table' AND name IN
+  ('research_bets','manual_model_bets','paper_model_bets','paper_model_bet_cancellations','funded_model_bets','funded_model_bet_cancellations','dynamic_model_bets')`;
+const challengerBetQuery = (tables: string[], matchId: string) => {
+  const bets = ['research_bets', 'manual_model_bets', 'paper_model_bets', 'funded_model_bets', 'dynamic_model_bets']
+    .filter(table => tables.includes(table));
+  return { sql: bets.map(table => {
+    const cancellation = table === 'paper_model_bets' ? 'paper_model_bet_cancellations'
+      : table === 'funded_model_bets' ? 'funded_model_bet_cancellations' : null;
+    return `SELECT id FROM ${table} WHERE family='C' AND match_id=?${cancellation && tables.includes(cancellation)
+      ? ` AND NOT EXISTS (SELECT 1 FROM ${cancellation} c WHERE c.bet_id=${table}.id)` : ''}`;
+  }).join(' UNION ALL ') + ' LIMIT 1', args: bets.map(() => matchId) };
+};
 
 /** Versioned virtual execution preserves the original immutable research decisions. */
 export class ResearchRecommendationStore {
@@ -352,7 +364,7 @@ export class ResearchRecommendationStore {
   private quoteReason(quote: any, observed: number, now: number, kickoff: number, family: ResearchFamily = 'C', marketPolicy?: string): string | null {
     if (!quote || quote.source !== 'odds_api' || quote.usedSyntheticOdds === true || quote.timestampEvidence === 'observed_snapshot'
       || quote.priceType !== 'prematch' || !String(quote.bookmaker ?? '').trim() || !Number.isFinite(quote.odds) || quote.odds <= 1) return 'real_fresh_quote_required';
-    if (family === 'A' || marketPolicy === CHALLENGER_TEAM_MARKET_POLICY ? !appQuoteSettlementSupported(quote)
+    if (family === 'A' || isChallengerTeamMarketPolicy(marketPolicy) ? !appQuoteSettlementSupported(quote)
       : settleGoalQuote(quote, 0, 0).status === 'UNRESOLVED') return 'market_settlement_not_supported';
     for (const value of [quote.capturedAt, quote.updatedAt]) {
       const time = typeof value === 'string' && /(?:z|[+-]\d{2}:\d{2})$/i.test(value) ? Date.parse(value) : NaN;
@@ -409,7 +421,14 @@ export class ResearchRecommendationStore {
     }
     const rejected: Array<{ selection: string | null; reason: string }> = [], candidates: PaperSelection[] = [];
     if (!reason && !Array.isArray(decision.selections)) abstain('paper_selections_required');
-    if (!reason) for (const child of decision.selections ?? []) {
+    // Only the declared C primary can execute, even if a caller supplies secondary candidates.
+    const supplied = Array.isArray(decision.selections) ? decision.selections : [];
+    const requested = decision.family === 'C' ? supplied.filter(child => child
+      && child.market === decision.market && child.selection === decision.selection && child.quote && decision.quote
+      && researchHash(child.quote) === researchHash(decision.quote)).slice(0, 1) : supplied;
+    if (!reason && decision.family === 'C' && !requested.length) abstain('challenger_primary_selection_required');
+    if (!reason && decision.family === 'C' && await this.hasChallengerMatchBet(tx, job.matchId)) abstain('challenger_match_already_recorded');
+    if (!reason) for (const child of requested) {
       let invalid: string | null = null;
       const reject = (code: string) => { invalid ??= code; };
       if (!child || typeof child !== 'object' || !child.quote) {
@@ -431,7 +450,7 @@ export class ResearchRecommendationStore {
       if (typeof child.market !== 'string' || ['corners', 'fouls', 'correct_score', 'exact_score'].includes(child.market)
         || child.market.startsWith('player_')) reject('market_not_allowed_for_virtual_execution');
       if (decision.family === 'C' && isChallengerStatMarket(child.market)
-        && (policy.descriptor.familyC?.marketPolicyVersion !== CHALLENGER_TEAM_MARKET_POLICY
+        && (!isChallengerTeamMarketPolicy(policy.descriptor.familyC?.marketPolicyVersion)
           || !validCStatEvidence(configuration, child.qualificationEvidence)
           || configuration.goalConfigurationHash !== policy.descriptor.familyC?.probabilityConfigurationHash)) reject('probability_configuration_identity_required');
       if (decision.family === 'C') {
@@ -539,6 +558,14 @@ export class ResearchRecommendationStore {
     return { decision: { id, ...evidence, createdAt }, bets, quotes: action === 'BET' ? selected.map(child => child.quote) : [] };
   }
 
+  private async hasChallengerMatchBet(tx: Executor, matchId: string): Promise<boolean> {
+    const tables = (await rows(tx, CHALLENGER_BET_SCHEMA_SQL)).map(row => row.name);
+    // The write transaction serializes admission across policies and model versions.
+    // Existing manual bets also block a new automatic bet; manual write rules stay unchanged.
+    const query = challengerBetQuery(tables, matchId);
+    return Boolean(await first(tx, query.sql, query.args));
+  }
+
   /** Batch the reads and writes of new ordinary paper jobs while retaining the same validators. */
   private async preparePaperBatch(tx: Transaction, prepared: RecommendationCommit[]): Promise<{ executor: Executor; flush: () => Promise<void> } | null> {
     type Statement = { sql: string; args: any[] };
@@ -555,7 +582,9 @@ export class ResearchRecommendationStore {
     const manualSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='manual_model_bets'", args: [] };
     const dynamicSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='dynamic_model_bets'", args: [] };
     const fundedCancellationSchema: Statement = { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name='funded_model_bet_cancellations'", args: [] };
-    await fetch([fixtureSchema, manualSchema, dynamicSchema, fundedCancellationSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
+    const challengerSchema: Statement = { sql: CHALLENGER_BET_SCHEMA_SQL, args: [] };
+    await fetch([fixtureSchema, manualSchema, dynamicSchema, fundedCancellationSchema, challengerSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
+    const challengerTables = cache.get(key(challengerSchema)).rows.map((row: any) => row.name);
     const jobs = prepared.map((item) => object(cache.get(key(jobQuery(item.jobId))).rows[0]));
     // Completed jobs and recovery policies retain the existing immutable-replay path.
     if (jobs.some((job) => !job || job.status === 'COMPLETED')) return null;
@@ -572,6 +601,7 @@ export class ResearchRecommendationStore {
       statements.push({ sql: 'SELECT i.id,j.match_id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?', args: [item.originInputId] });
       if (hasFixtures) statements.push({ sql: 'SELECT date,home_goals,away_goals FROM matches WHERE match_id=?', args: [job.matchId] });
       for (const decision of item.decisions) {
+        if (decision.family === 'C') statements.push(challengerBetQuery(challengerTables, job.matchId));
         if (funded) statements.push({ sql: `SELECT p.id,COALESCE(SUM(l.available_delta_cents),0) AS available_cents,
           COALESCE(SUM(l.available_delta_cents+l.committed_delta_cents),0) AS equity_cents
           FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id WHERE p.id=? GROUP BY p.id`, args: [`shadow_${decision.family}`] });
@@ -603,12 +633,15 @@ export class ResearchRecommendationStore {
         if (/^\s*INSERT INTO paper_model_bets\b/i.test(normalized.sql)) {
           const args = normalized.args;
           cache.set(key({ sql: 'SELECT id FROM paper_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[5], args[6], args[10]] }), { rows: [{ id: args[0] }] });
+          if (args[5] === 'C') cache.set(key(challengerBetQuery(challengerTables, args[6])), { rows: [{ id: args[0] }] });
         } else if (/^\s*INSERT INTO funded_model_bets\b/i.test(normalized.sql)) {
           const args = normalized.args;
           cache.set(key({ sql: 'SELECT id FROM funded_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[6], args[7], args[11]] }), { rows: [{ id: args[0] }] });
+          if (args[6] === 'C') cache.set(key(challengerBetQuery(challengerTables, args[7])), { rows: [{ id: args[0] }] });
         } else if (/^\s*INSERT INTO dynamic_model_bets\b/i.test(normalized.sql)) {
           const args = normalized.args;
           cache.set(key({ sql: 'SELECT id FROM dynamic_model_bets WHERE family=? AND match_id=? AND selection_key=?', args: [args[6], args[7], args[11]] }), { rows: [{ id: args[0] }] });
+          if (args[6] === 'C') cache.set(key(challengerBetQuery(challengerTables, args[7])), { rows: [{ id: args[0] }] });
         } else if (/^\s*UPDATE research_execution_jobs SET status='COMPLETED'/i.test(normalized.sql)) {
           const query = jobQuery(normalized.args[1]), result = cache.get(key(query));
           cache.set(key(query), { ...result, rows: [{ ...result.rows[0], status: 'COMPLETED', updated_at: normalized.args[0] }] });
@@ -687,6 +720,7 @@ export class ResearchRecommendationStore {
       const fundedAllocations = new Map<string, any>();
       for (const family of ['A', 'C'] as const) {
         const candidates: Array<{ key: string; confidence?: unknown; ev?: number; suggestedStakePercent?: unknown }> = [];
+        const challengerMatches = new Set<string>();
         const fundedPlans = plans.filter(plan => plan.decision.family === family && (isFundedPolicy(plan.policy.descriptor) || isDynamicFundedPolicy(plan.policy.descriptor)));
         if (!fundedPlans.length) continue;
         const dynamic = isDynamicFundedPolicy(fundedPlans[0].policy.descriptor);
@@ -697,8 +731,10 @@ export class ResearchRecommendationStore {
           FROM research_portfolios p LEFT JOIN research_ledger l ON l.portfolio_id=p.id WHERE p.id=? GROUP BY p.id`, [portfolioId]);
         if (!portfolio) throw new Error('Execution portfolio not initialized');
         for (const plan of fundedPlans) {
+          if (family === 'C' && challengerMatches.has(plan.job.matchId)) continue;
           const hashes = new Set(plan.item.inputSnapshot.quotes.map((quote: any) => researchHash(quote)));
           const validated = await this.commitPaperDecision(tx, plan, quote => hashes.has(researchHash(quote)), { validateOnly: true });
+          if (family === 'C' && validated.candidates?.length) challengerMatches.add(plan.job.matchId);
           for (const child of validated.candidates ?? []) candidates.push({ key: JSON.stringify([plan.job.matchId, family, child.selectionKey]),
             confidence: child.confidence, ev: child.ev, suggestedStakePercent: child.suggestedStakePercent });
         }
@@ -757,7 +793,7 @@ export class ResearchRecommendationStore {
         const observed = Date.parse(item.inputSnapshot.observedAt), quote = decision.quote;
         const quoteReason = this.quoteReason(quote, observed, at, Date.parse(job.kickoffAt), decision.family, plan.policy.descriptor.familyC?.marketPolicyVersion); if (quoteReason) abstain(quoteReason);
         if (decision.family === 'C' && isChallengerStatMarket(decision.market ?? '')
-          && (plan.policy.descriptor.familyC?.marketPolicyVersion !== CHALLENGER_TEAM_MARKET_POLICY
+          && (!isChallengerTeamMarketPolicy(plan.policy.descriptor.familyC?.marketPolicyVersion)
             || !validCStatEvidence(configuration, decision.qualificationEvidence)
             || configuration.goalConfigurationHash !== plan.policy.descriptor.familyC?.probabilityConfigurationHash)) abstain('probability_configuration_identity_required');
         if (quote && !item.inputSnapshot.quotes.some((shared: any) => researchHash(shared) === researchHash(quote))) abstain('quote_not_in_shared_snapshot');
@@ -770,6 +806,7 @@ export class ResearchRecommendationStore {
         if (Number(portfolio.committedCents) + stakeCents > Math.floor(Number(portfolio.equityCents) * .05)) abstain('virtual_exposure_limit');
         if (await first(tx, 'SELECT id FROM research_bets WHERE portfolio_id=? AND match_id=?', [portfolioId, job.matchId])
           || await this.research.hasManualBet(tx, portfolioId, job.matchId)) abstain('one_bet_per_portfolio_match');
+        if (decision.family === 'C' && await this.hasChallengerMatchBet(tx, job.matchId)) abstain('challenger_match_already_recorded');
         const id = randomUUID(), createdAt = iso(at), action = reason ? 'ABSTAIN' : 'BET';
         const evidence = { ...item.inputSnapshot.match, ...decision, action, reason, decisionMode: 'VIRTUAL_RECOMMENDATION', policyHash: job.policyHash,
           policyVersion: plan.policy.version,

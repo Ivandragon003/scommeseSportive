@@ -358,15 +358,18 @@ Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapt
    Nel modo primario resta il controllo del calendario eventi precedente.
 6. Con `RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED=true` registra i consigli dei
    rispettivi motori: A usa `PredictionService`, i mercati squadra supportati
-   con tutte le opportunità qualificate; C usa il proprio percorso gol.
+   con tutte le opportunità qualificate; C usa soltanto la propria giocata
+   principale per partita, senza sostituirla con una secondaria se non supera
+   i controlli di esecuzione.
    La policy `funded-dynamic-stake-v1` usa la percentuale suggerita da ciascun
    modello sul patrimonio iniziale del gruppo (disponibile + impegnato), con
    importi in euro arrotondati per difetto al centesimo. Il saldo disponibile
-   deve coprire ogni importo completo. Non applica top N, massimi per partita
-   o tetto cumulativo del 5%; la priorità resta HIGH, MEDIUM, LOW, poi EV
+   deve coprire ogni importo completo. A non applica top N o massimi per partita;
+   C ammette una sola principale per incontro. Non c'è un tetto cumulativo del
+   5%; la priorità resta HIGH, MEDIUM, LOW, poi EV
    decrescente e chiave. Percentuali mancanti/invalide non finanziano giocate.
-   Più mercati e A/C sulla stessa partita sono ammessi; una stessa selezione
-   attiva per famiglia non si ripete cambiando bookmaker/prezzo/versione.
+   A può giocare più mercati e A/C restano separati sulla stessa partita;
+   una stessa selezione attiva per famiglia non si ripete cambiando bookmaker/prezzo/versione.
    Quote reali, bookmaker, freschezza, EV, prudenza, modello, qualità, kickoff
    e saldo sono verificati anche nella transazione. Prima dell'avvio occorrono
    schema 030/031 e passaggio controllato delle precedenti giocate fisse,
@@ -382,6 +385,15 @@ Il ciclo non chiama la registrazione legacy `/api/automation/place-valid-bets`,
 che risponde `410`. Non piazza scommesse presso bookmaker. Giocatori e
 formazioni restano sospesi nella configurazione del workflow; una chiave
 API-Football presente non li abilita da sola.
+
+Il vincolo C sulla partita attraversa retry, versioni, policy e registri
+paper/finanziati ed è ricontrollato nella transazione: anche una giocata C
+manuale già presente impedisce una nuova registrazione automatica. Le
+cancellazioni logiche non bloccano; lo storico con più giocate resta invariato.
+Il flusso manuale e tutte le opportunità A restano invariati. La release C
+opportunity_guard ammette solo 1X2, totale gol 2,5 e handicap asiatici;
+prima del passaggio verificare identità e parità operativa secondo
+[Research](research-platform.md#preparazione-della-ricetta-e-della-release).
 
 ## Indisponibilità Understat e controllo del calendario
 
@@ -786,7 +798,7 @@ deduplicazione e controlli finali su lease, kickoff e freschezza delle quote.
 Un errore annulla l'intero gruppo. Questo riduce i passaggi HTTP delle
 [transazioni interattive libSQL](https://docs.turso.tech/sdk/ts/reference#interactive-transactions),
 per cui Turso documenta un timeout di cinque secondi; non aumenta quel limite
-e non impone un massimo alle selezioni. Replay già completati, recuperi tecnici
+e conserva il limite C di una principale per partita. Replay già completati, recuperi tecnici
 e policy precedenti conservano il percorso originale: il batching ordinario
 non ne dimostra le prestazioni su grandi volumi.
 

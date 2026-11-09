@@ -43,7 +43,13 @@ async function setup({ matches = 2, funded = false } = {}) {
   return { client, path, research, recommendations, registered, fixtures, clock,
     async claim(descriptor = registered) { return recommendations.claimBatch({ policyHash: descriptor.hash, runId: 'paper-test', windowStartAt: START, windowEndAt: END, fixtures }); },
     async fingerprint() { return json(await Promise.all(['research_inputs', 'research_decisions', 'research_bets', 'research_settlements', 'research_ledger'].map(async table => [table, (await client.execute(`SELECT * FROM ${table} ORDER BY rowid`)).rows]))); },
-    async close() { client.close(); for (const suffix of ['', '-wal', '-shm']) try { rmSync(path + suffix, { force: true }); } catch (error) { if (!['EPERM', 'EBUSY'].includes(error.code)) throw error; } } };
+    async close() {
+      client.close();
+      // Windows native libSQL handles may remain alive until finalization.
+      if (process.platform === 'win32') return;
+      for (const suffix of ['', '-wal', '-shm']) try { rmSync(path + suffix, { force: true }); }
+      catch (error) { if (!['EPERM', 'EBUSY'].includes(error.code)) throw error; }
+    } };
 }
 
 function selection(index, overrides = {}) {
@@ -80,10 +86,12 @@ test('paper batches sixteen matches under a simulated remote round-trip budget',
       return tx;
     };
     const result = await f.recommendations.commitBatch(commits);
-    assert.equal(result.bets.length, 224);
+    assert.equal(result.bets.length, 128);
     assert.equal(result.decisions.length, 32);
+    assert.equal(result.bets.filter(row => row.family === 'A').length, 112);
+    assert.equal(result.bets.filter(row => row.family === 'C').length, 16);
     assert.ok(calls <= 8, `unexpected transaction round trips: ${calls}`);
-    assert.equal((await f.recommendations.listPaperBets()).length, 224);
+    assert.equal((await f.recommendations.listPaperBets()).length, 128);
   } finally { await f.close(); }
 });
 
@@ -165,9 +173,10 @@ test('paper prevents semantic duplicates between different policies in one batch
     const secondPolicy = await f.recommendations.registerPolicy({ ...policy, revision: 'second-policy' });
     const two = (await f.claim(secondPolicy)).jobs[0];
     const result = await f.recommendations.commitBatch([prepared(one, 3), prepared(two, 3)]);
-    assert.equal(result.bets.length, 6);
-    assert.equal(result.decisions.filter(row => row.reason === 'paper_selection_already_recorded').length, 2);
-    assert.equal((await f.recommendations.listPaperBets()).length, 6);
+    assert.equal(result.bets.length, 4);
+    assert.equal(result.decisions.filter(row => row.reason === 'paper_selection_already_recorded').length, 1);
+    assert.equal(result.decisions.filter(row => row.reason === 'challenger_match_already_recorded').length, 1);
+    assert.equal((await f.recommendations.listPaperBets()).length, 4);
   } finally { await f.close(); }
 });
 
@@ -177,9 +186,9 @@ test('mixed completed and new paper jobs replay only their own recorded bets', a
     const commits = (await f.claim()).jobs.map(job => prepared(job, 2));
     await f.recommendations.commitBatch([commits[0]]);
     const result = await f.recommendations.commitBatch(commits);
-    assert.equal(result.bets.length, 8);
-    assert.equal(new Set(result.bets.map(bet => bet.id)).size, 8);
-    assert.equal((await f.recommendations.listPaperBets()).length, 8);
+    assert.equal(result.bets.length, 6);
+    assert.equal(new Set(result.bets.map(bet => bet.id)).size, 6);
+    assert.equal((await f.recommendations.listPaperBets()).length, 6);
   } finally { await f.close(); }
 });
 

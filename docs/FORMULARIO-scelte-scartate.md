@@ -100,10 +100,11 @@ compatibilità tecnica, non generalizzazione. Una variante respinta non dimostra
 che ogni possibile metodo della stessa famiglia sia inutile; non giustifica
 però ripetere microvarianti sugli stessi test fino a ottenere un vincitore.
 
-## Confini delle prove sulla proiezione adottata
+## Confini delle prove sulla proiezione precedentemente adottata
 
-La proiezione dei valori delle foglie è una scelta operativa esplicita
-attualmente adottata; non va elencata come variante ancora esclusa dal prodotto.
+La proiezione dei valori delle foglie è stata una scelta operativa esplicita.
+La release corrente `opportunity_guard` la sostituisce con una testa congiunta
+e un filtro delle opportunità; questi risultati storici rimangono invariati.
 Il confronto diagnostico su 652 gare migliorava LL e Brier in 4/5 leghe,
 peggiorando La Liga: falliva il criterio prefissato 5/5.
 Il confronto cronologico su 8.541 gare con nuovi fit annuali mostra un
@@ -115,7 +116,24 @@ ferma al 4 aprile. La scelta operativa non modifica questi esiti.
 Prove: [diagnostica](performance/evidence/c-tree-sample-projection-2026-11-08/summary.json),
 [cinque finestre](performance/evidence/c-five-season-projection-2026-11-08/summary.json),
 [CSV lega/stagione](performance/evidence/c-five-season-projection-2026-11-08/season-league-comparison.csv).
-Meccanismo corrente e limiti sono nel [modello C](models/MODEL-C.md).
+Il meccanismo della release corrente è nel [modello C](models/MODEL-C.md);
+la proiezione storica rimane riproducibile secondo la [guida Research](research-platform.md#proiezione-delle-foglie-della-release-precedente).
+
+## Filtro del vantaggio sulle quote della testa congiunta
+
+La ricetta `opportunity_guard` riduce il ROI simulato delle principali da
+−3,74% a −1,62% su cinque stagioni precedenti e quella corrente. Restano
+3.082 AH dopo il rifiuto delle opportunità binarie da parte del filtro appreso;
+non viene imposto un veto manuale su 1X2 o Over/Under 2,5. Il beneficio è
+parziale: peggiorano Bundesliga e Ligue 1 e l'intervallo del miglioramento
+comprende zero. Non sono dimostrate redditività o maggiore accuratezza delle
+probabilità. Il criterio scientifico non è superato.
+
+L'utente ha scelto esplicitamente questa ricetta per la nuova release C,
+con una sola principale per partita nella Nightly. Questa scelta operativa
+non modifica la conclusione scientifica; la precedente proiezione non è più
+il modello corrente. A e i suoi parametri non sono modificati dall'adozione.
+Metodo e limiti: [Research](research-platform.md#filtro-del-vantaggio-stimato-sulle-quote).
 
 ## Non sono bocciature empiriche da ripetere
 

@@ -24,18 +24,19 @@ node --test backend/test/research-catboost.test.js backend/test/research-forecas
 
 ## Release corrente
 
-La release [C-271c9573ba485956](../current-models/challenger.json) usa la baseline
-`A-9227e65a047783bd`, 40 feature, due regressori Poisson con 120 alberi di
-profondità 5 e 10 iterazioni Newton, peso ML 0,75 e temperatura 0,8.
-I valori delle foglie sono proiettati per eliminare l'effetto diretto dei due
-contatori di storico, usando soltanto i supporti delle 5.293 righe di training.
-La calibrazione C è ristimata sulle 358 gare dedicate con lo stesso metodo.
-Il runtime legge i valori già trasformati dal JSON canonico.
+La release corrente usa la baseline `A-9227e65a047783bd`, 40 feature e un
+classificatore congiunto a sei esiti 1X2/Under-Over 2,5. Il pacchetto riusa
+esattamente classificatore e profili 2026 già stimati, senza nuovo fit.
+Peso ML 0,75, temperatura 0,8, calibrazione coerente 1X2, blending su terne
+reali complete e ripristino condizionale della dispersione precedono il
+filtro `opportunity_guard`. Il selettore `c-resolved-engine-ranking-v1` usa
+ranking e percentuale dinamica nativi. Sono ammessi soltanto 1X2, totale gol
+2,5 e handicap asiatici; A resta invariato.
 
-La proiezione è una scelta operativa esplicita dell'utente; il backtest su
-8.541 gare non dimostra superiorità futura: migliorano le metriche primarie
-in 3/5 leghe e 4/5 finestre, peggiora ECE aggregata e gli intervalli comprendono
-zero. [Meccanismo e limiti](../../docs/models/MODEL-C.md).
+La scelta operativa è esplicita e mantiene false le attestazioni di validazione
+indipendente. Il ROI storico −1,62% somma sei conti stagionali autonomi:
+non è rendimento sul capitale né prova di profitto futuro.
+[Meccanismo e limiti](../../docs/models/MODEL-C.md).
 La presenza del file non prova registrazione o uso remoto.
 
 Il trainer richiede CatBoost 1.2.8; i requisiti includono il database dei fusi
@@ -53,7 +54,8 @@ separati da sorgenti e dati produttivi. Il training non registra modelli.
 | Strumento | Responsabilità |
 |---|---|
 | `train.py` | Fit controllati CatBoost e artefatti locali |
-| `prepare_current_challenger.py` | Ricetta di base fissa sull'ultimo fold congelato; da sola non riproduce la proiezione |
+| `prepare_current_challenger.py` | Rifit diagnostico della precedente ricetta a due regressori sull'ultimo fold congelato |
+| `../scripts/prepare-opportunity-guard-release.cjs` | Packaging locale dei componenti opportunity_guard 2026 già stimati; nessun nuovo fit o accesso DB |
 | `../experiments/c-tree-sample-projection/prepare.py` | Proiezione dei valori originali usando i supporti del training |
 | `../experiments/c-tree-sample-projection/evaluate.cjs` | Ristima del profilo coerente e diagnostica appaiata |
 | `../experiments/c-tree-sample-projection/verify.py` | Verifica indipendente di supporti, valori, calibrazione e metriche |

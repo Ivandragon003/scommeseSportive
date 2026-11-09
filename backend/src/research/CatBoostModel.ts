@@ -1,9 +1,11 @@
 import { ForecastInput, FEATURE_NAMES, FEATURE_SCHEMA_VERSION } from './ForecastCore';
+import { jointHeadMatrix } from './JointHeadProbability';
+import { researchHash } from './ResearchStore';
 import { normalizeScoreMatrix, scoreMatrixMarkets } from './GoalSettlement';
 import { CHALLENGER_FEATURE_SCHEMA_VERSION, CHALLENGER_FEATURE_PROTOCOL, challengerBlocksForNames } from './ChallengerFeatures';
 import { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason } from './ChallengerDataQuality';
 
-export type HybridCandidateKind = 'intensity_correction' | 'probability_correction' | 'calibrated_ensemble' | 'no_ml';
+export type HybridCandidateKind = 'intensity_correction' | 'probability_correction' | 'calibrated_ensemble' | 'no_ml' | 'joint_head_v1';
 export interface CatBoostJson {
   features_info?: { float_features?: Array<{ feature_index: number; flat_feature_index: number }>;
     categorical_features?: unknown[]; text_features?: unknown[]; embedding_features?: unknown[] };
@@ -15,7 +17,7 @@ export interface HybridArtifact {
   version: string; family: 'C'; featureNames: string[]; featureSchema: string;
   trainedThrough: string; validationThrough: string; createdAt: string;
   candidateKind: HybridCandidateKind; weight: number; temperature: number;
-  models: { home?: CatBoostJson; away?: CatBoostJson; probability?: CatBoostJson };
+  models: { home?: CatBoostJson; away?: CatBoostJson; probability?: CatBoostJson; jointHead?: CatBoostJson };
   baselineVersion?: string; metrics?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -60,7 +62,7 @@ export function validateArtifact(value: unknown): asserts value is HybridArtifac
     && Array.isArray(artifact.featureNames) ? challengerBlocksForNames(artifact.featureNames) : null;
   if (!artifact || artifact.family !== 'C' || !String(artifact.version ?? '').startsWith('C-')
     || !legacyFeatures && !extendedBlocks
-    || !['intensity_correction', 'probability_correction', 'calibrated_ensemble', 'no_ml'].includes(artifact.candidateKind)
+    || !['intensity_correction', 'probability_correction', 'calibrated_ensemble', 'no_ml', 'joint_head_v1'].includes(artifact.candidateKind)
     || !Number.isFinite(artifact.weight) || artifact.weight < 0 || artifact.weight > 1
     || !Number.isFinite(artifact.temperature) || artifact.temperature < 0.25 || artifact.temperature > 4
     || !Number.isFinite(Date.parse(artifact.trainedThrough)) || !Number.isFinite(Date.parse(artifact.validationThrough))
@@ -94,6 +96,30 @@ export function validateArtifact(value: unknown): asserts value is HybridArtifac
     if (artifact.weight !== 0 || artifact.temperature !== 1 || Object.keys(artifact.models).length) throw new Error('invalid_no_ml_control');
     return;
   }
+  if (artifact.candidateKind === 'joint_head_v1') {
+    const identity = artifact.jointHeadIdentity as { protocol?: string; classifierHash?: string; guardHash?: string; calibrationHash?: string; originalModelVersion?: string; selectorImplementationHash?: string; implementationHash?: string; baselineVersion?: string; pipelineHashV2?: string };
+    const guard = artifact.opportunityGuard as { protocol?: string; profile?: any; reliabilityProfile?: any; planSha256?: string; profilesSha256?: string };
+    const calibration = (artifact.calibrationProfilesV2 as any)?.C;
+    if (!legacyFeatures || Object.keys(artifact.models).join(',') !== 'jointHead'
+      || artifact.productionValidated !== false || artifact.independentEvidence !== false
+      || artifact.weight !== .75 || artifact.temperature !== .8 || identity?.protocol !== 'c-joint-head-v1'
+      || !artifact.models.jointHead || identity.classifierHash !== researchHash(artifact.models.jointHead)
+      || artifact.version !== `C-${researchHash(identity).slice(0, 16)}`
+      || identity.baselineVersion !== artifact.baselineVersion || identity.pipelineHashV2 !== artifact.pipelineHashV2
+      || identity.implementationHash !== require('./JointHeadConfiguration').jointHeadImplementationHash()
+      || identity.selectorImplementationHash !== require('./COpportunityGuardRecommendation').opportunityGuardImplementationHash()
+      || !calibration || identity.calibrationHash !== researchHash(calibration)
+      || guard?.protocol !== 'c-opportunity-value-guard-v1' || identity.guardHash !== researchHash(guard)
+      || !/^[a-f0-9]{64}$/i.test(guard.planSha256 ?? '') || !/^[a-f0-9]{64}$/i.test(guard.profilesSha256 ?? '')
+      || guard.profile?.protocol !== 'c-opportunity-gap-guard-v1'
+      || guard.profile?.frozenPlanSha256 !== guard.planSha256 || guard.profile?.modelVersion !== identity.originalModelVersion
+      || guard.reliabilityProfile?.protocol !== 'c-prequential-payout-reliability-v1'
+      || guard.reliabilityProfile?.modelVersion !== identity.originalModelVersion
+      || predictCatBoostJson(artifact.models.jointHead, new Array(artifact.featureNames.length).fill(0)).length !== 6) {
+      throw new Error('invalid_joint_head_artifact');
+    }
+    return;
+  }
   const models = artifact.candidateKind === 'probability_correction'
     ? [artifact.models.probability] : [artifact.models.home, artifact.models.away];
   for (const model of models) {
@@ -123,6 +149,10 @@ export function predictHybrid(input: ForecastInput, artifact: HybridArtifact): {
   if (artifact.baselineVersion && input.baselineVersion !== artifact.baselineVersion) throw new Error('hybrid_baseline_mismatch');
   const baseline = normalizeJoint(input.baselineMatrix);
   if (artifact.candidateKind === 'no_ml') return { matrix: baseline, probabilities: jointMarketProbabilities(baseline), version: artifact.version };
+  if (artifact.candidateKind === 'joint_head_v1') {
+    const matrix = jointHeadMatrix(baseline, artifact.models.jointHead!, input.features);
+    return { matrix, probabilities: jointMarketProbabilities(matrix), version: artifact.version };
+  }
   let ml: number[][];
   if (artifact.candidateKind === 'probability_correction') {
     const logits = predictCatBoostJson(artifact.models.probability!, input.features);

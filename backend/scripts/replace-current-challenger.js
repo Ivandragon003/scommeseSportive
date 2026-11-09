@@ -9,11 +9,14 @@ const { researchHash, researchJson } = moduleOf('ResearchStore');
 const { validateArtifact } = moduleOf('CatBoostModel');
 const { baselineManifest } = moduleOf('ForecastCore');
 const { buildProbabilityConfiguration } = moduleOf('ProbabilityConfiguration');
+const { buildJointHeadProbabilityConfiguration } = moduleOf('JointHeadConfiguration');
 const { coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } = moduleOf('CoherentProbabilityPipeline');
 const { CURRENT_CHALLENGER_RELEASE } = moduleOf('CurrentChallengerRelease');
 const { CHALLENGER_TEAM_MARKETS, CHALLENGER_TEAM_MARKET_POLICY } = moduleOf('ChallengerMarketCoverage');
 const HOST = 'footpredictor-selloneciompi.aws-eu-west-1.turso.io';
 const PROTOCOL = 'explicit-current-challenger-replacement-v1';
+const RELEASE_PROTOCOL = 'explicit-user-opportunity-guard-release-v1';
+const SELECTOR_POLICY = 'c-resolved-engine-ranking-v1';
 const sha = value => createHash('sha256').update(value).digest('hex');
 const read = path => JSON.parse(readFileSync(path, 'utf8'));
 const save = (path, value) => writeFileSync(path, researchJson(value) + '\n', { flag: 'wx', mode: 0o600 });
@@ -40,23 +43,31 @@ function deployment(artifact) {
   if (artifact.baselineVersion !== baselineManifest().version || artifact.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL
     || artifact.pipelineHashV2 !== coherentProbabilityPipelineHash() || artifact.diagnosticOnly === true
     || artifact.runtimeCompatible === false || artifact.productionAdoptionEligible === false) throw Error('artifact_configuration_invalid');
-  return { modelVersion: artifact.version, baselineVersion: artifact.baselineVersion, selectorPolicy: 'canonical-binary-v1',
-    probabilityConfigurationHash: buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+  const input = { family: 'C', baselineVersion: artifact.baselineVersion,
       pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode,
-      temperature: artifact.probabilityTemperature, profile: artifact.calibrationProfilesV2?.C }).hash,
+      temperature: artifact.probabilityTemperature, profile: artifact.calibrationProfilesV2?.C };
+  const jointHead = artifact.candidateKind === 'joint_head_v1';
+  const configuration = jointHead
+    ? buildJointHeadProbabilityConfiguration(input, artifact.jointHeadIdentity.classifierHash)
+    : buildProbabilityConfiguration(input);
+  return { modelVersion: artifact.version, baselineVersion: artifact.baselineVersion,
+    selectorPolicy: jointHead ? SELECTOR_POLICY : 'canonical-binary-v1', probabilityConfigurationHash: configuration.hash,
     artifactHash: researchHash(artifact) };
 }
-function packagedRelease() {
-  const artifact = read(resolve(__dirname, '../current-models/challenger.json'));
+function validatePackagedRelease(artifact, expectedManifest) {
   const target = deployment(artifact);
-  if (!same(target, CURRENT_CHALLENGER_RELEASE) || artifact.status !== 'CURRENT'
+  if (!same(target, expectedManifest) || artifact.candidateKind !== 'joint_head_v1'
+    || target.selectorPolicy !== SELECTOR_POLICY || artifact.status !== 'CURRENT'
     || artifact.availability !== 'packaged_explicit_user_release' || artifact.productionValidated !== false
     || artifact.independentEvidence !== false || artifact.releaseAdoption?.authorization !== 'explicit_user_instruction'
-    || artifact.releaseAdoption?.protocol !== 'explicit-user-tree-sample-projection-release-v1'
+    || artifact.releaseAdoption?.protocol !== RELEASE_PROTOCOL
     || artifact.releaseAdoption?.productionValidated !== false || artifact.releaseAdoption?.independentEvidence !== false) {
     throw Error('packaged_manual_release_invalid');
   }
   return { artifact, target };
+}
+function packagedRelease() {
+  return validatePackagedRelease(read(resolve(__dirname, '../current-models/challenger.json')), CURRENT_CHALLENGER_RELEASE);
 }
 async function inspect(db, { host, previousVersion, previousArtifactHash, target }) {
   const schema = await rows(db, "SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY type,name");
@@ -113,7 +124,8 @@ async function applyReplacement(db, plan, backup, planHash) {
         args: [target.modelVersion, researchJson(artifact), target.artifactHash, now] });
     }
     const evidence = { protocol: PROTOCOL, manualReplacement: true, independentEvidence: false, retirePrevious: true,
-      userDecision: 'Explicit user request to replace current C despite inconclusive statistical evidence',
+      userDecision: 'Explicit user request to adopt the opportunity guard recipe despite inconclusive statistical evidence',
+      releaseProtocol: RELEASE_PROTOCOL,
       productionValidated: false, planHash, backupHash: plan.backupHash, marketPolicyVersion: CHALLENGER_TEAM_MARKET_POLICY };
     for (const market of missing) {
       await tx.execute({ sql: "INSERT INTO research_markets(family,model_version,market,state,evidence_json,updated_at) VALUES ('C',?,?,'EXPERIMENTAL',?,?)",
@@ -188,7 +200,7 @@ async function main(args = process.argv.slice(2), env = process.env) {
     }
   } finally { db.close(); }
 }
-module.exports = { endpoint, deployment, packagedRelease, inspect, planReplacement, applyReplacement, parseArgs, main };
+module.exports = { endpoint, deployment, validatePackagedRelease, packagedRelease, inspect, planReplacement, applyReplacement, parseArgs, main, RELEASE_PROTOCOL, SELECTOR_POLICY };
 if (require.main === module) main().catch(error => {
   const code = /^[a-z][a-z0-9_]{0,127}$/.test(error.message || '') ? error.message : 'replacement_failed';
   console.error(`Current C replacement failed: ${code}`); process.exitCode = 1;

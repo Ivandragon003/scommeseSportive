@@ -113,19 +113,19 @@ function withSelections(f, job) {
     selectionKey: paperSelectionKey(quote), quote, probability: .6, ev: .2, confidence: ['LOW','MEDIUM','HIGH'][i] }));
   return value;
 }
-test('funded batch debits three confidence stakes per family from initial available balance, replays and settles idempotently', async () => {
+test('funded batch debits all A confidence stakes and only the C primary from initial available balance, replays and settles idempotently', async () => {
  const f = await setup({matches:1}); try {
   await migrations(f); f.policy = await f.execution.registerPolicy(policyFor());
   const job = (await claim(f)).jobs[0], commit = withSelections(f, job);
   const initial = Object.fromEntries((await f.research.listPortfolios()).map(x => [x.id,x.availableCents]));
-  const result = await f.execution.commitBatch([commit]); assert.equal(result.bets.length,6);
+  const result = await f.execution.commitBatch([commit]); assert.equal(result.bets.length,4);
   for (const family of ['A','C']) {
    const own=result.bets.filter(x=>x.family===family), base=initial['shadow_'+family];
-   assert.deepEqual(own.map(x=>x.stakeCents).sort((a,b)=>a-b),[1,3,5].map(p=>Math.floor(base*p/100)));
+   assert.deepEqual(own.map(x=>x.stakeCents).sort((a,b)=>a-b),(family==='A'?[1,3,5]:[1]).map(p=>Math.floor(base*p/100)));
    const wallet=(await f.research.listPortfolios()).find(x=>x.id==='shadow_'+family);
    assert.equal(wallet.availableCents,base-own.reduce((s,x)=>s+x.stakeCents,0));
   }
-  assert.equal((await f.execution.commitBatch([commit])).bets.length,6);
+  assert.equal((await f.execution.commitBatch([commit])).bets.length,4);
   const bet=result.bets[0], evidence={status:'LOST'};
   assert.equal((await f.research.settleBet(bet.id,0,evidence)).settled,true);
   assert.equal((await f.research.settleBet(bet.id,0,evidence)).settled,false);
@@ -162,7 +162,7 @@ test('two database clients cannot duplicate funded bets on replay', async () => 
   other=createClient({url:`file:${f.path}`}); const store=new ResearchRecommendationStore(other,async()=>{},{now:f.clock});
   const results=await Promise.allSettled([f.execution.commitBatch([commit]),store.commitBatch([commit])]);
   assert.ok(results.some(x=>x.status==='fulfilled'));
-  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM funded_model_bets')).rows[0].n),6);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM funded_model_bets')).rows[0].n),4);
  } finally { other?.close(); await f.close(); }
 });
 
@@ -172,11 +172,11 @@ test('paper cancellation hides history from totals and settlement without mutati
   const {paperExecutionPolicy}=require('../dist/research/ResearchRecommendationPolicy');
   const state=fallbackChallengerState(); state.deployment.modelVersion='C-fixture';
   f.policy=await f.execution.registerPolicy(paperExecutionPolicy(state));
-  const result=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(result.bets.length,6);
+  const result=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(result.bets.length,4);
   const id=result.bets[0].id;
   await f.client.execute({sql:'INSERT INTO paper_model_bet_cancellations(bet_id,cancelled_at,reason) VALUES (?,?,?)',args:[id,START,'superseded by funded execution']});
-  assert.equal((await f.execution.listPaperBets()).length,5);
-  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM paper_model_bets')).rows[0].n),6);
+  assert.equal((await f.execution.listPaperBets()).length,3);
+  assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM paper_model_bets')).rows[0].n),4);
   const {settlePaperBet}=require('../dist/research/PaperModelBetLedger');
   await assert.rejects(f.research.runResearchTransaction(tx=>settlePaperBet(tx,id,0,{status:'LOST'})),/Cancelled/);
   await assert.rejects(f.client.execute({sql:'DELETE FROM paper_model_bet_cancellations WHERE bet_id=?',args:[id]}),/immutable/);
@@ -193,7 +193,7 @@ for (const kind of ['manual', 'research']) test(`${kind} prior selection blocks 
     VALUES ('old','origin-decision-0-A','shadow_A',?,'A','A-app-fixture','1x2','homeWin',2,100,?,?)`,args:[f.fixtures[0].matchId,JSON.stringify({quote}),START]});
   f.policy=await f.execution.registerPolicy(policyFor()); const job=(await claim(f)).jobs[0];
   const result=await f.execution.commitBatch([withSelections(f,job)]), own=result.bets.filter(x=>x.family==='A');
-  assert.equal(result.bets.length,5); assert.equal(own.some(x=>x.selection==='homeWin'),false);
+  assert.equal(result.bets.length,3); assert.equal(own.some(x=>x.selection==='homeWin'),false);
   assert.deepEqual(own.map(x=>x.snapshot.stakePercent).sort((a,b)=>a-b),[3,5]);
   assert.equal(result.decisions.find(x=>x.family==='A').rejectedSelections[0].reason,'historical_selection_already_recorded');
  } finally { await f.close(); }
@@ -204,13 +204,13 @@ test('active paper selection aborts before freezing evidence; cancellation permi
   const {paperExecutionPolicy}=require('../dist/research/ResearchRecommendationPolicy');
   const state=fallbackChallengerState(); state.deployment.modelVersion='C-fixture';
   f.policy=await f.execution.registerPolicy(paperExecutionPolicy(state));
-  const paper=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(paper.bets.length,6);
+  const paper=await f.execution.commitBatch([withSelections(f,(await claim(f)).jobs[0])]); assert.equal(paper.bets.length,4);
   f.policy=await f.execution.registerPolicy(policyFor()); const job=(await claim(f)).jobs[0], commit=withSelections(f,job);
   await assert.rejects(f.execution.commitBatch([commit]),/active_paper_selection_requires_cancellation/);
   assert.equal(Number((await f.client.execute({sql:'SELECT COUNT(*) AS n FROM research_execution_inputs WHERE job_id=?',args:[job.id]})).rows[0].n),0);
   assert.equal(Number((await f.client.execute('SELECT COUNT(*) AS n FROM funded_model_bets')).rows[0].n),0);
   for (const bet of paper.bets) await f.client.execute({sql:'INSERT INTO paper_model_bet_cancellations VALUES (?,?,?)',args:[bet.id,START,'transition']});
-  assert.equal((await f.execution.commitBatch([commit])).bets.length,6);
+  assert.equal((await f.execution.commitBatch([commit])).bets.length,4);
  } finally { await f.close(); }
 });
 

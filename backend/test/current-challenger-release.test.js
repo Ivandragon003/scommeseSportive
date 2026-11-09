@@ -8,13 +8,12 @@ const { spawnSync } = require('node:child_process');
 const { baselineManifest, buildForecastInput } = require('../dist/research/ForecastCore');
 const { validateArtifact, predictHybrid } = require('../dist/research/CatBoostModel');
 const { applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash } = require('../dist/research/CoherentProbabilityPipeline');
-const { buildProbabilityConfiguration } = require('../dist/research/ProbabilityConfiguration');
+const { buildJointHeadProbabilityConfiguration } = require('../dist/research/JointHeadConfiguration');
 const { researchHash } = require('../dist/research/ResearchStore');
 const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
 const { INITIAL_CHALLENGER_DEPLOYMENT } = require('../dist/research/ChallengerAdoption');
 const { FALLBACK_CHALLENGER_DEPLOYMENT } = require('../dist/research/ResearchRecommendationPolicy');
-const { CHALLENGER_DATA_QUALITY_POLICY_HASH, challengerDataQualityReason } = require('../dist/research/ChallengerDataQuality');
-const { ORIGINAL_HOLDOUT_POLICY } = require('../dist/research/ResearchHoldoutPolicy');
+const { CHALLENGER_DATA_QUALITY_POLICY_HASH } = require('../dist/research/ChallengerDataQuality');
 const artifact = JSON.parse(readFileSync(join(__dirname, '../current-models/challenger.json'), 'utf8'));
 
 test('the sole packaged challenger matches the current baseline, configuration and release hashes', () => {
@@ -24,34 +23,29 @@ test('the sole packaged challenger matches the current baseline, configuration a
   assert.equal(artifact.baselineVersion, baselineManifest().version);
   assert.equal(researchHash(artifact), CURRENT_CHALLENGER_RELEASE.artifactHash);
   assert.equal(artifact.pipelineHashV2, coherentProbabilityPipelineHash());
-  const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
-    pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C });
+  const configuration = buildJointHeadProbabilityConfiguration({ family: 'C', baselineVersion: artifact.baselineVersion,
+    pipelineHashV2: artifact.pipelineHashV2, mode: artifact.probabilityCalibrationMode, profile: artifact.calibrationProfilesV2.C },
+  artifact.jointHeadIdentity.classifierHash);
   assert.equal(configuration.hash, CURRENT_CHALLENGER_RELEASE.probabilityConfigurationHash);
   assert.deepEqual(INITIAL_CHALLENGER_DEPLOYMENT, CURRENT_CHALLENGER_RELEASE);
   assert.deepEqual(FALLBACK_CHALLENGER_DEPLOYMENT, CURRENT_CHALLENGER_RELEASE);
   assert.equal(artifact.productionValidated, false);
   assert.equal(artifact.independentEvidence, false);
-  assert.equal(artifact.parentVersion, 'C-f6d4ac23de48fbfa');
+  assert.equal(artifact.candidateKind, 'joint_head_v1');
+  assert.equal(artifact.productionEligible, false);
+  assert.equal(artifact.releaseAdoption.protocol, 'explicit-user-opportunity-guard-release-v1');
   assert.equal(artifact.releaseAdoption.authorization, 'explicit_user_instruction');
-  assert.equal(artifact.diagnosticOnly, undefined);
-  assert.equal(artifact.productionAdoptionEligible, undefined);
-  assert.equal(artifact.holdoutProtection.protectedRowsUsed, 0);
   assert.equal(artifact.dataQualityPolicyHash, CHALLENGER_DATA_QUALITY_POLICY_HASH);
-  const protectedIds = new Set(ORIGINAL_HOLDOUT_POLICY.protectedOriginalFinalMatchIds);
-  assert.equal(artifact.calibrationPredictions.length, 358);
-  assert.ok(artifact.calibrationPredictions.every(row => !protectedIds.has(row.matchId) && !challengerDataQualityReason(row.matchId)));
+
 });
 
 test('packaged release preserves the exact selected trees, features and calibration evidence', () => {
-  // These hashes pin the selected candidate without requiring ignored research files in CI.
-  assert.equal(researchHash(artifact.models), '632b2e0e68416d930f2023e7ac01ab6c18f2fdc04c0134b3ccc2b12cbbf2d528');
-  assert.equal(researchHash(artifact.calibrationPredictions), '72984a5aa5af01a894fcf18325ecaef0003586b886405820eaab34fc65f451e8');
-  assert.equal(researchHash(artifact.calibrationProfilesV2), 'bae9f21054192d87502909d21d6811e0b447a297d270eadc34f3b8f2f48518a6');
-  const candidate = JSON.parse(JSON.stringify(artifact));
-  const metadata = candidate.releaseAdoption.originalCandidateMetadata;
-  delete candidate.releaseAdoption;
-  Object.assign(candidate, metadata);
-  assert.equal(researchHash(candidate), 'ae5382b1ee7b55f8e6e802d8c557a653b0a359c157db60f764a2597f7af3272b');
+  // These hashes pin the verified 2026 candidate without ignored research files in CI.
+  assert.equal(researchHash(artifact.models.jointHead), 'ff9e27cb22069c8c70da1730773a8af02749318883ae906f6af9bbe868da71fa');
+  assert.equal(researchHash(artifact.calibrationProfilesV2.C), 'ac2ee6e22e0091e493c75af195e9535b74c8e5cab8b6f6147f9309cdbb30ae7f');
+  assert.equal(artifact.opportunityGuard.profilesSha256, '0108925206f636a8775f75adfb8735f42d6f443b037b6202bce3ef798d6e34a8');
+  assert.equal(artifact.jointHeadIdentity.classifierJsonSha256, 'bdc81abee981bcb7c4d02decad9c1a2b6f84aa385a28b71b0f3d66af8bcffd38');
+
 });
 
 test('the actual current model infers from shared A code and rejects an obsolete baseline', () => {

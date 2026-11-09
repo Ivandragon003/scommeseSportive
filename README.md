@@ -37,10 +37,12 @@ effettivamente adottato, lo stato remoto, le quote disponibili e il consumo del
 provider richiedono una verifica dell'installazione: non sono dedotti da vecchi
 report o dalla presenza di un flag nel sorgente.
 
-La release C corrente è `C-271c9573ba485956`, con proiezione delle foglie
-basata sui supporti del training e calibrazione coerente ristimata. È una scelta
-operativa autorizzata, senza una superiorità predittiva dimostrata: le prove
-storiche e i loro limiti sono nella [guida C](docs/models/MODEL-C.md).
+La release C corrente applica `opportunity_guard`: classificatore congiunto
+1X2/Under-Over 2,5, distribuzione coerente dei gol e filtro del vantaggio sulle
+quote. Opera su 1X2, totale gol 2,5 e handicap asiatici; il catalogo A resta
+invariato. È una scelta operativa autorizzata: il ROI storico aggregato −1,62%
+non dimostra redditività futura. Identità, prove e limiti sono nella
+[guida C](docs/models/MODEL-C.md).
 
 ## Avvio con Docker
 
@@ -114,10 +116,13 @@ quota e saldo disponibile; aprire un consiglio non registra una puntata.
 La Nightly A/C registra importi in euro nei portafogli virtuali separati A e C,
 usando la percentuale dinamica suggerita da ciascun modello e il patrimonio
 della famiglia all'inizio del gruppo registrato nella transazione. Il saldo
-disponibile deve coprire ogni importo completo. Considera tutte le selezioni
-qualificate, senza top N, limite per partita o tetto cumulativo del 5%; finanzia
-solo gli importi completi coperti dal saldo, dando priorità a confidenza, EV e
-chiave della selezione. Duplicati e budget API restano controllati. Lo storico
+disponibile deve coprire ogni importo completo. A considera tutte le selezioni
+qualificate; C considera soltanto la giocata principale consigliata per ogni
+partita. Se la principale C non supera i controlli, non viene sostituita con una
+secondaria. Entrambi possono giocare più partite nello stesso gruppo, senza
+un tetto cumulativo del 5%; finanziano solo gli importi completi coperti dal saldo,
+dando priorità a confidenza, EV e chiave della selezione. Duplicati e budget API
+restano controllati. Lo storico
 e le puntate manuali restano conservati. Le vecchie giocate a percentuale fissa
 annullate sono escluse dall'operatività e rimborsate sul rispettivo portafoglio;
 le registrazioni paper precedenti non vengono convertite da unità in euro.

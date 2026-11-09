@@ -6,7 +6,7 @@ Questo documento descrive le formule e i confini principali presenti nel codice.
 
 Understat è la fonte primaria dei dati calcistici. `FootballDataService` integra i campi mancanti con football-data.co.uk senza sovrascrivere valori esistenti; le quote storiche hanno provenienza distinta dalle statistiche. Le quote usate per decisioni e valutazioni economiche devono essere reali e attribuite al bookmaker effettivo: completamenti sintetici del modello non sono evidenza di value, ROI o CLV.
 
-A operativo usa `PredictionService`, contesto, modelli statistici, calibrazione e selezione. C usa gli stessi componenti matematici correnti tramite la ricostruzione cronologica `ForecastCore`, più un artefatto CatBoost. Questa ricostruzione non replica tutto lo stato operativo di A e non conserva una copia eseguibile di A80. La release corrente `C-271c9573ba485956`, con proiezione dei valori delle foglie basata sui supporti del training e calibrazione ristimata, è dichiarata in `CurrentChallengerRelease.ts`; la versione realmente attiva richiede una lettura del registro dell'installazione. Il selettore canonico C riusa il motore value e il selettore canonico; il selettore `payout-aware-v1` resta distinto per ricerca e policy archiviate, mentre la release corrente usa `canonical-binary-v1`.
+A operativo usa `PredictionService`, contesto, modelli statistici, calibrazione e selezione. C usa gli stessi componenti matematici correnti tramite la ricostruzione cronologica `ForecastCore`, più un artefatto CatBoost. Questa ricostruzione non replica tutto lo stato operativo di A e non conserva una copia eseguibile di A80. La release corrente `opportunity_guard` è dichiarata in `CurrentChallengerRelease.ts`; la versione realmente attiva richiede una lettura del registro dell'installazione. Usa una testa congiunta a sei esiti, selettore `c-resolved-engine-ranking-v1` e contratto `c-opportunity-guard-markets-v1`, limitato a 1X2, totale gol 2,5 e handicap asiatici. Ranking e percentuale dinamica riusano il motore condiviso su istanze C dedicate; A conserva matematica, catalogo e tutte le opportunità qualificate. I selettori precedenti restano per ricerca e archivi, senza fallback operativo.
 
 Sorgenti: `backend/src/services/FootballDataService.ts`, `backend/src/services/PredictionService.ts`, `backend/src/research/ForecastCore.ts`, `backend/src/research/ResearchRuntime.ts`, `backend/src/research/ResearchRecommendationRuntime.ts`, `backend/src/research/ChallengerRecommendation.ts`.
 
@@ -38,7 +38,7 @@ p_ensemble = (1 - w_famiglia) * p_DC + w_famiglia * p_PoissonXg
 
 Il default configurato è 0,5 per 1X2, over/under e BTTS. In assenza dei parametri Poisson-xG il blend è un no-op. L'ensemble fra modelli è distinto dal successivo blend con le quote.
 
-`ForecastCore` usa anch'esso il blend delle probabilità per famiglia, importato dal codice corrente di A. Per C costruisce inoltre una matrice proxy con il peso di ensemble `default`; se i pesi delle famiglie differiscono, la matrice non coincide necessariamente con ogni probabilità piatta della baseline. `fitBaseline` chiama `fitModel`, che stima anche `levelCorrection`; nella ricostruzione della matrice si imposta la correzione a `undefined` perché le intensità `full.lambdaHome/ Away` la incorporano già, evitando di applicarla due volte.
+`ForecastCore` usa gli stessi stadi di `SharedForecastCalculator` per Dixon–Coles e partner Poisson-xG. Per C conserva la matrice contestuale effettiva, senza ricostruirla dalle intensità, e combina le matrici con il peso ensemble `default`. Se i pesi per famiglia differiscono, questa matrice congiunta non coincide necessariamente con tutte le probabilità flat di A. Il fit e il contesto rimangono cronologici e separati dallo stato operativo di `PredictionService`.
 
 Sorgenti: `backend/src/models/core/DixonColesModel.ts`, `backend/src/models/core/PoissonXgModel.ts`, `backend/src/services/ProbabilityEnsembleService.ts`, `backend/src/config/PredictionEngineConfig.ts`, `backend/src/research/ForecastCore.ts`.
 
@@ -71,27 +71,41 @@ Lo schema base `prematch-numeric-v1` contiene 40 feature: 16 per ciascuna squadr
 
 Lo storico è filtrato alla data della previsione, con ritardo prudenziale di disponibilità, esclusione del target e dei duplicati; il ritardo è un proxy, non prova dell'istante di pubblicazione. Il fit della baseline richiede almeno 30 partite ammissibili della competizione.
 
-La release corrente è un `calibrated_ensemble`: due regressori Poisson con
-120 alberi per lato, profondità 5, 10 iterazioni Newton, learning rate 0,05 e
-seed 20261027 stimano le log-intensità. La proiezione delle foglie raggruppa i
-valori che coincidono nelle condizioni diverse da `home_sample` e `away_sample`.
-Con `n_l` supporto della foglia `l` nel solo training, per ogni gruppo `G`:
+La testa CatBoost della release corrente stima sei masse con softmax:
+`H_U`, `H_O`, `D_U`, `D_O`, `A_U`, `A_O`. Per una cella di punteggio `i`
+nella classe `k`, con baseline A `A_i` e massa di classe `A_k`:
 
 ```text
-v_G = somma(n_l * v_l per l in G) / somma(n_l per l in G)
-λ_ML = clamp(exp(output_alberi_proiettati), 0,05, 8)
-M_mix = 0,25 * M_baseline + 0,75 * M_ML
+J_i = A_i * P_ML(k) / A_k
+M_mix = 0,25 * A + 0,75 * J
 M_raw = normalize(max(1e-15, M_mix) ^ (1 / 0,8))
 ```
 
-Ogni foglia del gruppo riceve `v_G`. Un gruppo senza supporto è ammesso solo
-con tutti i valori originali zero. Scala/bias e media training del contributo
-di ogni albero sono preservati; la calibrazione C viene ristimata sulle
-358 gare dedicate. La temperatura 0,8 dell'artefatto è distinta da quella
-eventuale della calibrazione successiva. Il runtime valuta direttamente i
-valori proiettati, senza nuovo fit o ricalcolo dei supporti.
+Seguono calibrazione coerente 1X2 e possibile blending su una terna bookmaker
+reale completa. Per ciascun risultato `r` (casa, pareggio, ospite), il
+ripristino condizionale conserva la massa `P(r)`:
 
-Sorgenti: `backend/src/research/ForecastCore.ts`, `backend/src/research/ChallengerFeatures.ts`, `backend/src/research/CatBoostModel.ts`.
+```text
+M_final[i in r] = P(r) * M_decision[i]^0,8 / somma(M_decision[j]^0,8 per j in r)
+```
+
+Classificatore e profili 2026 sono riusati esattamente, senza nuovi fit.
+Il filtro sulle opportunità binarie usa `x = (pC - p_no_vig) / 0,1`, la
+pendenza `b` e l'errore standard `SE` stimati su dati presequenziali precedenti:
+
+```text
+bias_upper = max(0, b*x + 1,96*abs(x)*SE)
+p_lower = max(0, pC - bias_upper)
+EV_conservativo = quota_reale * p_lower - 1
+```
+
+Servono profilo disponibile, supporto temporale/numerico compatibile e
+`EV_conservativo > 0`. Il filtro ammette o respinge 1X2 e totale 2,5 senza
+cambiare le probabilità; non approssima gli AH come eventi binari. Il margine
+1,96 è descrittivo e non garantisce copertura statistica del 95%.
+Ranking e percentuali dinamiche native si applicano alle opportunità ammesse.
+
+Sorgenti: `backend/src/research/ForecastCore.ts`, `backend/src/research/ChallengerFeatures.ts`, `backend/src/research/CatBoostModel.ts`, `backend/src/research/JointHeadProbability.ts`, `backend/src/research/COpportunityGuardRecommendation.ts`.
 
 ## Calibrazione, quote e decisione
 
@@ -113,7 +127,7 @@ Sorgenti: `backend/src/models/value/EnhancedMarketAnalysis.ts`, `backend/src/mod
 
 ## Importi dell'esecuzione automatica
 
-La policy `funded-dynamic-stake-v1` usa i portafogli A/C esistenti e separati. Ogni selezione conserva la percentuale suggerita dal proprio motore, derivata da probabilità, quota e controlli Kelly/rischio. Per C il valore è calcolato sulle proprie probabilità gol; per i mercati statistici proviene dall'opportunità qualificata dello specialista condiviso.
+La policy `funded-dynamic-stake-v1` usa i portafogli A/C esistenti e separati. Ogni selezione conserva la percentuale suggerita dal proprio motore, derivata da probabilità, quota e controlli Kelly/rischio. Per C il valore è calcolato sulle proprie probabilità gol; i mercati statistici dello specialista A non appartengono alla copertura C corrente.
 
 Per ciascuna famiglia, `E` è il patrimonio in centesimi (disponibile + impegnato) all'inizio del gruppo registrato nella transazione; `p` è la percentuale suggerita, valida con due decimali:
 
@@ -122,6 +136,6 @@ bps = p * 100
 stake_centesimi = floor(E * bps / 10000)
 ```
 
-L'implementazione usa aritmetica intera per evitare perdite di precisione. Tutte le selezioni del gruppo usano la stessa base `E`. Il saldo disponibile residuo deve coprire lo stake intero; altrimenti la selezione resta non finanziata, senza ridimensionamento proporzionale. La priorità è confidenza HIGH/MEDIUM/LOW, EV decrescente e chiave crescente. Percentuali mancanti/invalide e importi arrotondati a zero non finanziano giocate. Non c'è un tetto cumulativo del 5%, top N o limite di una giocata per partita; restano i limiti propri del motore per singola selezione e i controlli su mercato, quota reale fresca, kickoff e duplicati.
+L'implementazione usa aritmetica intera per evitare perdite di precisione. Tutte le selezioni del gruppo usano la stessa base `E`. Il saldo disponibile residuo deve coprire lo stake intero; altrimenti la selezione resta non finanziata, senza ridimensionamento proporzionale. La priorità è confidenza HIGH/MEDIUM/LOW, EV decrescente e chiave crescente. Percentuali mancanti/invalide e importi arrotondati a zero non finanziano giocate. Non c'è un tetto cumulativo del 5%. A considera tutte le opportunità qualificate; C soltanto la principale per partita, senza ripiego su secondarie. Restano i limiti propri del motore per singola selezione e i controlli su mercato, quota reale fresca, kickoff e duplicati. Il vincolo di partita C è verificato nella transazione anche tra retry, versioni, policy e registri diversi; giocate annullate non bloccano e lo storico resta invariato.
 
 La mappa LOW 1% / MEDIUM 3% / HIGH 5% appartiene alla policy storica `funded-confidence-v1`. Cambiare lo stake non modifica probabilità o formule predittive. I dettagli contabili, gli annullamenti con rimborso e la conservazione dello storico sono nella [guida operativa](operations/README.md). Sorgenti: `backend/src/research/DynamicModelStake.ts`, `backend/src/research/ResearchRecommendationPolicy.ts`, `backend/src/research/ResearchRecommendationStore.ts`.
