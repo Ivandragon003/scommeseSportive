@@ -1196,6 +1196,17 @@ export class DatabaseService {
     return this.all(q, p);
   }
 
+  async getModelAFormMatches(competition: string, season: string, teamIds: [string, string], cutoff: string): Promise<any[]> {
+    return this.all(
+      `SELECT match_id, home_team_id, away_team_id, date, home_goals, away_goals, competition, season
+       FROM matches
+       WHERE competition = ? AND season IN (?, ?) AND julianday(date) < julianday(?)
+         AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+         AND (home_team_id IN (?, ?) OR away_team_id IN (?, ?))`,
+      [competition, season.replace('-', '/'), season.replace('/', '-'), cutoff, ...teamIds, ...teamIds],
+    );
+  }
+
   async countMatches(filters?: { competition?: string; season?: string; fromDate?: string; toDate?: string }): Promise<number> {
     let q = 'SELECT COUNT(*) AS total FROM matches WHERE 1=1';
     const p: any[] = [];

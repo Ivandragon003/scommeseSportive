@@ -20,6 +20,37 @@ L'import rifiuta risposte Understat malformate, comprese pagine HTML di manutenz
 
 `PredictionContextBuilder` prepara medie, copertura, forma, avversario e contesto disponibile: riposo, calendario, disciplina, arbitro e, se abilitati, dati sui giocatori. I prior per neopromosse gestiscono passaggi fra competizioni. L'assenza di un dato non equivale a un valore osservato pari a zero.
 
+### Forma recente nel 1X2
+
+Per il solo 1X2, APP-A usa i punti ottenuti da ogni squadra nelle ultime
+cinque gare concluse dello stesso campionato e della stessa stagione, in casa
+o in trasferta. L'indice è punti divisi per 15. Servono cinque risultati validi
+per **entrambe** le squadre. Si escludono la gara da prevedere e quelle il cui
+risultato non è ancora disponibile al cutoff, usando il ritardo storico
+convenzionale di due ore dal kickoff e il minore tra istante di previsione e
+calcio d'inizio. In caso di rinvio conta il calendario effettivamente giocato.
+Con dati insufficienti si usa il percorso standard.
+
+La formula di contesto esistente ricalcola la matrice Dixon–Coles per i tre
+esiti 1, X e 2. Poi si applica l'ensemble consueto. Doppia chance, draw no bet,
+handicap, totali e gli altri mercati sono derivati dalle probabilità standard.
+La costruzione cronologica delle curve di calibrazione di APP-A usa la
+stessa regola. Il backtest integrato mantiene il motore statistico
+condiviso e non include questa correzione operativa. Il nuovo codice
+cambia l'identità APP-A e la chiave della cache.
+Per gli ambienti che leggono la cache in modalità rigorosa serve preparare
+i nuovi profili con la [procedura operativa di calibrazione](../github-actions-nightly-sync.md#calibrazione-arresto-e-rollback).
+
+La scelta delle cinque gare deriva dal confronto appaiato 1X2 su cinque leghe
+e 7.582 partite dal 2022/23 al tratto disponibile del 2026/27. Sul calendario
+completo la log loss è 1,00491 senza la correzione, 1,00321 con cinque gare
+e 1,00322 con sei. Il Brier è rispettivamente 0,59870, 0,59751 e 0,59753.
+La finestra a cinque è disponibile in 6.372 partite, quella a sei in 6.131.
+Il replay usa risultati Football-Data, refit cronologico e calibrazione
+sperimentale su stagioni precedenti. Gli xG storici, le curve operative e
+le quote contemporanee alla decisione non sono ricostruiti. La prova misura
+la qualità probabilistica e lascia aperta la verifica delle giocate reali.
+
 Per tiri/SOT e gialli/rossi i campioni sono distinti per campo, con copertura casa/trasferta dove consumata. Medie, ultime 5–10, props e replay escludono gli assenti dai propri denominatori e conservano gli zeri veri. I prior non contano come osservazioni; le soglie esistenti sono applicate a ciascuna famiglia, incluse le distribuzioni API. Formule, pesi e coefficienti restano quelli esistenti; cambiano gli input correttamente osservati e dunque l'identità APP-A. I profili legacy non certificano copertura ricostruita. Contratto completo e limiti: [osservazioni](../data-observation-contract.md).
 
 I profili `identityOnly` senza evidenza di titolarità non entrano nell'XI presunto dei tiri giocatore. Con uno stato starter esplicito e temporalmente valido mantengono il prior di ruolo, a campione zero; le props richiedono comunque le osservazioni previste. Questo filtro corregge i dati ammessi al modello, senza modificare le formule, e cambia nuovamente l'identità del codice operativo: una precedente bozza con un hash diverso non identifica questa versione.

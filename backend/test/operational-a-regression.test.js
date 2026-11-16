@@ -12,17 +12,22 @@ const { DixonColesModel } = require('../dist/models/core/DixonColesModel');
 const BASELINE = 'a474e36cee8372d4e214c704effdb92b488f9242';
 const DIXON_COLES_SOURCE = 'backend/src/models/core/DixonColesModel.ts';
 
-function assertOperationalSource(file, source) {
+function reverseSourceChanges(file, source, changes) {
   // Reverse only reviewed, exact source patches. Their context must be unique;
   // every remaining byte is still checked against the immutable pre-C hash.
-  for (const change of [...deviations.changes].reverse()) {
+  for (const change of [...changes].reverse()) {
     for (const edit of [...change.edits].reverse().filter((entry) => entry.file === file)) {
       assert.equal(source.split(edit.after).length - 1, 1,
         `Authorized source patch must occur exactly once: ${file} (${change.commit ?? change.review})`);
       source = source.replace(edit.after, edit.before);
     }
   }
-  assert.equal(createHash('sha256').update(source).digest('hex'), manifest.files[file],
+  return source;
+}
+
+function assertOperationalSource(file, source, changes = deviations.changes) {
+  const baseline = reverseSourceChanges(file, source, changes);
+  assert.equal(createHash('sha256').update(baseline).digest('hex'), manifest.files[file],
     `Operational A baseline changed: ${file}. Do not silently change A or refresh its golden.`);
 }
 
@@ -68,10 +73,14 @@ test('shared forecast review rejects patch reversal, duplication and new source 
   assert.equal(change.addedFiles?.length, 1);
   assert.equal(change.addedFiles[0].file, 'backend/src/services/SharedForecastCalculator.ts');
   const root = resolve(__dirname, '../..');
+  const reviewedThrough = deviations.changes.indexOf(change) + 1;
+  const earlier = deviations.changes.slice(0, reviewedThrough);
+  const later = deviations.changes.slice(reviewedThrough);
   for (const edit of change.edits) {
-    const source = readFileSync(resolve(root, edit.file), 'utf8').replace(/\r\n/g, '\n');
-    assert.throws(() => assertOperationalSource(edit.file, source.replace(edit.after, edit.before)), /exactly once/);
-    assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`), /exactly once/);
+    const current = readFileSync(resolve(root, edit.file), 'utf8').replace(/\r\n/g, '\n');
+    const source = reverseSourceChanges(edit.file, current, later);
+    assert.throws(() => assertOperationalSource(edit.file, source.replace(edit.after, edit.before), earlier), /exactly once/);
+    assert.throws(() => assertOperationalSource(edit.file, `${source}\n${edit.after}`, earlier), /exactly once/);
   }
   const added = change.addedFiles[0];
   const source = readFileSync(resolve(root, added.file), 'utf8');

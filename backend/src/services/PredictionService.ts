@@ -1,6 +1,7 @@
 import { DixonColesModel, MatchData, FullMatchProbabilities, SupplementaryData } from '../models/core/DixonColesModel';
 import { PoissonXgModel, PoissonXgParams } from '../models/core/PoissonXgModel';
 import { prepareSharedForecast, finishSharedForecast } from './SharedForecastCalculator';
+import { applyModelAOneXTwoForm, historicalModelAFormAdjustments, modelAFormAdjustments, modelARecentForm } from './ModelARecentForm';
 import { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';
 import { ModelAInputCapture, modelASourceTimestampEvidence, modelAParameterSourceMetadata, modelATrainingInputEvidence } from '../research/ModelAProspectiveInputs';
 import { buildChronologicalForecastsAsync, HISTORICAL_RESULT_DELAY_MS } from './ChronologicalForecastService';
@@ -1086,6 +1087,9 @@ export class PredictionService {
           );
           const { flatProbabilities: flat } = finishSharedForecast(prepared, poisson, predictionEngineConfig.ensemble);
           this.enrichFlatProbabilities(flat);
+          applyModelAOneXTwoForm(flat, historicalModel, prepared, poisson, predictionEngineConfig.ensemble,
+            context.homeXG, context.awayXG,
+            historicalModelAFormAdjustments(target, availablePast, context.supplementaryData?.competitiveness));
           const supp = context.supplementaryData ?? {};
           if (!this.shouldEnableStatMarkets(supp)
             || !this.shouldEnableStatMarkets(supp, ['sampleSizeShots', 'sampleSizeShotsOT'])) {
@@ -2421,6 +2425,22 @@ export class PredictionService {
 
     const supp: SupplementaryData = context.supplementaryData;
     const competitiveness = context.competitiveness;
+    const formCompetition = String(matchRow?.competition ?? targetCompetition).trim();
+    const formSeason = String(matchRow?.season ?? targetSeason).trim();
+    const kickoff = historicalTimestamp(referenceDate);
+    const form = matchRow && formCompetition && formSeason && Number.isFinite(kickoff)
+      && typeof this.db.getModelAFormMatches === 'function'
+      ? modelARecentForm({
+          matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,
+          competition: formCompetition, season: formSeason, date: new Date(kickoff),
+        }, this.mapCompletedMatches(await this.db.getModelAFormMatches(
+          formCompetition, formSeason, [request.homeTeamId, request.awayTeamId],
+          new Date(Math.min(kickoff, operationalTime.getTime())).toISOString(),
+        ).catch(() => [])), operationalTime)
+      : undefined;
+    const oneXTwoAdjustments = form
+      ? modelAFormAdjustments(form, derivedRequest, competitiveness)
+      : undefined;
 
     // n.4 — Assenze player-level -> correzione dell'xG squadra.
     // Il segnale generico homeKeyAbsences (conteggio) resta nel context
@@ -2454,7 +2474,7 @@ export class PredictionService {
         kickoffAt: matchRow?.date ?? null, source: matchRow?.source ?? null, sourceMatchId: matchRow?.source_match_id ?? null },
       inputAsOf: asOf, request: derivedRequest, dcParameters: model.getParams(), dcModelSource,
       homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,
-      context, lineupXgAdjustments,
+      context, lineupXgAdjustments, ...(form ? { recentForm1X2: { ...form, adjustments: oneXTwoAdjustments } } : {}),
       sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })
         .map(([name, row]) => [name, modelASourceTimestampEvidence(row, new Date().toISOString(), asOf)])),
     });
@@ -2497,6 +2517,12 @@ export class PredictionService {
 
     // Arricchisci con mercati secondari
     this.enrichFlatProbabilities(probs.flatProbabilities);
+    applyModelAOneXTwoForm(probs.flatProbabilities, model, prepared, ensemblePoisson, predictionEngineConfig.ensemble,
+      effectiveHomeXG, effectiveAwayXG, oneXTwoAdjustments);
+    if (oneXTwoAdjustments) {
+      const { homeWin, draw, awayWin } = probs.flatProbabilities;
+      Object.assign(probs, { homeWin, draw, awayWin });
+    }
     probs.fouls.overUnder = {};
     if (probs.corners) probs.corners.overUnder = {};
     probs.flatProbabilities = this.dropUnavailableUnderstatMarkets(probs.flatProbabilities);

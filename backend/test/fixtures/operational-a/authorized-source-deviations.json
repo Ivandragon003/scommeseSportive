@@ -862,6 +862,43 @@
           "sha256": "0b2e4f9a4438ed007063b73d8fd900c88cf2a2a9f7c99f6ee181e5140f718e7d"
         }
       ]
+    },
+    {
+      "review": "model-a-1x2-current-season-form-v1",
+      "reason": "User-authorized current-season five-match form for operational A 1X2 and its chronological calibration; shared C baseline and existing golden scenarios remain intact.",
+      "edits": [
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "import { prepareSharedForecast, finishSharedForecast } from './SharedForecastCalculator';\nimport { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';",
+          "after": "import { prepareSharedForecast, finishSharedForecast } from './SharedForecastCalculator';\nimport { applyModelAOneXTwoForm, historicalModelAFormAdjustments, modelAFormAdjustments, modelARecentForm } from './ModelARecentForm';\nimport { modelAProspectiveEnabled, scheduleModelAProspective, startModelAProspectiveRecovery, ModelAProspectiveReceipt } from '../research/ModelAProspectiveRecorder';"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "          this.enrichFlatProbabilities(flat);\n          const supp = context.supplementaryData ?? {};",
+          "after": "          this.enrichFlatProbabilities(flat);\n          applyModelAOneXTwoForm(flat, historicalModel, prepared, poisson, predictionEngineConfig.ensemble,\n            context.homeXG, context.awayXG,\n            historicalModelAFormAdjustments(target, availablePast, context.supplementaryData?.competitiveness));\n          const supp = context.supplementaryData ?? {};"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    const competitiveness = context.competitiveness;",
+          "after": "    const competitiveness = context.competitiveness;\n    const formCompetition = String(matchRow?.competition ?? targetCompetition).trim();\n    const formSeason = String(matchRow?.season ?? targetSeason).trim();\n    const kickoff = historicalTimestamp(referenceDate);\n    const form = matchRow && formCompetition && formSeason && Number.isFinite(kickoff)\n      && typeof this.db.getModelAFormMatches === 'function'\n      ? modelARecentForm({\n          matchId: request.matchId, homeTeamId: request.homeTeamId, awayTeamId: request.awayTeamId,\n          competition: formCompetition, season: formSeason, date: new Date(kickoff),\n        }, this.mapCompletedMatches(await this.db.getModelAFormMatches(\n          formCompetition, formSeason, [request.homeTeamId, request.awayTeamId],\n          new Date(Math.min(kickoff, operationalTime.getTime())).toISOString(),\n        ).catch(() => [])), operationalTime)\n      : undefined;\n    const oneXTwoAdjustments = form\n      ? modelAFormAdjustments(form, derivedRequest, competitiveness)\n      : undefined;"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "      homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,\n      context, lineupXgAdjustments,\n      sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })",
+          "after": "      homeXG: effectiveHomeXG, awayXG: effectiveAwayXG, supplementaryData: supp,\n      context, lineupXgAdjustments, ...(form ? { recentForm1X2: { ...form, adjustments: oneXTwoAdjustments } } : {}),\n      sourceTimestamps: Object.fromEntries(Object.entries({ fixture: matchRow, homeTeam, awayTeam, referee })"
+        },
+        {
+          "file": "backend/src/services/PredictionService.ts",
+          "before": "    this.enrichFlatProbabilities(probs.flatProbabilities);\n    probs.fouls.overUnder = {};",
+          "after": "    this.enrichFlatProbabilities(probs.flatProbabilities);\n    applyModelAOneXTwoForm(probs.flatProbabilities, model, prepared, ensemblePoisson, predictionEngineConfig.ensemble,\n      effectiveHomeXG, effectiveAwayXG, oneXTwoAdjustments);\n    if (oneXTwoAdjustments) {\n      const { homeWin, draw, awayWin } = probs.flatProbabilities;\n      Object.assign(probs, { homeWin, draw, awayWin });\n    }\n    probs.fouls.overUnder = {};"
+        }
+      ],
+      "addedFiles": [
+        {
+          "file": "backend/src/services/ModelARecentForm.ts",
+          "sha256": "4e22530894f7d3581059e3ff74e81a9d64f84298951df8b8e7568fc353b570fd"
+        }
+      ]
     }
   ]
 }

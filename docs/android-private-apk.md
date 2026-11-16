@@ -12,6 +12,9 @@ Una modifica web non autorizza automaticamente la build o distribuzione APK.
 [Capacitor](../frontend/capacitor.config.ts) usa `webDir: build`, hostname
 `localhost` e schema Android `https`, senza `server.url`: carica la UI
 inclusa nel pacchetto. Un deploy frontend non aggiorna gli asset dell'APK.
+Le modifiche al calcolo delle previsioni servite dalle API, come la forma
+recente del modello A, arrivano agli APK e AAB già distribuiti quando si
+aggiorna il backend che interrogano.
 Il [client API](../frontend/src/utils/api.ts) usa `REACT_APP_API_URL` se
 impostata in build, altrimenti il backend Hostless
 `https://scommese-sportive-backend.hostless.app/api` sulla piattaforma nativa.
