@@ -13,6 +13,7 @@ import { listFundedBetViews } from './FundedModelBetLedger';
 import { allocateConfidenceStakes } from './ConfidenceStake';
 import { allocateDynamicStakes } from './DynamicModelStake';
 import { listDynamicBetViews } from './DynamicModelBetLedger';
+import { recoverableReasonPair, recoveryAllowedReasons, recoveryZeroStake } from './ResearchRecommendationRecovery';
 export type { PaperSelection } from './PaperModelBetLedger';
 
 export type RecommendationPolicyDescriptor = { version: string; [key: string]: any };
@@ -143,7 +144,6 @@ export class ResearchRecommendationStore {
     const funded = isFundedPolicy(descriptor);
     const dynamic = isDynamicFundedPolicy(descriptor);
     if (descriptor.version === DYNAMIC_FUNDED_POLICY_VERSION && !dynamic) throw new Error('Unsupported dynamic execution policy');
-    if (dynamic && descriptor.recovery !== undefined) throw new Error('Dynamic recovery policy is unsupported');
     if (descriptor.version === FUNDED_POLICY_VERSION && !funded) throw new Error('Unsupported funded execution policy');
     if (descriptor.version === PAPER_POLICY_VERSION && !paper) throw new Error('Unsupported paper execution policy');
     if (paper && (descriptor.maxExposureFraction !== undefined || descriptor.maxBetsPerMatchPerFamily !== undefined
@@ -167,6 +167,9 @@ export class ResearchRecommendationStore {
         const schema = await rows(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('funded_model_bets','funded_model_settlements','paper_model_bet_cancellations')");
         if (schema.length !== 3) throw new Error('Funded execution migration 029 is required');
         if (dynamic && (await rows(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('dynamic_model_bets','dynamic_model_settlements')")).length !== 2) throw new Error('Dynamic execution migration 030 is required');
+      }
+      if (dynamic && Object.prototype.hasOwnProperty.call(descriptor, 'recovery')) {
+        await this.recoveryContext(tx, { descriptor });
       }
       const previous = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [hash]);
       if (previous && researchJson(previous.descriptor) !== serialized) throw new Error('Policy descriptor is immutable');
@@ -218,14 +221,19 @@ export class ResearchRecommendationStore {
     const parent = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [recovery.parentPolicyHash]);
     const { recovery: _recovery, ...base } = descriptor;
     if (!parent || researchHash(parent.descriptor) !== parent.hash || researchHash(base) !== parent.hash
-      || !['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(parent.version)
+      || !(isDynamicFundedPolicy(parent.descriptor) || ['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(parent.version))
       || Object.prototype.hasOwnProperty.call(parent.descriptor, 'recovery')) throw new Error('Technical recovery parent policy mismatch');
+    if (isDynamicFundedPolicy(base) && (recovery.reason !== 'retry_technical_failure'
+      || researchHash(recovery.allowedReasons ?? null) !== researchHash(recoveryAllowedReasons(base))
+      || recovery.sources.some((source: any) => !source?.reasons || !recoverableReasonPair(base, source.reasons)))) {
+      throw new Error('Invalid dynamic calibration recovery policy');
+    }
     const matchIds = recovery.sources.map((source: any) => source?.matchId);
     if (matchIds.some((id: any) => typeof id !== 'string' || !id.trim()) || new Set(matchIds).size !== matchIds.length
       || researchHash([...matchIds].sort()) !== researchHash([...recovery.matchIds].sort())
       || researchHash(recovery.sources.flatMap((source: any) => source.sourceDecisionIds ?? []).sort())
         !== researchHash([...recovery.sourceDecisionIds].sort())) throw new Error('Technical recovery allowlist mismatch');
-    return recovery;
+    return { ...recovery, parentPolicy: parent.descriptor };
   }
 
   private async recoveryAdmissionReason(tx: Executor, recovery: any, fixture: {
@@ -273,9 +281,9 @@ export class ResearchRecommendationStore {
       if (origin.matchId !== fixture.matchId || origin.portfolioId !== `shadow_${decision.family}`
         || origin.id !== source.originDecisionIds?.[decision.family] || decision.originDecisionId !== origin.id
         || decision.portfolioId !== origin.portfolioId || decision.action !== 'ABSTAIN'
-        || !['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed'].includes(decision.reason)
+        || !recoverableReasonPair(recovery.parentPolicy, source.reasons)
         || decision.reason !== source.reasons?.[decision.family] || decision.snapshot?.action !== 'ABSTAIN'
-        || decision.snapshot?.stakeCents !== 0 || decision.snapshot?.recommended !== false || decision.snapshot?.validated !== false) {
+        || !recoveryZeroStake(recovery.parentPolicy, decision.snapshot) || decision.snapshot?.recommended !== false || decision.snapshot?.validated !== false) {
         throw new Error('Technical recovery source must preserve paired technical abstentions');
       }
     }
@@ -299,6 +307,14 @@ export class ResearchRecommendationStore {
       }
     }
     if (active) return 'prior_recovery_in_progress';
+    if (isDynamicFundedPolicy(recovery.parentPolicy)) {
+      const schema = await rows(tx, CHALLENGER_BET_SCHEMA_SQL);
+      const tables = ['research_bets','manual_model_bets','paper_model_bets','funded_model_bets','dynamic_model_bets']
+        .filter(table => schema.some(row => row.name === table));
+      const sql = tables.map(table => `SELECT id FROM ${table} WHERE match_id=? AND family IN ('A','C')`).join(' UNION ALL ');
+      if (await first(tx, sql + ' LIMIT 1', tables.map(() => fixture.matchId))) return 'existing_bet_preserved';
+      return null;
+    }
     if (await first(tx, "SELECT id FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C') LIMIT 1", [fixture.matchId])) {
       return 'existing_bet_preserved';
     }
@@ -586,13 +602,17 @@ export class ResearchRecommendationStore {
     await fetch([fixtureSchema, manualSchema, dynamicSchema, fundedCancellationSchema, challengerSchema, ...prepared.map((item) => jobQuery(item.jobId))]);
     const challengerTables = cache.get(key(challengerSchema)).rows.map((row: any) => row.name);
     const jobs = prepared.map((item) => object(cache.get(key(jobQuery(item.jobId))).rows[0]));
-    // Completed jobs and recovery policies retain the existing immutable-replay path.
+    // Completed jobs retain the immutable replay path. Dynamic recovery uses this
+    // write batch after checking its source against the real transaction.
     if (jobs.some((job) => !job || job.status === 'COMPLETED')) return null;
     const policyQuery = (hash: string): Statement => ({ sql: 'SELECT * FROM research_execution_policies WHERE hash=?', args: [hash] });
     await fetch(jobs.map((job) => policyQuery(job.policyHash)));
     const policies = jobs.map((job) => object(cache.get(key(policyQuery(job.policyHash))).rows[0]));
     if (policies.some((policy) => !policy || !(isPaperPolicy(policy.descriptor) || isFundedPolicy(policy.descriptor) || isDynamicFundedPolicy(policy.descriptor))
-      || Object.prototype.hasOwnProperty.call(policy.descriptor, 'recovery'))) return null;
+      || (Object.prototype.hasOwnProperty.call(policy.descriptor, 'recovery') && !isDynamicFundedPolicy(policy.descriptor)))) return null;
+    if (policies.some(policy => policy.descriptor.recovery) && new Set(jobs.map(job => job.matchId)).size !== jobs.length) {
+      throw new Error('Duplicate fixture in technical recovery batch');
+    }
     const hasFixtures = cache.get(key(fixtureSchema)).rows.length > 0;
     const statements: Statement[] = [];
     prepared.forEach((item, index) => {
@@ -689,8 +709,8 @@ export class ResearchRecommendationStore {
         const at = this.clock().getTime(); this.assertLease(job, item.leaseToken, at);
         const policy = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [job.policyHash]);
         if (!policy || researchHash(policy.descriptor) !== job.policyHash) throw new Error('Execution policy identity mismatch');
-        if (!recoveryContexts.has(job.policyHash)) recoveryContexts.set(job.policyHash, await this.recoveryContext(tx, policy));
-        const recoveryReason = await this.recoveryAdmissionReason(tx, recoveryContexts.get(job.policyHash),
+        if (!recoveryContexts.has(job.policyHash)) recoveryContexts.set(job.policyHash, await this.recoveryContext(transaction, policy));
+        const recoveryReason = await this.recoveryAdmissionReason(transaction, recoveryContexts.get(job.policyHash),
           { ...job, originInputId: item.originInputId,
             originDecisionIds: Object.fromEntries(ordered.map((decision) => [decision.family, decision.originDecisionId])) }, job.id, at);
         if (recoveryReason) throw new Error(`Technical recovery commit rejected: ${recoveryReason}`);

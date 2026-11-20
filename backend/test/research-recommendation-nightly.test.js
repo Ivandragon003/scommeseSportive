@@ -344,6 +344,36 @@ test('entirely technical A/C quote failures remain retryable without freezing ex
   }
 });
 
+test('paired funded calibration failures leave the same job retryable and the wallets untouched', async (t) => {
+  const f = await fixture(t, { matches: 1 });
+  await paperFixture(f);
+  for (const migration of ['029_funded_model_bets.sql', '030_dynamic_model_bets.sql']) {
+    await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations', migration), 'utf8'));
+  }
+  await f.research.initializePortfolios();
+  const prepare = f.runtime.prepare;
+  f.runtime.prepare = async job => {
+    const item = await prepare(job);
+    item.decisions = item.decisions.map(decision => ({ ...decision, action: 'ABSTAIN', selections: [],
+      recommended: false, validated: false, reason: decision.family === 'A' ? 'a_calibration_miss' : 'c_calibration_configuration_mismatch' }));
+    return item;
+  };
+  for (const runId of ['original', 'scheduled-retry']) {
+    const result = await execute(f, { dynamicMode: true, runId });
+    assert.equal(result.retryableMatches, 1);
+    assert.equal(result.errors, 1);
+    assert.equal(result.registeredBets, 0);
+    assert.equal(result.reasonCounts.c_calibration_configuration_mismatch, 1);
+    assert.equal(f.runs.at(-1).success, false);
+    assert.equal((await f.recommendations.listDecisions()).length, 0);
+    const jobs = await f.recommendations.listJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].status, 'ERROR');
+  }
+  assert.equal(f.counters.executionPreparations, 2);
+  assert.equal((await f.research.listLedger()).filter(row => row.event === 'STAKE').length, 0);
+});
+
 test('thrown quote budget/cache/reset denials finish as retryable errors rather than permanent skipped jobs', async (t) => {
   for (const code of ['odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed']) {
     const f = await fixture(t, { matches: 1 }), prepare = f.runtime.prepare;

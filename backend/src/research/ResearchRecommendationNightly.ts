@@ -6,7 +6,7 @@ import { ResearchRecommendationRuntime } from './ResearchRecommendationRuntime';
 import type { FixtureAdmissionCheck } from './ResearchRecommendationRuntime';
 import { VIRTUAL_RECOMMENDATION_POLICY, ChallengerExecutionState, challengerExecutionPolicy, paperExecutionPolicy, fundedExecutionPolicy, dynamicFundedExecutionPolicy, fallbackChallengerState, unavailableChallengerState } from './ResearchRecommendationPolicy';
 import type { RecommendationCommit, RecommendationJob, RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
-import { TECHNICAL_RECOVERY_PROTOCOL, TECHNICAL_RECOVERY_REASONS, TechnicalRecoveryPlan } from './ResearchRecommendationRecovery';
+import { TECHNICAL_RECOVERY_PROTOCOL, recoveryAllowedReasons, recoverableReasonPair, TechnicalRecoveryPlan } from './ResearchRecommendationRecovery';
 import { researchHash } from './ResearchStore';
 import { safeOddsFailureCode } from './T15Scheduler';
 import { reconcileResearchMonitoring } from './ResearchMonitoring';
@@ -48,7 +48,7 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
   if (!recovery || researchHash(unchanged) !== researchHash(base) || recovery.protocol !== TECHNICAL_RECOVERY_PROTOCOL
     || recovery.reason !== 'retry_technical_failure' || recovery.parentPolicyHash !== plan.parentPolicyHash
     || recovery.retrospective !== false || recovery.maxDepth !== 1
-    || researchHash(recovery.allowedReasons) !== researchHash(TECHNICAL_RECOVERY_REASONS)
+    || researchHash(recovery.allowedReasons) !== researchHash(recoveryAllowedReasons(base))
     || researchHash(recovery.sources) !== researchHash(plan.sources)) fail();
   const planned = timestamp(plan.plannedAt), end = timestamp(plan.windowEndAt), at = now.getTime();
   if (![planned, end, at, timestamp(normalEndAt)].every(Number.isFinite) || planned > at || at >= end
@@ -65,7 +65,7 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
       || !Array.isArray(source.sourceDecisionIds) || source.sourceDecisionIds.length !== 2
       || !source.originDecisionIds || Object.keys(source.originDecisionIds).sort().join(',') !== 'A,C'
       || !source.reasons || Object.keys(source.reasons).sort().join(',') !== 'A,C'
-      || !Object.values(source.reasons).every((code) => RETRYABLE_ODDS_REASONS.has(code))) fail();
+      || !recoverableReasonPair(base, source.reasons)) fail();
     const ids = [source.sourceJobId, source.sourceRunId, source.sourceInputId, source.originInputId,
       ...source.sourceDecisionIds, source.originDecisionIds.A, source.originDecisionIds.C];
     if (!ids.every(validId)) fail();
@@ -246,7 +246,10 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
         if (Array.isArray(challengerErrors) && challengerErrors.length) {
           summary.errors += challengerErrors.length; reason('challenger_health_recording_failed');
         }
-        if (technicalQuotePair(item.decisions)) {
+        const calibrationPair = options.dynamicMode && item.decisions.length === 2
+          && item.decisions.every(decision => decision.action === 'ABSTAIN')
+          && recoverableReasonPair(executionPolicy, Object.fromEntries(item.decisions.map(decision => [decision.family, decision.reason])));
+        if (technicalQuotePair(item.decisions) || calibrationPair) {
           const codes = [...new Set(item.decisions.map((decision) => decision.reason!))];
           summary.errors++; summary.skippedMatches++;
           summary.retryableMatches = (summary.retryableMatches ?? 0) + 1;

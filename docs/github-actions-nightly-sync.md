@@ -136,7 +136,7 @@ La preparazione di una prima esecuzione reale richiede, nell'ordine:
    artefatto/deployment C, campioni e quote reali recenti. I profili con checksum
    valido ma fingerprint diverso sono cache miss. Se manca un profilo compatibile,
    astenersi per A: la Nightly usa `allowCalibrationRebuild:false` e non esegue
-   warmup impliciti. La preparazione separata richiede autorizzazione; non rinominare
+   warmup impliciti. La preparazione della cache richiede il relativo opt-in; non rinominare
    la chiave cache per riutilizzare il vecchio profilo. Verificare budget quote
    e reset confermato senza azzerare consumi o inventare nuovi portafogli.
    `ODDS_API_ACCOUNT_SCOPE` deve identificare lo stesso account della chiave:
@@ -349,9 +349,15 @@ Una riga CSV non abbinata non implica necessariamente un alias mancante: l'adapt
 3. Sincronizza le giocate legacy, liquida le A/C esistenti tramite
    `POST /api/research/settle` e aggiorna l'audit delle prediction concluse.
    Le liquidazioni precedono il gate per le nuove giocate.
-4. La manutenzione non ricalibra. La Nightly consuma solo profili esattamente
-   compatibili; un MISS blocca A per le fixture interessate, senza impedire C
-   se ha evidenze sufficienti. Il comando operativo di calibrazione è separato.
+4. Per impostazione predefinita A legge i profili esistenti. Nel percorso
+   `verified-alternatives`, la variable GitHub `RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED=true`
+   abilita la preparazione esplicita della cache dopo l’import e il ricalcolo
+   delle medie, con entrambi i flag A/C e recommendation attivi. La preparazione
+   verifica il target e lo schema, salva una copia privata della cache prima
+   delle scritture e rigenera i profili live mancanti. Ogni previsione richiede
+   comunque un profilo compatibile con codice, configurazione e dati correnti.
+   C valuta separatamente la propria configurazione, inclusa l’identità del
+   classificatore per gli artefatti `joint_head_v1`.
 5. Se `RESEARCH_NIGHTLY_ENABLED=true`, avvia il processo finito A/C. Nel modo
    alternativo stato/orario provengono dal manifest FDO e vengono ricontrollati
    nella cache condivisa; `SCHEDULED` ha un orario provvisorio e non è ammesso.
@@ -670,10 +676,16 @@ Un tentativo della giornata precedente non recupera una diversa giornata.
   preserva giocate esistenti e decisioni non tecniche. Controlla i recuperi
   già conclusi anche al commit.
 
-Il recupero tecnico precedente con questi input del workflow supporta soltanto le policy legacy
-`virtual-recommendation-v2/v3`, non le policy paper o finanziate correnti. Nel ciclo finanziato
-ordinario distinguere i job `ERROR` senza input definitivo, ritentabili secondo
-i controlli del registro, dalle decisioni già completate, che restano immutabili.
+Per la policy virtuale a stake dinamico `funded-dynamic-stake-v1`, il recupero
+ammette una coppia precisa di astensioni tecniche sulla stessa partita:
+A con `a_calibration_miss` e C con `c_calibration_configuration_mismatch`.
+Prima del recupero ripristinare la calibrazione di A e verificare che il
+controllo preliminare di C ricostruisca la configurazione dell’artefatto adottato.
+Il calcolo usa nuove quote e l’orologio corrente. Le due decisioni originali
+restano consultabili. Se la stessa coppia di errori si presenta in una nuova
+Nightly, il job termina in `ERROR` prima di salvare le decisioni e il normale
+tentativo successivo può riprenderlo finché la partita è ammissibile. Le policy legacy `virtual-recommendation-v2/v3` mantengono
+il recupero dei blocchi di quota previsti dal loro protocollo.
 `recovery_day` seleziona la giornata italiana del **kickoff**, non quella del
 run originale; kickoff passato o finestra originale scaduta escludono il recupero.
 
@@ -798,9 +810,10 @@ deduplicazione e controlli finali su lease, kickoff e freschezza delle quote.
 Un errore annulla l'intero gruppo. Questo riduce i passaggi HTTP delle
 [transazioni interattive libSQL](https://docs.turso.tech/sdk/ts/reference#interactive-transactions),
 per cui Turso documenta un timeout di cinque secondi; non aumenta quel limite
-e conserva il limite C di una principale per partita. Replay già completati, recuperi tecnici
-e policy precedenti conservano il percorso originale: il batching ordinario
-non ne dimostra le prestazioni su grandi volumi.
+e conserva il limite C di una principale per partita. Anche il recupero tecnico a stake dinamico
+usa il batch contabile. Nella stessa transazione ricontrolla le astensioni
+di origine, le puntate presenti e i recuperi concorrenti prima di impegnare
+il saldo. I recuperi legacy mantengono il percorso originale.
 
 Gli errori globali riportano `failedStage` e, quando riconosciuto da una
 whitelist, `failureCode`. Il riepilogo conserva l'esito negativo e il cleanup;
@@ -820,7 +833,8 @@ non parte più al push. L'unico trigger è manuale e il job richiede insieme
 `false`. Lo script applica lo schema additivo della cache e salva i profili
 sul DB dei secret: pubblicare codice non autorizza questa operazione.
 Il ciclo Nightly non richiama più quel warmup e non usa il rebuild implicito.
-Per una preparazione senza DDL usare il comando separato, da `backend`, con
+Il flag Nightly descritto sopra abilita soltanto la preparazione live sullo schema esistente.
+Per una preparazione manuale senza DDL usare il comando separato, da `backend`, con
 ambiente privato già configurato:
 
 ```powershell

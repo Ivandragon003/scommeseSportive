@@ -12,6 +12,7 @@ import { CHALLENGER_FEATURE_SCHEMA_VERSION, withChallengerFeatures } from './Cha
 import { predictHybrid, validateArtifact } from './CatBoostModel';
 import { applyCoherentProbabilityPipeline, coherentProbabilityPipelineHash, COHERENT_PROBABILITY_PROTOCOL } from './CoherentProbabilityPipeline';
 import { buildProbabilityConfiguration } from './ProbabilityConfiguration';
+import { buildJointHeadProbabilityConfiguration } from './JointHeadConfiguration';
 import { researchHash } from './ResearchStore';
 import { evaluateFixtureAdmission, FixtureAdmissionInput, AdmissionEvidence, AdmissionMarket } from './FixtureAdmission';
 import { usesChallengerTeamMarkets } from './ChallengerMarketCoverage';
@@ -151,8 +152,11 @@ export async function loadNightlyFixtureReadiness(db: Db, manifest: NightlySourc
       const mode = config.probabilityCalibrationMode ?? 'isotonic_1x2', profile = config.calibrationProfilesV2?.C;
       applyCoherentProbabilityPipeline({ matrix: prediction.matrix, rawProbabilities: prediction.probabilities, profile,
         quotes: [], forecastAt: checkedAt, mode, temperature: config.probabilityTemperature });
-      const configuration = buildProbabilityConfiguration({ family: 'C', baselineVersion: input.baselineVersion,
-        pipelineHashV2: config.pipelineHashV2, mode, profile, temperature: config.probabilityTemperature });
+      const configurationInput = { family: 'C' as const, baselineVersion: input.baselineVersion,
+        pipelineHashV2: config.pipelineHashV2, mode, profile, temperature: config.probabilityTemperature };
+      const configuration = artifact.candidateKind === 'joint_head_v1'
+        ? buildJointHeadProbabilityConfiguration(configurationInput, (artifact.jointHeadIdentity as { classifierHash: string }).classifierHash)
+        : buildProbabilityConfiguration(configurationInput);
       if (deployment.deployment.probabilityConfigurationHash && deployment.deployment.probabilityConfigurationHash !== configuration.hash) throw Error('c_calibration_configuration_mismatch');
       cReady = true;
     } catch (error) { cReason = error instanceof Error && /^[a-z0-9_]+$/.test(error.message) ? error.message : 'c_input_or_artifact_invalid'; }

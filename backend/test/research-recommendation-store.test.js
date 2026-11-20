@@ -103,12 +103,13 @@ const walletAmounts = async research => (await research.listPortfolios())
   .map(wallet => [wallet.id, wallet.availableCents, wallet.committedCents, wallet.equityCents]);
 const count = async (client, table) => Number((await client.execute(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n);
 
-async function recoveryPolicies(f) {
+async function recoveryPolicies(f, reasons = { A: 'odds_cache_only', C: 'odds_cache_only' }) {
+  const { recoveryAllowedReasons } = require('../dist/research/ResearchRecommendationRecovery');
   const jobs = (await claim(f)).jobs;
   await f.execution.commitBatch(jobs.map(job => prepared(f, job, {
     snapshot: { metadata: { policy: f.policy.descriptor, originInputId: job.originInputId } },
     decisions: Object.fromEntries(['A', 'C'].map(family => [family,
-      { action: 'ABSTAIN', reason: 'odds_cache_only', recommended: false, validated: false }])),
+      { action: 'ABSTAIN', reason: reasons[family], recommended: false, validated: false }])),
   })));
   const sources = [];
   for (const job of jobs) {
@@ -120,17 +121,53 @@ async function recoveryPolicies(f) {
       sourcePreparedDecisionsHash: input.decisions_hash, sourceDecisionIds: decisions.map(decision => decision.id).sort(),
       sourceDecisionSnapshotsHash: researchHash(decisions.map(decision => ({ id: decision.id, snapshot: decision.snapshot }))),
       originInputId: job.originInputId, originDecisionIds: job.originDecisionIds,
-      reasons: { A: 'odds_cache_only', C: 'odds_cache_only' } });
+      reasons });
   }
   const descriptor = selected => ({ ...f.policy.descriptor, recovery: {
     protocol: 'virtual-recommendation-technical-recovery-v1', parentPolicyHash: f.policy.hash,
     maxDepth: 1, retrospective: false, reason: 'retry_technical_failure',
+    allowedReasons: recoveryAllowedReasons(f.policy.descriptor),
     matchIds: selected.map(source => source.matchId), sourceDecisionIds: selected.flatMap(source => source.sourceDecisionIds).sort(),
     sources: selected,
   } });
   return { first: await f.execution.registerPolicy(descriptor(sources)),
     subset: await f.execution.registerPolicy(descriptor(sources.slice(0, 1))), sources, descriptor };
 }
+
+test('dynamic recovery funds its fresh selections once and rejects a competing bet at commit', async () => {
+  const { dynamicFundedExecutionPolicy, fallbackChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
+  const { paperSelectionKey } = require('../dist/research/PaperBetSelections');
+  const f = await setup({ matches: 2 });
+  try {
+    for (const migration of ['028_paper_model_bets.sql', '029_funded_model_bets.sql', '030_dynamic_model_bets.sql']) {
+      await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations', migration), 'utf8'));
+    }
+    const state = fallbackChallengerState();
+    state.deployment.modelVersion = 'C-fixture';
+    f.policy = await f.execution.registerPolicy(dynamicFundedExecutionPolicy(state));
+    const policies = await recoveryPolicies(f, { A: 'a_calibration_miss', C: 'c_calibration_configuration_mismatch' });
+    const jobs = (await claim(f, f.fixtures, { policyHash: policies.first.hash })).jobs;
+    assert.equal(jobs.length, 2);
+    const item = prepared(f, jobs[0]);
+    for (const decision of item.decisions) {
+      const quote = item.inputSnapshot.quotes[0];
+      decision.selections = [{ selection: quote.selection, market: quote.market, selectionKey: paperSelectionKey(quote),
+        probability: .6, ev: .2, confidence: 'MEDIUM', quote, suggestedStakePercent: 1 }];
+    }
+    const placed = await f.execution.commitBatch([item]);
+    assert.deepEqual(placed.bets.map(row => row.family).sort(), ['A','C']);
+    assert.ok(placed.bets.every(row => row.id.startsWith('dynamic:') && row.stakeCents > 0));
+    assert.equal(await count(f.client, 'dynamic_model_bets'), 2);
+    assert.equal(Number((await f.client.execute("SELECT COUNT(*) AS n FROM research_ledger WHERE id LIKE 'stake:dynamic:%'")).rows[0].n), 2);
+    assert.equal((await claim(f, [f.fixtures[0]], { policyHash: policies.subset.hash })).jobs.length, 0);
+
+    // A different action was opened after the second claim, before its commit.
+    await f.client.execute('CREATE TABLE manual_model_bets(id TEXT, family TEXT, match_id TEXT, selection TEXT, market TEXT, snapshot_json TEXT)');
+    await f.client.execute({ sql: "INSERT INTO manual_model_bets VALUES('manual-before-commit','A',?,'draw','1x2','{}')", args: [jobs[1].matchId] });
+    await assert.rejects(f.execution.commitBatch([prepared(f, jobs[1])]), /existing_bet_preserved/);
+    assert.equal(await count(f.client, 'dynamic_model_bets'), 2);
+  } finally { await f.close(); }
+});
 
 test('technical recovery terminal sports abstentions cannot be repeated through another subset policy', async () => {
   const f = await setup({ matches: 2 });

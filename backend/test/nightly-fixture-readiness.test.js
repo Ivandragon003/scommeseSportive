@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-require('ts-node/register/transpile-only');
-const { loadNightlyFixtureReadiness } = require('../src/research/NightlyFixtureReadiness');
+const { CURRENT_CHALLENGER_RELEASE } = require('../dist/research/CurrentChallengerRelease');
+const { loadNightlyFixtureReadiness } = require('../dist/research/NightlyFixtureReadiness');
 
 test('adapter binds source fixture, persisted teams and fit, and fails closed on missing profile', async () => {
   const asOf = '2026-11-06T12:00:00Z';
@@ -54,7 +54,7 @@ test('adapter binds source fixture, persisted teams and fit, and fails closed on
 });
 
 async function reviewedIdentityReadiness(options = {}) {
-  const asOf = '2026-11-06T12:00:00Z', kickoff = '2026-11-07T12:00:00Z';
+  const asOf = options.asOf ?? '2026-11-06T12:00:00Z', kickoff = new Date(Date.parse(asOf) + 86400000).toISOString();
   const competition = options.competition ?? 'FL1', localCompetition = competition === 'FL1' ? 'Ligue 1' : 'Premier League';
   const season = options.season ?? 2026, localId = options.localId ?? 'understat_team_172';
   const providerId = options.providerId ?? '531';
@@ -74,11 +74,11 @@ async function reviewedIdentityReadiness(options = {}) {
   const state = { available: true, status: 'available', latestAttempt: { status: 'success', requestedAt: asOf, payloadSha256: feed.payloadSha256 },
     snapshot: { acquiredAt: asOf, payloadSha256: feed.payloadSha256, fixtures: [{ providerMatchId: '10', status: 'TIMED', kickoffUtc: kickoff,
       providerHomeTeamId: providerId, providerAwayTeamId: '2', homeTeamName: options.providerName ?? 'ES Troyes AC', awayTeamName: 'Away' }] } };
-  const db = { getMatchById: async () => row, getMatches: async () => [], getTeamsByIds: async () => [
+  const db = { getMatchById: async () => row, getMatches: async () => options.history ?? [], getTeamsByIds: async () => [
     { team_id: localId, name: options.teamName ?? 'Troyes', avg_home_xg: 1.5 }, { team_id: 'away', name: 'Away', avg_away_xg: 1.1 } ],
-    getLatestModelParams: async () => null, getHistoricalOddsDetailMap: async () => ({}), getCalibrationProfileCache: async () => null, research: {} };
+    getLatestModelParams: async () => null, getHistoricalOddsDetailMap: async () => ({}), getCalibrationProfileCache: async () => null, research: options.research ?? {} };
   const result = await loadNightlyFixtureReadiness(db, { competitions: [{ competition, local: localCompetition, feed }] }, row.match_id,
-    asOf, null, { mapping, sourceStore: { read: async () => state } });
+    asOf, options.deployment ?? null, { mapping, sourceStore: { read: async () => state } });
   assert.equal(result.evidence.calendar.action, 'NO_CHANGE');
   assert.ok(!result.admission.common.reasons.includes('calendar_mapping_mismatch'), 'the mapping hash and ID links are coherent');
   assert.ok(!result.admission.common.reasons.includes('calendar_current_source_mismatch'), 'the source is current');
@@ -104,4 +104,26 @@ for (const options of [
   { season: 2025, providerId: '533', providerName: 'Le Havre AC' },
 ]) test(`fresh NO_CHANGE respects the resolved identities and bounded scope: ${JSON.stringify(options)}`, async () => {
   assert.equal((await reviewedIdentityReadiness(options)).admission.common.eligible, true);
+});
+
+test('fixture admission accepts the deployed joint-head configuration and rejects a different hash', async () => {
+  const artifact = require('../current-models/challenger.json');
+  const asOf = new Date(Date.parse(artifact.createdAt) + 86400000).toISOString();
+  const deployment = { source: 'adopted', revision: 'test', deployment: { ...CURRENT_CHALLENGER_RELEASE } };
+  const history = Array.from({ length: 64 }, (_, index) => ({
+    match_id: 'history-' + index, competition: 'Ligue 1', season: '2026/2027', source: 'understat',
+    home_team_id: 'understat_team_172', away_team_id: 'away', home_team_name: 'Troyes', away_team_name: 'Away',
+    date: new Date(Date.parse(asOf) - (index + 2) * 86400000).toISOString(),
+    home_goals: [2, 1, 0, 3][index % 4], away_goals: [0, 1, 2, 1][index % 4],
+    home_xg: 1.7, away_xg: 1.1, home_shots: 14, away_shots: 10,
+  }));
+  const research = { getModelByVersion: async () => ({ version: artifact.version, artifact, createdAt: artifact.createdAt }) };
+  const evaluate = () => reviewedIdentityReadiness({ asOf, deployment, history, research });
+  const ready = await evaluate();
+  assert.equal(ready.evidence.cReason, null);
+  assert.equal(ready.admission.families.C.eligible, true, JSON.stringify(ready.admission.families.C.reasons));
+  deployment.deployment.probabilityConfigurationHash = 'a'.repeat(64);
+  const blocked = await evaluate();
+  assert.equal(blocked.evidence.cReason, 'c_calibration_configuration_mismatch');
+  assert.equal(blocked.admission.families.C.eligible, false);
 });

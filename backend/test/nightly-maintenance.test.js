@@ -79,6 +79,7 @@ printf '{"success":true}\\n'`);
     if [[ "$SOURCE_FAILURE" == "true" ]]; then exit 1; fi
     printf '{"schemaVersion":1,"updatedTeamIds":[]}\\n'; exit 0 ;;
   scripts/nightly-source-context.js) printf 'recompute:%s\\n' "$*" >> "$CALL_LOG"; exit 0 ;;
+  scripts/calibration-operational.js) printf 'cache:%s:%s\\n' "$OPERATIONAL_CALIBRATION_ENABLED" "$*" >> "$CALL_LOG"; [[ "$CACHE_FAILURE" != "true" ]]; exit $? ;;
   scripts/research-nightly.js)
     printf 'nightly:%s:%s:%s\\n' "$RESEARCH_NIGHTLY_ENABLED" "$RESEARCH_T15_SCHEDULER_ENABLED" "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" >> "$CALL_LOG"
     [[ "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" == "true" && !( "$NIGHTLY_SOURCE_MODE" == "verified-alternatives" && "$SOURCE_FAILURE" == "true" ) ]]; exit $? ;;
@@ -93,8 +94,12 @@ esac`);
       { mode:'primary', enabled:'true', config:true, calendarFailure:true },
       { mode:'primary', enabled:'true', config:true, understatFailure:true },
       { mode:'verified-alternatives', enabled:'true', config:true },
+      { mode:'verified-alternatives', enabled:'true', config:true, warm:true },
+      { mode:'verified-alternatives', enabled:'true', config:true, warm:true, cacheFailure:true },
+      { mode:'verified-alternatives', enabled:'true', config:true, warm:true, recommendations:false },
+      { mode:'primary', enabled:'true', config:true, warm:true },
       { mode:'verified-alternatives', enabled:'false', config:true, sourceFailure:true },
-      { mode:'verified-alternatives', enabled:'true', config:true, sourceFailure:true },
+      { mode:'verified-alternatives', enabled:'true', config:true, sourceFailure:true, warm:true },
     ];
     for (const scenario of cases) {
       const log=join(temp, 'calls.log'); writeFileSync(log, '');
@@ -103,13 +108,15 @@ esac`);
         ...process.env, BASH_ENV:posix(join(temp,'bash-env')), CALL_LOG:posix(log), TURSO_DATABASE_URL:'file:test-only', TURSO_AUTH_TOKEN:'test-token',
         ODDS_API_KEY:'test-key', RUN_ODDS_SYNC:'true', GITHUB_EVENT_NAME:'workflow_dispatch', PLAYER_AVAILABILITY_ENABLED:'false',
         RESEARCH_NIGHTLY_ENABLED:scenario.enabled, RESEARCH_T15_SCHEDULER_ENABLED:'true', NIGHTLY_SOURCE_MODE:scenario.mode,
+        RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED:scenario.warm?'true':'false', CACHE_FAILURE:scenario.cacheFailure?'true':'false',
+        RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED:scenario.recommendations===false?'false':'true',
         NIGHTLY_SOURCE_TARGET_SHA256:scenario.config?'a'.repeat(64):'', NIGHTLY_SOURCE_SEASON:scenario.config?'2026':'',
         NIGHTLY_SOURCE_MANIFEST_FILE:posix(manifest), NIGHTLY_SOURCE_MAPPING_FILE:posix(join(temp,'mapping.json')),
         RUN_TRANSITION_REFERENCE_SYNC:scenario.transitions?'true':'false', SOURCE_FAILURE:scenario.sourceFailure?'true':'false',
         CALENDAR_FAILURE:scenario.calendarFailure?'true':'false',
         UNDERSTAT_FAILURE:scenario.understatFailure?'true':'false',
       }});
-      const fails=(scenario.enabled==='true' && (scenario.sourceFailure || scenario.calendarFailure || scenario.understatFailure));
+      const fails=(scenario.enabled==='true' && (scenario.sourceFailure || scenario.calendarFailure || scenario.understatFailure || scenario.cacheFailure));
       if (fails) assert.throws(run, error=>error.status===1); else run();
       const calls=readFileSync(log,'utf8');
       assert.match(calls,/backend:false/);
@@ -121,6 +128,14 @@ esac`);
       assert.equal(calls.includes('/api/learning/reviews/sync'),scenario.mode==='primary' && !scenario.calendarFailure && !scenario.understatFailure);
       assert.equal((calls.match(/\/api\/scraper\/odds/g)||[]).length,5);
       assert.equal(calls.includes('sources:'),scenario.config);
+      const shouldWarm = scenario.mode==='verified-alternatives' && scenario.enabled==='true' && scenario.warm===true &&
+        !scenario.sourceFailure && scenario.recommendations!==false;
+      assert.equal(calls.includes('cache:'),shouldWarm);
+      if (shouldWarm) {
+        assert.match(calls,/cache:true:.*--prepare-missing-live --target-sha256/);
+        assert.ok(calls.indexOf('recompute:') < calls.indexOf('cache:'));
+        assert.ok(calls.indexOf('cache:') < calls.indexOf('nightly:true:false:true'));
+      }
       if (scenario.config) {
         assert.ok(calls.includes('--collect-csv'));
         assert.equal(calls.includes('--collect-fdo'),scenario.mode==='verified-alternatives');

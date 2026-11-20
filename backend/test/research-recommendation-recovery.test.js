@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 if (process.env.RESEARCH_SOURCE_TESTS === '1') require('ts-node/register/transpile-only');
 const moduleRoot = process.env.RESEARCH_SOURCE_TESTS === '1' ? '../src/research/' : '../dist/research/';
 const { researchHash } = require(moduleRoot + 'ResearchStore');
-const { VIRTUAL_RECOMMENDATION_POLICY, challengerExecutionPolicy } = require(moduleRoot + 'ResearchRecommendationPolicy');
+const { VIRTUAL_RECOMMENDATION_POLICY, challengerExecutionPolicy, dynamicFundedExecutionPolicy, fallbackChallengerState, DYNAMIC_STAKE_MODE } = require(moduleRoot + 'ResearchRecommendationPolicy');
 const { buildRecoveryPlan, TECHNICAL_RECOVERY_REASONS } = require(moduleRoot + 'ResearchRecommendationRecovery');
 
 const START = '2026-10-31T02:07:00.000Z';
@@ -230,4 +230,35 @@ test('missing, malformed and mismatched recovery evidence fails closed', () => {
   }
   const duplicate = fixture(); duplicate.existingRecoveries = [childRecovery(duplicate), childRecovery(duplicate)];
   assert.equal(buildRecoveryPlan([duplicate], policy(), NOW).excluded[0].reason, 'existing_recovery_evidence_invalid');
+});
+
+
+test('funded recovery requires the exact calibration pair, adopted descriptor and empty dynamic decisions', () => {
+  const adopted = { ...fallbackChallengerState(), source: 'adopted', revision: 'deployment-one' };
+  const parent = dynamicFundedExecutionPolicy(adopted);
+  const record = fixture('funded-calibration', parent);
+  decisionReason(record, 'A', 'a_calibration_miss');
+  decisionReason(record, 'C', 'c_calibration_configuration_mismatch');
+  for (const decision of record.decisions) {
+    delete decision.snapshot.stakeCents;
+    Object.assign(decision.snapshot, { selections: [], accountingMode: DYNAMIC_STAKE_MODE, stakeMode: DYNAMIC_STAKE_MODE });
+  }
+  const plan = buildRecoveryPlan([record], parent, NOW);
+  assert.equal(plan.fixtures.length, 1);
+  assert.deepEqual(plan.policy.recovery.allowedReasons, ['a_calibration_miss', 'c_calibration_configuration_mismatch']);
+  assert.equal(plan.parentPolicyHash, researchHash(parent));
+  assert.deepEqual(plan.policy.familyC, parent.familyC);
+  for (const mutate of [
+    row => decisionReason(row, 'A', 'odds_cache_only'),
+    row => decisionReason(row, 'C', 'no_positive_ev'),
+    row => { row.decisions[0].snapshot.selections = [{ market: '1x2' }]; },
+    row => { row.decisions[1].snapshot.stakeCents = 100; },
+    row => { row.decisions[1].snapshot.accountingMode = 'PAPER_FIXED_UNIT'; },
+    row => { row.existingBets.push({ id: 'existing-dynamic', portfolioId: 'shadow_A' }); },
+  ]) {
+    const changed = clone(record); mutate(changed);
+    assert.deepEqual(buildRecoveryPlan([changed], parent, NOW).fixtures, []);
+  }
+  assert.throws(() => buildRecoveryPlan([], { ...parent, unexpectedOverride: true }, NOW), /parent_execution_configuration_changed/);
+  assert.throws(() => buildRecoveryPlan([], dynamicFundedExecutionPolicy(fallbackChallengerState()), NOW), /parent_execution_configuration_changed/);
 });

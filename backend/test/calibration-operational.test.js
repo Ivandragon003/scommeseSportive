@@ -106,7 +106,7 @@ test('authorized isolated execution backs up before construction and changes onl
     const { DatabaseService } = require('../dist/db/DatabaseService');
     const result = await runOperationalCalibration({ execute: true, authorizeCalibrationWrites: true,
       targetSha256: targetFingerprint(process.env.TURSO_DATABASE_URL), backupFile,
-      competitions: ['Serie A'], recentReplayLimit: 0 }, {
+      competitions: ['Serie A'], prepareMissingLive: true }, {
       createDatabase: (options) => {
         assert.equal(existsSync(backupFile), true);
         assert.deepEqual(options, { skipSchemaBootstrap: true });
@@ -122,6 +122,17 @@ test('authorized isolated execution backs up before construction and changes onl
     assert.notEqual(after.runtime_calibration_profiles.sha256, sandbox.before.runtime_calibration_profiles.sha256);
     assert.equal(result.providerRequests, 0);
     assert.equal(result.liveModelParameterWrites, 0);
+    assert.equal(result.profiles[0].replayProfiles ?? 0, 0);
+    const secondBackup = join(directory, 'unused-second-backup.json');
+    const repeated = await runOperationalCalibration({ execute: true, authorizeCalibrationWrites: true,
+      targetSha256: targetFingerprint(process.env.TURSO_DATABASE_URL), backupFile: secondBackup,
+      competitions: ['Serie A'], prepareMissingLive: true }, {
+      createDatabase: () => { throw Error('A cache HIT must not construct the writable service'); },
+    });
+    assert.equal(repeated.verified.ready, true);
+    assert.equal(repeated.databaseWrites, 0);
+    assert.equal(existsSync(secondBackup), false);
+    assert.deepEqual(await tableHashes(sandbox.client), after);
   } finally {
     for (const [key, original] of [['TURSO_DATABASE_URL', originalUrl], ['TURSO_AUTH_TOKEN', originalToken], ['OPERATIONAL_CALIBRATION_ENABLED', originalFlag]]) {
       if (original === undefined) delete process.env[key]; else process.env[key] = original;

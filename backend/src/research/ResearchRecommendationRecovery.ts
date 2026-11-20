@@ -1,10 +1,29 @@
 import { researchHash, researchJson } from './ResearchStore';
-import { VIRTUAL_RECOMMENDATION_POLICY } from './ResearchRecommendationPolicy';
+import { DYNAMIC_STAKE_MODE, dynamicFundedExecutionPolicy, isDynamicFundedPolicy, VIRTUAL_RECOMMENDATION_POLICY } from './ResearchRecommendationPolicy';
 import type { RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
 
 export const TECHNICAL_RECOVERY_REASONS = [
   'odds_credit_budget_exhausted', 'odds_cache_only', 'odds_reset_unconfirmed',
 ] as const;
+const CALIBRATION_RECOVERY_REASONS = ['a_calibration_miss', 'c_calibration_configuration_mismatch'] as const;
+
+export function recoveryAllowedReasons(policy: RecommendationPolicyDescriptor): readonly string[] {
+  return isDynamicFundedPolicy(policy) ? CALIBRATION_RECOVERY_REASONS : TECHNICAL_RECOVERY_REASONS;
+}
+
+export function recoverableReasonPair(policy: RecommendationPolicyDescriptor, reasons: { A?: string | null; C?: string | null }): boolean {
+  if (isDynamicFundedPolicy(policy)) return reasons.A === CALIBRATION_RECOVERY_REASONS[0] && reasons.C === CALIBRATION_RECOVERY_REASONS[1];
+  const allowed: readonly string[] = TECHNICAL_RECOVERY_REASONS;
+  return allowed.includes(reasons.A ?? '') && allowed.includes(reasons.C ?? '');
+}
+
+export function recoveryZeroStake(policy: RecommendationPolicyDescriptor, snapshot: Record<string, any>): boolean {
+  return isDynamicFundedPolicy(policy)
+    ? snapshot.stakeCents === undefined && snapshot.accountingMode === DYNAMIC_STAKE_MODE
+      && snapshot.stakeMode === DYNAMIC_STAKE_MODE && Array.isArray(snapshot.selections) && snapshot.selections.length === 0
+    : snapshot.stakeCents === 0;
+}
+
 export const TECHNICAL_RECOVERY_PROTOCOL = 'virtual-recommendation-technical-recovery-v1';
 
 type Family = 'A' | 'C';
@@ -56,9 +75,19 @@ const time = (value: unknown): number => typeof value === 'string' && /(?:z|[+-]
 const copy = <T>(value: T): T => JSON.parse(researchJson(value));
 
 function currentPolicyReason(policy: RecommendationPolicyDescriptor): string | null {
-  if (!object(policy) || !['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(policy.version)) return 'unsupported_parent_policy';
+  if (!object(policy)) return 'unsupported_parent_policy';
   // Recovery is one bounded append-only attempt, never a recursively expanded policy.
   if (Object.prototype.hasOwnProperty.call(policy, 'recovery')) return 'recovery_ancestry_not_supported';
+  if (isDynamicFundedPolicy(policy)) {
+    const c = policy.familyC;
+    if (c.deploymentSource !== 'adopted' || !id(c.deploymentRevision) || !hash(c.artifactHash)
+      || !hash(c.probabilityConfigurationHash)) return 'parent_execution_configuration_changed';
+    const canonical = dynamicFundedExecutionPolicy({ source: c.deploymentSource, revision: c.deploymentRevision,
+      deployment: { modelVersion: c.modelVersion, baselineVersion: c.baselineVersion, selectorPolicy: c.selectorPolicy,
+        artifactHash: c.artifactHash, probabilityConfigurationHash: c.probabilityConfigurationHash } });
+    return researchHash(canonical) === researchHash(policy) ? null : 'parent_execution_configuration_changed';
+  }
+  if (!['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(policy.version)) return 'unsupported_parent_policy';
   const core = { ...policy, version: VIRTUAL_RECOMMENDATION_POLICY.version, familyC: VIRTUAL_RECOMMENDATION_POLICY.familyC };
   if (researchHash(core) !== researchHash(VIRTUAL_RECOMMENDATION_POLICY)) return 'parent_execution_configuration_changed';
   if (!object(policy.familyC) || policy.familyC.source !== VIRTUAL_RECOMMENDATION_POLICY.familyC.source
@@ -129,20 +158,21 @@ function sourceReason(record: TechnicalRecoveryRecord, parentPolicyHash: string,
   const origins = [...originDecisions].sort((a, b) => String(a?.family).localeCompare(String(b?.family)));
   if (ordered.map(d => d?.family).join(',') !== 'A,C' || origins.map(d => d?.family).join(',') !== 'A,C'
     || new Set(ordered.map(d => d.id)).size !== 2 || new Set(origins.map(d => d.id)).size !== 2) return 'paired_source_decisions_required';
+  if (!recoverableReasonPair(policy.descriptor, { A: ordered[0].reason, C: ordered[1].reason })) return 'nontechnical_decision_preserved';
   for (let index = 0; index < 2; index++) {
     const decision = ordered[index], origin = origins[index], evidence = decision.snapshot;
     if (!id(decision.id) || !id(origin.id) || !id(decision.modelVersion)
       || decision.inputId !== input.id || origin.inputId !== originInput.id
       || decision.originDecisionId !== origin.id || decision.portfolioId !== `shadow_${decision.family}`
       || origin.portfolioId !== decision.portfolioId) return 'source_decision_origin_mismatch';
-    if (decision.action !== 'ABSTAIN' || !(TECHNICAL_RECOVERY_REASONS as readonly string[]).includes(decision.reason)) return 'nontechnical_decision_preserved';
+    if (decision.action !== 'ABSTAIN') return 'nontechnical_decision_preserved';
     if (!object(evidence) || evidence.action !== decision.action || evidence.reason !== decision.reason
       || evidence.family !== decision.family || evidence.modelVersion !== decision.modelVersion
       || evidence.portfolioId !== decision.portfolioId || evidence.matchId !== match.matchId
       || evidence.runId !== job.runId || evidence.originDecisionId !== origin.id
       || evidence.originInputId !== originInput.id || evidence.effectiveExecutionDecisionId !== decision.id
       || evidence.inputId !== input.id || evidence.inputHash !== input.inputHash || evidence.policyHash !== parentPolicyHash
-      || time(evidence.kickoffAt) !== kickoff || evidence.stakeCents !== 0
+      || time(evidence.kickoffAt) !== kickoff || !recoveryZeroStake(policy.descriptor, evidence)
       || evidence.recommended !== false || evidence.validated !== false) return 'source_decision_snapshot_mismatch';
   }
   return null;
@@ -185,7 +215,7 @@ export function buildRecoveryPlan(records: TechnicalRecoveryRecord[], currentPol
   if (new Set(identities).size !== identities.length) throw new Error('recovery_source_identity_reused');
   const policy = sources.length ? copy({ ...currentPolicy, recovery: {
     protocol: TECHNICAL_RECOVERY_PROTOCOL, reason: 'retry_technical_failure', parentPolicyHash,
-    retrospective: false, maxDepth: 1, allowedReasons: [...TECHNICAL_RECOVERY_REASONS],
+    retrospective: false, maxDepth: 1, allowedReasons: [...recoveryAllowedReasons(currentPolicy)],
     matchIds: sources.map(source => source.matchId), sourceDecisionIds: sources.flatMap(source => source.sourceDecisionIds).sort(),
     sources,
   } }) : null;

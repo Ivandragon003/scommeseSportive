@@ -40,7 +40,8 @@ test('authorized manual preparation builds matching code and only prepares calib
   assert.match(docker, /COPY scripts\/clean-build.js[\s\S]*RUN npm run build/);
   const nightly = readFileSync(join(__dirname, '../../scripts/ci/nightly-sync.sh'), 'utf8');
   assert.doesNotMatch(nightly, /run calibration:warm/);
-  assert.match(nightly, /Calibration rebuild disabled in automatic maintenance/);
+  assert.match(nightly, /RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED:-false/);
+  assert.match(nightly, /--execute --authorize-calibration-writes --prepare-missing-live/);
   const operational = readFileSync(join(__dirname, '../scripts/calibration-operational.js'), 'utf8');
   assert.match(operational, /authorize-calibration-writes/);
   assert.match(operational, /OPERATIONAL_CALIBRATION_ENABLED/);

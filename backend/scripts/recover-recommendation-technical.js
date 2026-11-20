@@ -102,6 +102,12 @@ async function loadTechnicalRecoveryRecords(client, { sourcePolicyHash, day, now
   const inputsByJob = grouped(inputs, 'job_id'), originsById = new Map(originInputs.map(row => [row.id, row]));
   const jobsById = new Map(originJobs.map(row => [row.id, row]));
   const decisionsByInput = grouped(decisions, 'input_id'), originDecisionsByInput = grouped(originDecisions, 'input_id');
+  if (currentPolicy.version === 'funded-dynamic-stake-v1') {
+    const additional = await Promise.all(['manual_model_bets', 'paper_model_bets', 'funded_model_bets', 'dynamic_model_bets'].map(table =>
+      select(`SELECT id,'shadow_' || family AS portfolio_id,match_id FROM ${table}
+        WHERE match_id IN (${placeholders(matchIds)}) AND family IN ('A','C') LIMIT 201`, matchIds, 2 * LIMIT)));
+    bets.push(...additional.flat());
+  }
   const betsByMatch = grouped(bets, 'match_id');
   const recoveriesByMatch = grouped(recoveries, 'match_id');
   const records = jobs.map(job => {

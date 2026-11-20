@@ -92,6 +92,14 @@ async function runOperationalCalibration(options = {}, dependencies = {}) {
       requiredAuthorization: ['--execute', '--authorize-calibration-writes', '--target-sha256', '--backup-file', 'OPERATIONAL_CALIBRATION_ENABLED=true'],
     };
     if (!options.execute) return { ...plan, databaseWrites: 0, databaseServiceConstructed: false };
+    let competitionsToWarm = competitions;
+    if (options.prepareMissingLive) {
+      if (preflight.ready) return { ...plan, verified: preflight, databaseWrites: 0, databaseServiceConstructed: false };
+      if (preflight.competitions.some(row => !row.ready && row.status !== 'MISS')) {
+        throw new Error('Live calibration preflight requires investigation');
+      }
+      competitionsToWarm = preflight.competitions.filter(row => row.status === 'MISS').map(row => row.competition);
+    }
     const rows = (await client.execute('SELECT cache_key, competition, payload_json, payload_sha256, created_at FROM runtime_calibration_profiles ORDER BY cache_key')).rows;
     const backup = writeBackup(options.backupFile, {
       format: 'footpredictor-calibration-cache-backup-v1', createdAt: new Date().toISOString(),
@@ -113,8 +121,8 @@ async function runOperationalCalibration(options = {}, dependencies = {}) {
       const warm = dependencies.warmAndVerify ?? require('./warm-calibration').warmAndVerify;
       const profiles = await warm(db, () => new runtime.PredictionService(db, {
         getMatchDetails: async () => { throw new Error('Provider requests are forbidden in calibration preparation'); },
-      }, { allowCalibrationRebuild: true }), competitions, options.log ?? (() => {}),
-      { recentReplayLimit: options.recentReplayLimit ?? 10 });
+      }, { allowCalibrationRebuild: true }), competitionsToWarm, options.log ?? (() => {}),
+      { recentReplayLimit: options.prepareMissingLive ? 0 : options.recentReplayLimit ?? 10 });
       const verified = await preflightCalibration(readOnlyDatabase(client, runtime), competitions, { runtime });
       if (!verified.ready) throw new Error('Prepared cache cannot be reused by the exact runtime');
       return { ...plan, backup, profiles, verified, databaseServiceConstructed: true,
@@ -136,8 +144,12 @@ async function main() {
   const result = await runOperationalCalibration({
     execute: args.includes('--execute'), authorizeCalibrationWrites: args.includes('--authorize-calibration-writes'),
     targetSha256: value('--target-sha256'), backupFile: value('--backup-file'),
+    prepareMissingLive: args.includes('--prepare-missing-live'),
   });
-  console.log(JSON.stringify(result));
+  if (args.includes('--prepare-missing-live') && result.verified) {
+    console.log(JSON.stringify({ event: 'nightly_live_calibration_verified',
+      prepared: result.profiles?.length ?? 0, competitions: result.verified.competitions.map(({ competition, status }) => ({ competition, status })) }));
+  } else console.log(JSON.stringify(result));
 }
 
 if (require.main === module) main().catch((error) => {

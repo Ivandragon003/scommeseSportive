@@ -44,6 +44,7 @@ fi
 
 BACKEND_PID=""
 REQUIRED_SYNC_FAILURES=()
+VERIFIED_IMPORT_COMPLETED=false
 
 cleanup() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
@@ -172,8 +173,11 @@ if [[ "$NIGHTLY_SOURCE_MODE" == "verified-alternatives" ]]; then
   if timeout "$FOOTBALL_DATA_TIMEOUT_SECONDS" node scripts/nightly-alternative-sources.js --execute \
     --target-sha256 "$NIGHTLY_SOURCE_TARGET_SHA256" --season "$NIGHTLY_SOURCE_SEASON" \
     --mapping "$NIGHTLY_SOURCE_MAPPING_FILE" --collect-fdo --collect-csv > "$NIGHTLY_SOURCE_MANIFEST_FILE"; then
-    node scripts/nightly-source-context.js --recompute-imported-teams || \
+    if node scripts/nightly-source-context.js --recompute-imported-teams; then
+      VERIFIED_IMPORT_COMPLETED=true
+    else
       REQUIRED_SYNC_FAILURES+=("source-derived-statistics")
+    fi
   else
     echo "Alternative maintenance unavailable; fixture admission will fail closed. Settlement continues."
   fi
@@ -261,10 +265,6 @@ else
   echo "Skipping odds sync. RUN_ODDS_SYNC=false or ODDS_API_KEY missing."
 fi
 
-# Import is not permission to recalibrate. The explicit operational command
-# prepares compatible profiles separately; recommendation inference is cache-only.
-echo "Calibration rebuild disabled in automatic maintenance; requiring exact existing profiles."
-
 if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
   if [[ "$NIGHTLY_SOURCE_MODE" == "primary" ]]; then
   echo "Refreshing upcoming Top 5 kickoff times from the free event calendar..."
@@ -278,6 +278,18 @@ if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
   fi
   RESEARCH_NIGHTLY_DATA_GATES_PASSED=true
   if (( ${#REQUIRED_SYNC_FAILURES[@]} > 0 )); then RESEARCH_NIGHTLY_DATA_GATES_PASSED=false; fi
+  if [[ "${RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED:-false}" == "true" &&
+        "${RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED:-false}" == "true" &&
+        "$VERIFIED_IMPORT_COMPLETED" == "true" && "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" == "true" ]]; then
+    echo "Checking Model A live calibration after verified source maintenance..."
+    if ! OPERATIONAL_CALIBRATION_ENABLED=true timeout "$RESEARCH_NIGHTLY_TIMEOUT_SECONDS" \
+      node scripts/calibration-operational.js --execute --authorize-calibration-writes --prepare-missing-live \
+        --target-sha256 "$NIGHTLY_SOURCE_TARGET_SHA256" \
+        --backup-file "${RUNNER_TEMP:-$(dirname "$NIGHTLY_SOURCE_MANIFEST_FILE")}/calibration-before-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}.json"; then
+      # Keep the failure visible, while each family can still use its own verified inputs.
+      REQUIRED_SYNC_FAILURES+=("a-calibration-cache")
+    fi
+  fi
   echo "Running explicit Nightly Pre-Match Virtual Betting A/C..."
   if ! RESEARCH_NIGHTLY_ENABLED=true RESEARCH_T15_SCHEDULER_ENABLED=false \
     RESEARCH_NIGHTLY_DATA_GATES_PASSED="$RESEARCH_NIGHTLY_DATA_GATES_PASSED" \
