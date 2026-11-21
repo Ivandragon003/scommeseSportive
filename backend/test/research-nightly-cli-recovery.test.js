@@ -159,3 +159,18 @@ test('CLI disables rollback and collection only for verified alternatives in bot
     mock.mock.restore();
   }
 });
+
+
+test('exact recovery target ids must be unique and every requested fixture must survive planning', async () => {
+  const plan = injectedPlan();
+  for (const raw of ['[]','null','["a","a"]','[" a"]','[true]','{}','abc']) {
+    await assert.rejects(recoveryPlanFor({ ...recoveryEnv(), RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: raw },
+      { clock: () => new Date(NOW), technicalRecovery: plan }), /technical_recovery_match_ids_invalid/);
+  }
+  await assert.rejects(recoveryPlanFor({ ...recoveryEnv(), RESEARCH_NIGHTLY_RECOVER_TECHNICAL: 'false',
+    RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: '["x"]' }), /technical_recovery_flag_required/);
+  await assert.rejects(recoveryPlanFor({ ...recoveryEnv(), RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: '["unavailable"]' },
+    { clock: () => new Date(NOW), technicalRecovery: plan }), /technical_recovery_requested_fixture_ineligible/);
+  assert.equal(await recoveryPlanFor({ ...recoveryEnv(), RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: '["synthetic-fixture"]' },
+    { clock: () => new Date(NOW), technicalRecovery: plan }), plan);
+});

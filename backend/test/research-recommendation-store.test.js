@@ -194,6 +194,81 @@ test('dynamic recovery funds its fresh selections once and rejects a competing b
   } finally { await f.close(); }
 });
 
+test('calendar recovery commits exactly six requested fixtures out of 26 with independently verified source receipts', async () => {
+  const { dynamicFundedExecutionPolicy, fallbackChallengerState } = require('../dist/research/ResearchRecommendationPolicy');
+  const { SourceFeedStore } = require('../dist/services/SourceFeedStore');
+  const { recoveryPlanFor } = require('../scripts/research-nightly');
+  const { paperSelectionKey } = require('../dist/research/PaperBetSelections');
+  const f = await setup({ matches: 26 });
+  try {
+    for (const migration of ['026_manual_model_bets.sql','028_paper_model_bets.sql','029_funded_model_bets.sql','030_dynamic_model_bets.sql']) {
+      await f.client.executeMultiple(readFileSync(join(__dirname, '../migrations', migration), 'utf8'));
+    }
+    await f.client.execute("ALTER TABLE matches ADD COLUMN competition TEXT DEFAULT 'Premier League'");
+    await f.client.execute("ALTER TABLE matches ADD COLUMN season TEXT DEFAULT '2026/27'");
+    await new SourceFeedStore(f.client).initialize({ shared: true, allowCreate: true });
+    const addReceipt = async (at, content, payload) => {
+      await f.client.execute({ sql: "INSERT INTO source_feed_snapshots VALUES ('football-data.org','PL',2026,1,?,?,'{}')", args: [content,at] });
+      await f.client.execute({ sql: `INSERT INTO source_feed_attempts(provider,competition,season,requested_at,finished_at,status,snapshot_hash,acquired_at,payload_sha256)
+        VALUES ('football-data.org','PL',2026,?,?,'success',?,?,?)`, args: [at,at,content,at,payload] });
+    };
+    const date = minutes => new Date(Date.parse(START) + minutes * 60000).toISOString();
+    await addReceipt(date(-14),'a'.repeat(64),'b'.repeat(64));
+    const state = { ...fallbackChallengerState(), source: 'adopted', revision: 'calendar-test' };
+    state.deployment.modelVersion = 'C-fixture';
+    f.policy = await f.execution.registerPolicy(dynamicFundedExecutionPolicy(state));
+    const jobs = (await claim(f, f.fixtures, { leaseMs: 900000 })).jobs;
+    const subset = f.fixtures.slice(0,6).map(item => item.matchId);
+    const denied = { eligible: false, reasons: ['source_feed_stale','calendar_stale_or_unavailable'] };
+    const good = { eligible: true, reasons: [] };
+    f.setTime(date(2));
+    const mkInput = (job, allowed, evidence) => {
+      const status = allowed ? good : denied;
+      const sourceAdmission = { asOf: f.clock().toISOString(), matchId: job.matchId, common: status,
+        families: { A: status, C: status }, markets: { goal: { A: status, C: status } }, ...(evidence ? { calendarEvidence: evidence } : {}) };
+      const input = prepared(f, job, { snapshot: { match: { matchId: job.matchId, competition: 'Premier League', kickoffAt: KICKOFF },
+        metadata: { policy: allowed ? plan.policy : f.policy.descriptor, originInputId: job.originInputId, sourceAdmission } },
+        decisions: allowed ? {} : Object.fromEntries(['A','C'].map(family => [family, { action: 'ABSTAIN', reason: 'source_feed_stale',
+          recommended: false, validated: false }])) });
+      if (allowed) for (const d of input.decisions) {
+        const quote = input.inputSnapshot.quotes[0];
+        d.selections = [{ selection: quote.selection, market: quote.market, selectionKey: paperSelectionKey(quote), probability: .6,
+          ev: .2, confidence: 'HIGH', suggestedStakePercent: 1, quote, probabilityConfiguration: d.probabilityConfiguration,
+          probabilityConfigurationHash: d.probabilityConfigurationHash }];
+      }
+      return input;
+    };
+    await f.execution.commitBatch(jobs.map(job => mkInput(job, false)));
+    const originals = await count(f.client,'research_execution_decisions');
+    const env = { RESEARCH_NIGHTLY_RECOVER_TECHNICAL: 'true', RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY: f.policy.hash,
+      RESEARCH_NIGHTLY_RECOVERY_DAY: START.slice(0,10), RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: JSON.stringify(subset),
+      TURSO_DATABASE_URL: 'file:fixture', TURSO_WATCHDOG_READONLY_TOKEN: 'fixture' };
+    const options = { clock: f.clock, clientFactory: () => ({ execute: s => f.client.execute(s), close: () => {} }) };
+    await assert.rejects(recoveryPlanFor({ ...env, RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: '["missing"]' }, options),
+      /requested_fixture_ineligible/);
+    const plan = await recoveryPlanFor(env,options);
+    assert.deepEqual(plan.fixtures.map(m => m.matchId),subset);
+    assert.deepEqual(plan.policy.recovery.allowedReasons,['source_feed_stale']);
+    await f.execution.registerPolicy(plan.policy);
+    const childJobs = (await claim(f,plan.fixtures,{ policyHash: plan.policyHash, runId: 'calendar-recovery',windowStartAt: date(2) })).jobs;
+    assert.equal(childJobs.length,6);
+    f.setTime(date(3));
+    await addReceipt(date(3),'c'.repeat(64),'d'.repeat(64));
+    const fresh = { attempt: date(3), acquisition: date(3), action: 'NO_CHANGE', contentSha256: 'c'.repeat(64),
+      payloadSha256: 'd'.repeat(64), importManifestSha256: 'e'.repeat(64), mappingSha256: 'f'.repeat(64) };
+    const invalid = childJobs.map(job => mkInput(job,true,fresh));
+    invalid[5].inputSnapshot.metadata.sourceAdmission.calendarEvidence = { ...fresh, payloadSha256: 'a'.repeat(64) };
+    await assert.rejects(f.execution.commitBatch(invalid), /fresh verified calendar/);
+    assert.equal(await count(f.client,'dynamic_model_bets'),0);
+    const result = await f.execution.commitBatch(childJobs.map(job => mkInput(job,true,fresh)));
+    assert.equal(result.decisions.length,12);
+    assert.equal(result.bets.length,12);
+    assert.equal(await count(f.client,'research_execution_decisions'),originals+12);
+    assert.equal(await count(f.client,'research_execution_jobs'),32);
+    await assert.rejects(recoveryPlanFor(env,options), /requested_fixture_ineligible/);
+  } finally { await f.close(); }
+});
+
 test('technical recovery terminal sports abstentions cannot be repeated through another subset policy', async () => {
   const f = await setup({ matches: 2 });
   try {

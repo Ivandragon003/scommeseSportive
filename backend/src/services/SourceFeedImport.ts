@@ -66,7 +66,7 @@ export interface SourceFeedImportResult {
   partial: boolean; blockedSkipped: number; planStatus: 'ready' | 'blocked';
 }
 
-const LOCAL_COMPETITIONS: Record<FootballDataCompetition, string> = {
+export const LOCAL_COMPETITIONS: Record<FootballDataCompetition, string> = {
   PL: 'Premier League', SA: 'Serie A', PD: 'La Liga', BL1: 'Bundesliga', FL1: 'Ligue 1',
 };
 const COLUMNS = ['match_id', 'home_team_id', 'away_team_id', 'home_team_name', 'away_team_name', 'competition', 'season', 'date',

@@ -675,12 +675,22 @@ Un tentativo della giornata precedente non recupera una diversa giornata.
   abilitate, fonti verificate e kickoff futuro; crea una policy figlia e
   preserva giocate esistenti e decisioni non tecniche. Controlla i recuperi
   già conclusi anche al commit.
+  Con un budget quote limitato, `recovery_match_ids` permette di indicare
+  gli ID come array JSON. Il runner verifica la lista e genera il piano
+  soltanto per le partite richieste e ancora ammissibili.
 
 Per la policy virtuale a stake dinamico `funded-dynamic-stake-v1`, il recupero
-ammette una coppia precisa di astensioni tecniche sulla stessa partita:
+ammette la coppia di astensioni tecniche di calibrazione sulla stessa partita:
 A con `a_calibration_miss` e C con `c_calibration_configuration_mismatch`.
 Prima del recupero ripristinare la calibrazione di A e verificare che il
 controllo preliminare di C ricostruisca la configurazione dell’artefatto adottato.
+È recuperabile anche una doppia astensione `source_feed_stale` quando le
+ricevute della fonte documentano che il calendario della lega era valido
+all'avvio ed era scaduto al momento della decisione. Il nuovo tentativo
+richiede una nuova verifica della fonte e conserva le astensioni originali.
+Durante la Nightly, se il calendario scade, il processo richiede al collector
+la stessa competizione e verifica che il contenuto corrisponda a quello
+già importato. Una variazione del calendario richiede un nuovo import.
 Il calcolo usa nuove quote e l’orologio corrente. Le due decisioni originali
 restano consultabili. Se la stessa coppia di errori si presenta in una nuova
 Nightly, il job termina in `ERROR` prima di salvare le decisioni e il normale

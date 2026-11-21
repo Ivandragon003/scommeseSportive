@@ -37,6 +37,11 @@ on:
         type: string
         required: false
         default: ''
+      recovery_match_ids:
+        description: Lista JSON facoltativa degli ID esatti da includere nel piano di recupero
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -101,6 +106,7 @@ jobs:
       RESEARCH_NIGHTLY_RECOVER_TECHNICAL: ${{ inputs.recover_technical_failures || 'false' }}
       RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY: ${{ inputs.recovery_source_policy || '' }}
       RESEARCH_NIGHTLY_RECOVERY_DAY: ${{ inputs.recovery_day || '' }}
+      RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS: ${{ inputs.recovery_match_ids || '' }}
       RESEARCH_NIGHTLY_MIN_EV: '0.04'
       RESEARCH_NIGHTLY_MIN_PRUDENTIAL_EV: '0.01'
       # Retired automation cannot run alongside the finite nightly A/C job.

@@ -48,7 +48,7 @@ function validateTechnicalRecovery(plan: TechnicalRecoveryPlan, base: Recommenda
   if (!recovery || researchHash(unchanged) !== researchHash(base) || recovery.protocol !== TECHNICAL_RECOVERY_PROTOCOL
     || recovery.reason !== 'retry_technical_failure' || recovery.parentPolicyHash !== plan.parentPolicyHash
     || recovery.retrospective !== false || recovery.maxDepth !== 1
-    || researchHash(recovery.allowedReasons) !== researchHash(recoveryAllowedReasons(base))
+    || researchHash(recovery.allowedReasons) !== researchHash(recoveryAllowedReasons(base, plan.sources))
     || researchHash(recovery.sources) !== researchHash(plan.sources)) fail();
   const planned = timestamp(plan.plannedAt), end = timestamp(plan.windowEndAt), at = now.getTime();
   if (![planned, end, at, timestamp(normalEndAt)].every(Number.isFinite) || planned > at || at >= end
@@ -248,7 +248,7 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
         if (Array.isArray(challengerErrors) && challengerErrors.length) {
           summary.errors += challengerErrors.length; reason('challenger_health_recording_failed');
         }
-        const calibrationPair = options.dynamicMode && item.decisions.length === 2
+        const calibrationPair = options.dynamicMode && item.decisions.some(decision => decision.reason === 'a_calibration_miss') && item.decisions.length === 2
           && item.decisions.every(decision => decision.action === 'ABSTAIN')
           && recoverableReasonPair(executionPolicy, Object.fromEntries(item.decisions.map(decision => [decision.family, decision.reason])));
         if (technicalQuotePair(item.decisions) || calibrationPair) {

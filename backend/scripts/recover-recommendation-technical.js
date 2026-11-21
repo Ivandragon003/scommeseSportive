@@ -159,6 +159,11 @@ async function loadTechnicalRecoveryRecords(client, { sourcePolicyHash, day, now
       family: row.family, portfolioId: row.portfolio_id })),
     existingBets: (betsByMatch.get(job.match_id) ?? []).map(row => ({ id: row.id, portfolioId: row.portfolio_id })), existingRecoveries };
   });
+  const { recoveryCalendarReceipt, staleCalendarPair } = require('../dist/research/CalendarRecoveryEvidence');
+  await Promise.all(records.map(async record => {
+    const reasons = Object.fromEntries(record.decisions.map(d => [d.family, d.reason]));
+    if (staleCalendarPair(reasons)) record.calendarReceipt = await recoveryCalendarReceipt(db, record.input?.snapshot);
+  }));
   return { records, currentPolicy, ...metadata };
 }
 

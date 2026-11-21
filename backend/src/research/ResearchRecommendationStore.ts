@@ -1,3 +1,5 @@
+import { SOURCE_FEED_COOLDOWN_MS } from '../services/FootballDataOrgFeed';
+import { calendarExpiredDuringRun, calendarRecovered, recoveryCalendarReceipts, staleCalendarPair, type CalendarReceipt } from './CalendarRecoveryEvidence';
 import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
 import { challengerMarketAllowed, isChallengerStatMarket, isChallengerTeamMarketPolicy, usesCodeMarketEligibility } from './ChallengerMarketCoverage';
 import type { Client, Transaction } from '@libsql/client';
@@ -71,6 +73,12 @@ const challengerBetQuery = (tables: string[], matchId: string) => {
       ? ` AND NOT EXISTS (SELECT 1 FROM ${cancellation} c WHERE c.bet_id=${table}.id)` : ''}`;
   }).join(' UNION ALL ') + ' LIMIT 1', args: bets.map(() => matchId) };
 };
+
+type RecoveryEvidence = {
+  original: any; sourceDecisions: any[]; origins: any[]; siblings: any[]; existingBet: boolean;
+  originalReceipt: CalendarReceipt | null; currentReceipt: CalendarReceipt | null;
+};
+type RecoveryLookup = { matchId: string; excludedJobId: string; currentSnapshot?: Record<string, any> };
 
 /** Versioned virtual execution preserves the original immutable research decisions. */
 export class ResearchRecommendationStore {
@@ -224,7 +232,7 @@ export class ResearchRecommendationStore {
       || !(isDynamicFundedPolicy(parent.descriptor) || ['virtual-recommendation-v2', 'virtual-recommendation-v3'].includes(parent.version))
       || Object.prototype.hasOwnProperty.call(parent.descriptor, 'recovery')) throw new Error('Technical recovery parent policy mismatch');
     if (isDynamicFundedPolicy(base) && (recovery.reason !== 'retry_technical_failure'
-      || researchHash(recovery.allowedReasons ?? null) !== researchHash(recoveryAllowedReasons(base))
+      || researchHash(recovery.allowedReasons ?? null) !== researchHash(recoveryAllowedReasons(base, recovery.sources))
       || recovery.sources.some((source: any) => !source?.reasons || !recoverableReasonPair(base, source.reasons)))) {
       throw new Error('Invalid dynamic calibration recovery policy');
     }
@@ -236,26 +244,77 @@ export class ResearchRecommendationStore {
     return { ...recovery, parentPolicy: parent.descriptor };
   }
 
-  private async recoveryAdmissionReason(tx: Executor, recovery: any, fixture: {
+  /** The claim/commit write transaction owns this view of every parent and sibling. */
+  private async recoveryEvidence(tx: Transaction, recovery: any, lookups: RecoveryLookup[]): Promise<Map<string, RecoveryEvidence>> {
+    const evidence = new Map<string, RecoveryEvidence>();
+    if (!recovery || !lookups.length) return evidence;
+    const dynamic = isDynamicFundedPolicy(recovery.parentPolicy);
+    let betTables = ['research_bets'];
+    if (dynamic) {
+      const names = new Set((await rows(tx, CHALLENGER_BET_SCHEMA_SQL)).map(row => row.name));
+      betTables = ['research_bets', 'manual_model_bets', 'paper_model_bets', 'funded_model_bets', 'dynamic_model_bets'].filter(table => names.has(table));
+      if (!betTables.length) throw new Error('Technical recovery bet history unavailable');
+    }
+    const betCheck = betTables.map(table => `SELECT id FROM ${table} WHERE match_id=? AND ${dynamic
+      ? "family IN ('A','C')" : "portfolio_id IN ('shadow_A','shadow_C')"}`).join(' UNION ALL ') + ' LIMIT 1';
+    const byMatch = new Map(lookups.map(lookup => [lookup.matchId, lookup]));
+    const sources = recovery.sources.filter((source: any) => byMatch.has(source.matchId));
+    for (let offset = 0; offset < sources.length; offset += 20) {
+      const group = sources.slice(offset, offset + 20);
+      const statements = group.flatMap((source: any) => [
+        { sql: `SELECT j.*,i.id AS source_input_id,i.origin_input_id,i.input_hash,i.decisions_hash,i.snapshot_json,
+            i.kickoff_at AS source_input_kickoff_at FROM research_execution_jobs j
+            LEFT JOIN research_execution_inputs i ON i.job_id=j.id AND i.id=? WHERE j.id=?`, args: [source.sourceInputId,source.sourceJobId] },
+        { sql: 'SELECT * FROM research_execution_decisions WHERE input_id=? ORDER BY family,id', args: [source.sourceInputId] },
+        { sql: `SELECT d.id,d.family,d.portfolio_id,j.match_id FROM research_decisions d
+            JOIN research_inputs i ON i.id=d.input_id JOIN research_jobs j ON j.id=i.job_id
+            WHERE i.id=? AND d.portfolio_id IN ('shadow_A','shadow_C') ORDER BY d.family`, args: [source.originInputId] },
+        { sql: `SELECT j.*,p.hash AS child_policy_hash,p.descriptor_json,i.id AS recorded_input_id
+            FROM research_execution_jobs j JOIN research_execution_policies p ON p.hash=j.policy_hash
+            LEFT JOIN research_execution_inputs i ON i.job_id=j.id WHERE j.match_id=? AND j.id<>?
+            AND json_extract(p.descriptor_json,'$.recovery.parentPolicyHash')=?`,
+          args: [source.matchId,byMatch.get(source.matchId)!.excludedJobId,recovery.parentPolicyHash] },
+        { sql: betCheck, args: betTables.map(() => source.matchId) },
+      ]);
+      const result = await tx.batch(statements);
+      group.forEach((source: any, i: number) => {
+        const [job, decisions, origins, siblings, bets] = result.slice(i * 5, i * 5 + 5);
+        evidence.set(source.matchId, { original: object(job.rows[0]), sourceDecisions: decisions.rows.map(object),
+          origins: origins.rows.map(object), siblings: siblings.rows.map(object), existingBet: bets.rows.length > 0,
+          originalReceipt: null, currentReceipt: null });
+      });
+      const stale = group.filter((source: any) => staleCalendarPair(source.reasons));
+      if (stale.length) {
+        const snapshots = stale.flatMap((source: any) => [
+          evidence.get(source.matchId)!.original?.snapshot, byMatch.get(source.matchId)!.currentSnapshot,
+        ]);
+        const receipts = await recoveryCalendarReceipts(tx, snapshots);
+        stale.forEach((source: any, index: number) => {
+          const row = evidence.get(source.matchId)!;
+          row.originalReceipt = receipts[2 * index];
+          row.currentReceipt = receipts[2 * index + 1];
+        });
+      }
+    }
+    return evidence;
+  }
+
+  private recoveryAdmissionReason(evidence: RecoveryEvidence | undefined, cutoff: number | null, recovery: any, fixture: {
     matchId: string; kickoffAt: string; windowEndAt: string; originInputId?: string;
     originDecisionIds?: Record<string, string>;
-  }, excludedJobId: string, now: number): Promise<string | null> {
+  }, now: number): string | null {
     if (!recovery) return null;
     const source = recovery.sources.find((entry: any) => entry.matchId === fixture.matchId);
-    const cutoff = await challengerHistoryCutoff(tx);
-    if (source && cutoff !== null) {
-      const oldJob = await first(tx, 'SELECT created_at FROM research_execution_jobs WHERE id=?', [source.sourceJobId]);
-      if (!oldJob || predatesChallengerReset(oldJob.createdAt, cutoff)) return 'challenger_history_reset';
+    if (source && cutoff !== null && (!evidence?.original || predatesChallengerReset(evidence.original.createdAt, cutoff))) {
+      return 'challenger_history_reset';
     }
     if (!source || iso(source.kickoffAt) !== iso(fixture.kickoffAt) || iso(source.windowEndAt) !== iso(fixture.windowEndAt)
       || fixture.originInputId !== undefined && source.originInputId !== fixture.originInputId
       || fixture.originDecisionIds !== undefined && researchHash(source.originDecisionIds) !== researchHash(fixture.originDecisionIds)) {
       throw new Error('Technical recovery fixture allowlist mismatch');
     }
-    const original = await first(tx, `SELECT j.*,i.id AS source_input_id,i.origin_input_id,i.input_hash,i.decisions_hash,
-      i.snapshot_json,i.kickoff_at AS source_input_kickoff_at FROM research_execution_jobs j
-      JOIN research_execution_inputs i ON i.job_id=j.id WHERE j.id=? AND i.id=?`, [source.sourceJobId, source.sourceInputId]);
-    if (!original || original.status !== 'COMPLETED' || original.policyHash !== recovery.parentPolicyHash
+    const original = evidence?.original;
+    if (!original || original.sourceInputId !== source.sourceInputId || original.status !== 'COMPLETED' || original.policyHash !== recovery.parentPolicyHash
       || original.matchId !== fixture.matchId || original.runId !== source.sourceRunId
       || iso(original.kickoffAt) !== iso(source.kickoffAt) || iso(original.sourceInputKickoffAt) !== iso(source.kickoffAt)
       || iso(original.windowEndAt) !== iso(source.windowEndAt) || original.originInputId !== source.originInputId
@@ -265,10 +324,13 @@ export class ResearchRecommendationStore {
       || researchHash(original.snapshot?.metadata?.policy ?? null) !== recovery.parentPolicyHash) {
       throw new Error('Technical recovery source identity mismatch');
     }
-    const sourceDecisions = await rows(tx, 'SELECT * FROM research_execution_decisions WHERE input_id=? ORDER BY family,id', [source.sourceInputId]);
-    const origins = await rows(tx, `SELECT d.id,d.family,d.portfolio_id,j.match_id FROM research_decisions d
-      JOIN research_inputs i ON i.id=d.input_id JOIN research_jobs j ON j.id=i.job_id
-      WHERE i.id=? AND d.portfolio_id IN ('shadow_A','shadow_C') ORDER BY d.family`, [source.originInputId]);
+    if (staleCalendarPair(source.reasons)) {
+      const receipt = evidence?.originalReceipt;
+      if (!source.calendarReceipt || researchHash(receipt) !== researchHash(source.calendarReceipt)
+        || !calendarExpiredDuringRun(original.snapshot, original.windowStartAt, receipt)) throw new Error('Technical recovery calendar expiry not verified');
+    }
+    if (!evidence) throw new Error('Technical recovery source missing');
+    const { sourceDecisions, origins, siblings } = evidence;
     if (sourceDecisions.length !== 2 || sourceDecisions.map((decision) => decision.family).join(',') !== 'A,C'
       || origins.length !== 2 || origins.map((decision) => decision.family).join(',') !== 'A,C'
       || !Array.isArray(source.sourceDecisionIds)
@@ -287,11 +349,6 @@ export class ResearchRecommendationStore {
         throw new Error('Technical recovery source must preserve paired technical abstentions');
       }
     }
-    const siblings = await rows(tx, `SELECT j.*,p.hash AS child_policy_hash,p.descriptor_json,i.id AS recorded_input_id
-      FROM research_execution_jobs j JOIN research_execution_policies p ON p.hash=j.policy_hash
-      LEFT JOIN research_execution_inputs i ON i.job_id=j.id WHERE j.match_id=? AND j.id<>?
-        AND json_extract(p.descriptor_json,'$.recovery.parentPolicyHash')=?`,
-    [fixture.matchId, excludedJobId, recovery.parentPolicyHash]);
     let active = false;
     for (const sibling of siblings) {
       const metadata = sibling.descriptor?.recovery;
@@ -307,17 +364,7 @@ export class ResearchRecommendationStore {
       }
     }
     if (active) return 'prior_recovery_in_progress';
-    if (isDynamicFundedPolicy(recovery.parentPolicy)) {
-      const schema = await rows(tx, CHALLENGER_BET_SCHEMA_SQL);
-      const tables = ['research_bets','manual_model_bets','paper_model_bets','funded_model_bets','dynamic_model_bets']
-        .filter(table => schema.some(row => row.name === table));
-      const sql = tables.map(table => `SELECT id FROM ${table} WHERE match_id=? AND family IN ('A','C')`).join(' UNION ALL ');
-      if (await first(tx, sql + ' LIMIT 1', tables.map(() => fixture.matchId))) return 'existing_bet_preserved';
-      return null;
-    }
-    if (await first(tx, "SELECT id FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C') LIMIT 1", [fixture.matchId])) {
-      return 'existing_bet_preserved';
-    }
+    if (evidence.existingBet) return 'existing_bet_preserved';
     return null;
   }
 
@@ -355,6 +402,9 @@ export class ResearchRecommendationStore {
       const fullyBet = new Set(legacy ? (await rows(tx, `SELECT match_id FROM research_bets
         WHERE match_id IN (SELECT value FROM json_each(?)) AND portfolio_id IN ('shadow_A','shadow_C')
         GROUP BY match_id HAVING COUNT(DISTINCT portfolio_id)=2`, [matchIds])).map(row => row.matchId) : []);
+      const evidence = await this.recoveryEvidence(tx, recovery, input.fixtures.map(fixture => ({
+        matchId: fixture.matchId, excludedJobId: byMatch.get(fixture.matchId).previousId ?? '',
+      })));
       const writes: { sql: string; args: any[] }[] = [];
       const origins: Array<Pick<RecommendationJob,'originInputId'|'originDecisionIds'>> = [];
       let active = false;
@@ -366,8 +416,8 @@ export class ResearchRecommendationStore {
         if (row.previousId && predatesChallengerReset(row.previousCreatedAt, cutoff)) { skip('challenger_history_reset'); continue; }
         if (['COMPLETED', 'SKIPPED'].includes(row.status) || row.executionInput) { skip('policy_decision_already_recorded'); continue; }
         if (row.status === 'CLAIMED' && Date.parse(row.leaseExpiresAt) > Date.parse(at)) { active = true; skip('execution_lease_active'); continue; }
-        const recoveryReason = await this.recoveryAdmissionReason(tx, recovery,
-          { ...fixture, windowEndAt: end }, row.previousId ?? '', Date.parse(at));
+        const recoveryReason = this.recoveryAdmissionReason(evidence.get(fixture.matchId), cutoff, recovery,
+          { ...fixture, windowEndAt: end }, Date.parse(at));
         if (recoveryReason) { if (recoveryReason === 'prior_recovery_in_progress') active = true; skip(recoveryReason); continue; }
         if (!row.originInput) { skip('origin_input_missing'); continue; }
         if (predatesChallengerReset(row.originCreatedAt, cutoff)) { skip('challenger_history_reset'); continue; }
@@ -613,7 +663,7 @@ export class ResearchRecommendationStore {
   }
 
   /** Batch the reads and writes of new ordinary paper jobs while retaining the same validators. */
-  private async preparePaperBatch(tx: Transaction, prepared: RecommendationCommit[]): Promise<{ executor: Executor; flush: () => Promise<void> } | null> {
+  private async preparePaperBatch(tx: Transaction, prepared: RecommendationCommit[]): Promise<{ executor: Executor; jobs: any[]; policies: any[]; flush: () => Promise<void> } | null> {
     type Statement = { sql: string; args: any[] };
     const key = (statement: Statement) => JSON.stringify([statement.sql, statement.args]);
     const cache = new Map<string, any>();
@@ -702,13 +752,14 @@ export class ResearchRecommendationStore {
       if (!result) throw new Error('Paper batch attempted an unplanned read');
       return result;
     } } as Executor;
-    return { executor, flush: async () => { if (writes.length) await tx.batch(writes); } };
+    return { executor, jobs, policies, flush: async () => { if (writes.length) await tx.batch(writes); } };
   }
 
   async commitBatch(prepared: RecommendationCommit[], now: string | Date = this.clock()): Promise<any> {
     iso(now); if (!prepared.length) return { decisions: [], bets: [], jobs: [] };
     if (new Set(prepared.map((item) => item.jobId)).size !== prepared.length) throw new Error('Duplicate execution job in batch');
     await this.ensureGuards();
+    const calendarExpiries: number[] = [];
     const finalChecks: Array<{ job: any; token: string; quote?: any; observed: number; family?: ResearchFamily; marketPolicy?: string }> = [];
     return this.research.runResearchTransaction(async (transaction) => {
       // Read the reset marker from this same transaction before the batch proxy is built.
@@ -718,6 +769,21 @@ export class ResearchRecommendationStore {
       const decisions: any[] = [], bets: any[] = [], completedJobs: any[] = [];
       const plans: Array<{ item: RecommendationCommit; job: any; inputId: string; decision: RecommendationDecision; policy: any }> = [];
       const recoveryContexts = new Map<string, any>();
+      const bulkEvidence = new Map<string, RecoveryEvidence>();
+      if (bulk) {
+        const scopes = new Map<string, { policy: any; lookups: RecoveryLookup[] }>();
+        bulk.jobs.forEach((job, i) => {
+          if (!bulk.policies[i].descriptor.recovery) return;
+          const scope = scopes.get(job.policyHash) ?? { policy: bulk.policies[i], lookups: [] };
+          scope.lookups.push({ matchId: job.matchId, excludedJobId: job.id, currentSnapshot: prepared[i].inputSnapshot });
+          scopes.set(job.policyHash, scope);
+        });
+        for (const [hash, scope] of scopes) {
+          const context = await this.recoveryContext(transaction, scope.policy);
+          recoveryContexts.set(hash, context);
+          for (const [matchId, evidence] of await this.recoveryEvidence(transaction, context, scope.lookups)) bulkEvidence.set(matchId, evidence);
+        }
+      }
       const hasFixtures = await first(tx, "SELECT name FROM sqlite_master WHERE type='table' AND name='matches'");
       for (const item of prepared) {
         const job = await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [item.jobId]);
@@ -740,10 +806,21 @@ export class ResearchRecommendationStore {
         const policy = await first(tx, 'SELECT * FROM research_execution_policies WHERE hash=?', [job.policyHash]);
         if (!policy || researchHash(policy.descriptor) !== job.policyHash) throw new Error('Execution policy identity mismatch');
         if (!recoveryContexts.has(job.policyHash)) recoveryContexts.set(job.policyHash, await this.recoveryContext(transaction, policy));
-        const recoveryReason = await this.recoveryAdmissionReason(transaction, recoveryContexts.get(job.policyHash),
+        const context = recoveryContexts.get(job.policyHash);
+        const evidence = bulk ? bulkEvidence.get(job.matchId) : context ? (await this.recoveryEvidence(transaction, context,
+          [{ matchId: job.matchId, excludedJobId: job.id, currentSnapshot: item.inputSnapshot }])).get(job.matchId) : undefined;
+        const recoveryReason = this.recoveryAdmissionReason(evidence, cutoff, context,
           { ...job, originInputId: item.originInputId,
-            originDecisionIds: Object.fromEntries(ordered.map((decision) => [decision.family, decision.originDecisionId])) }, job.id, at);
+            originDecisionIds: Object.fromEntries(ordered.map((decision) => [decision.family, decision.originDecisionId])) }, at);
         if (recoveryReason) throw new Error(`Technical recovery commit rejected: ${recoveryReason}`);
+        const source = recoveryContexts.get(job.policyHash)?.sources.find((s: any) => s.matchId === job.matchId);
+        if (staleCalendarPair(source?.reasons)) {
+          const receipt = evidence?.currentReceipt ?? null;
+          if (!receipt || !calendarRecovered(item.inputSnapshot, job.claimedAt, this.clock().getTime(), receipt)) {
+            throw new Error('Technical recovery requires a fresh verified calendar');
+          }
+          calendarExpiries.push(Date.parse(receipt.acquiredAt) + SOURCE_FEED_COOLDOWN_MS);
+        }
         const origin = await first(tx, `SELECT i.id,j.match_id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE i.id=?`, [item.originInputId]);
         if (!origin || origin.matchId !== job.matchId) throw new Error('Execution origin input mismatch');
         if (predatesChallengerReset(origin.createdAt, cutoff)) throw new Error('Execution origin predates challenger history reset');
@@ -891,6 +968,7 @@ export class ResearchRecommendationStore {
       await bulk?.flush();
       return { decisions, bets, jobs: completedJobs };
     }, () => {
+      if (calendarExpiries.some(expiry => this.clock().getTime() >= expiry)) throw new Error('Technical recovery calendar expired before commit');
       for (const entry of finalChecks) {
         const at = this.clock().getTime(); this.assertLease(entry.job, entry.token, at);
         if (entry.quote && this.quoteReason(entry.quote, entry.observed, at, Date.parse(entry.job.kickoffAt), entry.family, entry.marketPolicy)) throw new Error('Execution quote expired before commit');

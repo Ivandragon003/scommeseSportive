@@ -7,6 +7,15 @@ function recommendationEnabled(env = process.env) {
 function recoveryConfiguration(env, now) {
   const flag = env.RESEARCH_NIGHTLY_RECOVER_TECHNICAL;
   if (flag !== undefined && !['true', 'false'].includes(flag)) throw new Error('Invalid RESEARCH_NIGHTLY_RECOVER_TECHNICAL');
+  const rawIds = env.RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS;
+  let matchIds;
+  if (rawIds !== undefined && rawIds !== '') {
+    if (flag !== 'true') throw new Error('technical_recovery_flag_required');
+    try { if (typeof rawIds === 'string') matchIds = JSON.parse(rawIds); } catch { /* validated below */ }
+    if (!Array.isArray(matchIds) || !matchIds.length || matchIds.length > 100
+      || matchIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id))
+      || new Set(matchIds).size !== matchIds.length) throw new Error('technical_recovery_match_ids_invalid');
+  }
   if (flag !== 'true') return { enabled: false };
   const sourcePolicyHash = env.RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY;
   if (typeof sourcePolicyHash !== 'string' || !/^[a-f0-9]{64}$/.test(sourcePolicyHash)) {
@@ -21,9 +30,13 @@ function recoveryConfiguration(env, now) {
   // Optional workflow inputs arrive as empty strings; a blank day means today in Rome.
   const day = configuredDay?.trim() || `${part('year')}-${part('month')}-${part('day')}`;
   require('./recover-recommendation-technical').romeDayWindow(day);
-  return { enabled: true, sourcePolicyHash, day };
+  return { enabled: true, sourcePolicyHash, day, matchIds };
 }
-function validateRecoveryPlan(plan, sourcePolicyHash) {
+function validateRecoveryPlan(plan, sourcePolicyHash, matchIds) {
+  if (matchIds && (!Array.isArray(plan?.fixtures) || plan.fixtures.length !== matchIds.length
+    || !matchIds.every(id => plan.fixtures.some(fixture => fixture.matchId === id)))) {
+    throw new Error('technical_recovery_requested_fixture_ineligible');
+  }
   if (!plan?.policy || !Array.isArray(plan.fixtures) || !plan.fixtures.length) throw new Error('technical_recovery_no_eligible_fixtures');
   if (plan.parentPolicyHash !== sourcePolicyHash || typeof plan.policyHash !== 'string' || !/^[a-f0-9]{64}$/.test(plan.policyHash)) {
     throw new Error('technical_recovery_plan_policy_mismatch');
@@ -37,7 +50,7 @@ async function recoveryPlanFor(env = process.env, options = {}) {
     if (options.technicalRecovery !== undefined) throw new Error('technical_recovery_flag_required');
     return undefined;
   }
-  if (options.technicalRecovery !== undefined) return validateRecoveryPlan(options.technicalRecovery, configuration.sourcePolicyHash);
+  if (options.technicalRecovery !== undefined) return validateRecoveryPlan(options.technicalRecovery, configuration.sourcePolicyHash, configuration.matchIds);
   const url = env.TURSO_DATABASE_URL?.trim();
   const authToken = env.TURSO_WATCHDOG_READONLY_TOKEN?.trim() || env.TURSO_AUTH_TOKEN?.trim();
   if (!url || !authToken) throw new Error('technical_recovery_database_credentials_missing');
@@ -47,7 +60,9 @@ async function recoveryPlanFor(env = process.env, options = {}) {
     const { loadTechnicalRecoveryRecords } = require('./recover-recommendation-technical');
     const loaded = await loadTechnicalRecoveryRecords(client, { sourcePolicyHash: configuration.sourcePolicyHash, day: configuration.day, now });
     const { buildRecoveryPlan } = require('../dist/research/ResearchRecommendationRecovery');
-    return validateRecoveryPlan(buildRecoveryPlan(loaded.records, loaded.currentPolicy, now), configuration.sourcePolicyHash);
+    const records = configuration.matchIds
+      ? loaded.records.filter(record => configuration.matchIds.includes(record.match.matchId)) : loaded.records;
+    return validateRecoveryPlan(buildRecoveryPlan(records, loaded.currentPolicy, now), configuration.sourcePolicyHash, configuration.matchIds);
   } finally { await client.close(); }
 }
 async function runNightly(options = {}) {

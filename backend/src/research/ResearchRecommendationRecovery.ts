@@ -1,3 +1,4 @@
+import { CalendarReceipt, calendarExpiredDuringRun, staleCalendarPair, STALE_CALENDAR_REASON } from './CalendarRecoveryEvidence';
 import { researchHash, researchJson } from './ResearchStore';
 import { DYNAMIC_STAKE_MODE, dynamicFundedExecutionPolicy, isDynamicFundedPolicy, VIRTUAL_RECOMMENDATION_POLICY } from './ResearchRecommendationPolicy';
 import type { RecommendationPolicyDescriptor } from './ResearchRecommendationStore';
@@ -7,12 +8,16 @@ export const TECHNICAL_RECOVERY_REASONS = [
 ] as const;
 const CALIBRATION_RECOVERY_REASONS = ['a_calibration_miss', 'c_calibration_configuration_mismatch'] as const;
 
-export function recoveryAllowedReasons(policy: RecommendationPolicyDescriptor): readonly string[] {
-  return isDynamicFundedPolicy(policy) ? CALIBRATION_RECOVERY_REASONS : TECHNICAL_RECOVERY_REASONS;
+export function recoveryAllowedReasons(policy: RecommendationPolicyDescriptor, sources: Array<{reasons: { A?: string | null; C?: string | null }}> = []): readonly string[] {
+  if (!isDynamicFundedPolicy(policy)) return TECHNICAL_RECOVERY_REASONS;
+  if (!sources.some(source => staleCalendarPair(source.reasons))) return CALIBRATION_RECOVERY_REASONS;
+  return sources.every(source => staleCalendarPair(source.reasons)) ? [STALE_CALENDAR_REASON]
+    : [...CALIBRATION_RECOVERY_REASONS, STALE_CALENDAR_REASON];
 }
 
 export function recoverableReasonPair(policy: RecommendationPolicyDescriptor, reasons: { A?: string | null; C?: string | null }): boolean {
-  if (isDynamicFundedPolicy(policy)) return reasons.A === CALIBRATION_RECOVERY_REASONS[0] && reasons.C === CALIBRATION_RECOVERY_REASONS[1];
+  if (isDynamicFundedPolicy(policy)) return staleCalendarPair(reasons)
+    || reasons.A === CALIBRATION_RECOVERY_REASONS[0] && reasons.C === CALIBRATION_RECOVERY_REASONS[1];
   const allowed: readonly string[] = TECHNICAL_RECOVERY_REASONS;
   return allowed.includes(reasons.A ?? '') && allowed.includes(reasons.C ?? '');
 }
@@ -38,6 +43,7 @@ export type ExistingTechnicalRecovery = {
   leaseExpiresAt?: string | null;
 };
 export type TechnicalRecoveryRecord = {
+  calendarReceipt?: CalendarReceipt | null;
   match: { matchId: string; kickoffAt: string; homeGoals: number | null; awayGoals: number | null };
   policy: { hash: string; descriptor: RecommendationPolicyDescriptor };
   job: { id: string; matchId: string; policyHash: string; runId: string; status: string;
@@ -54,6 +60,7 @@ export type TechnicalRecoveryRecord = {
   existingRecoveries: ExistingTechnicalRecovery[];
 };
 export type TechnicalRecoverySource = {
+  calendarReceipt?: CalendarReceipt;
   matchId: string; kickoffAt: string; windowEndAt: string; sourceJobId: string; sourceRunId: string;
   sourceInputId: string; sourceInputHash: string; sourcePreparedDecisionsHash: string;
   sourceDecisionIds: string[]; sourceDecisionSnapshotsHash: string;
@@ -158,7 +165,9 @@ function sourceReason(record: TechnicalRecoveryRecord, parentPolicyHash: string,
   const origins = [...originDecisions].sort((a, b) => String(a?.family).localeCompare(String(b?.family)));
   if (ordered.map(d => d?.family).join(',') !== 'A,C' || origins.map(d => d?.family).join(',') !== 'A,C'
     || new Set(ordered.map(d => d.id)).size !== 2 || new Set(origins.map(d => d.id)).size !== 2) return 'paired_source_decisions_required';
-  if (!recoverableReasonPair(policy.descriptor, { A: ordered[0].reason, C: ordered[1].reason })) return 'nontechnical_decision_preserved';
+  const reasons = { A: ordered[0].reason, C: ordered[1].reason };
+  if (staleCalendarPair(reasons) && !calendarExpiredDuringRun(snapshot, job.windowStartAt, record.calendarReceipt)) return 'calendar_expiry_not_verified';
+  if (!recoverableReasonPair(policy.descriptor, reasons)) return 'nontechnical_decision_preserved';
   for (let index = 0; index < 2; index++) {
     const decision = ordered[index], origin = origins[index], evidence = decision.snapshot;
     if (!id(decision.id) || !id(origin.id) || !id(decision.modelVersion)
@@ -205,6 +214,7 @@ export function buildRecoveryPlan(records: TechnicalRecoveryRecord[], currentPol
       sourceDecisionSnapshotsHash: researchHash(ordered.map(d => ({ id: d.id, snapshot: d.snapshot }))),
       originInputId: record.originInput.id,
       originDecisionIds: { A: ordered[0].originDecisionId, C: ordered[1].originDecisionId },
+      ...(staleCalendarPair({ A: ordered[0].reason, C: ordered[1].reason }) ? { calendarReceipt: record.calendarReceipt! } : {}),
       reasons: { A: ordered[0].reason!, C: ordered[1].reason! } });
   }
   sources.sort((a, b) => a.matchId.localeCompare(b.matchId));
@@ -215,7 +225,7 @@ export function buildRecoveryPlan(records: TechnicalRecoveryRecord[], currentPol
   if (new Set(identities).size !== identities.length) throw new Error('recovery_source_identity_reused');
   const policy = sources.length ? copy({ ...currentPolicy, recovery: {
     protocol: TECHNICAL_RECOVERY_PROTOCOL, reason: 'retry_technical_failure', parentPolicyHash,
-    retrospective: false, maxDepth: 1, allowedReasons: [...recoveryAllowedReasons(currentPolicy)],
+    retrospective: false, maxDepth: 1, allowedReasons: [...recoveryAllowedReasons(currentPolicy, sources)],
     matchIds: sources.map(source => source.matchId), sourceDecisionIds: sources.flatMap(source => source.sourceDecisionIds).sort(),
     sources,
   } }) : null;
