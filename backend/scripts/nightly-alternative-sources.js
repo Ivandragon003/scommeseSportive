@@ -95,7 +95,7 @@ async function run(args, deps = {}) {
         const fixtureById=new Map((state.snapshot?.fixtures ?? []).map(f=>[f.providerMatchId,f]));
         item.feed={ source:'football-data.org', status:plan.status,reason:plan.reason,planHash:plan.planHash, mappingSha256:plan.mappingSha256,
           attemptedAt:state.latestAttempt?.requestedAt ?? null, acquiredAt:plan.source?.acquiredAt ?? null,
-          payloadSha256:plan.source?.payloadSha256 ?? null, counts:plan.counts, result:null,
+          payloadSha256:plan.source?.payloadSha256 ?? null, contentSha256:plan.source?.contentSha256 ?? null, counts:plan.counts, result:null,
           fixtures:plan.entries.map(entry=>({ ...entry, providerStatus:fixtureById.get(entry.providerMatchId)?.status ?? null,
             homeTeamId:plan.mapping.teams[fixtureById.get(entry.providerMatchId)?.providerHomeTeamId] ?? null,
             awayTeamId:plan.mapping.teams[fixtureById.get(entry.providerMatchId)?.providerAwayTeamId] ?? null,

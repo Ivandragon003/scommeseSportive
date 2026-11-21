@@ -14,6 +14,7 @@ const { normalizeFootballDataOrgFeed, collectFootballDataOrgFeeds, SOURCE_FEED_C
 const { SOURCE_FEED_TRANSIENT_FAILURE_REASONS, SOURCE_FEED_TRANSIENT_FAILURE_BACKOFF_MS } = feedModule;
 const { SourceFeedStore } = storeModule;
 const { runSourceFeedCollector, localDatabasePath } = require('../scripts/collect-source-feeds');
+const { createAdmissionCalendar } = require('../scripts/nightly-source-context');
 const timestamp = '2026-11-05T12:00:00.000Z';
 
 function payload(competition = 'PL') {
@@ -36,6 +37,54 @@ async function cache(t) {
   await store.initialize({ allowCreate: true });
   return { client, store };
 }
+
+test('long Nightly renews expired imports per league only for identical normalized fixtures, with actual acquisition times', async t => {
+  const { store } = await cache(t);
+  let ms = Date.parse(timestamp), requests = 0, changeFixture = false;
+  const now = () => new Date(ms);
+  const collect = options => collectFootballDataOrgFeeds({ ...options, sleep: async delay => { ms += delay; },
+    fetcher: async ({ competition }) => {
+      assert.equal(competition, 'PL');
+      const data = payload(competition);
+      if (changeFixture) data.matches[0].score.fullTime.home = 1;
+      data.unusedProviderField = ++requests;
+      ms += 1000;
+      return { payload: data, acquiredAt: now().toISOString() };
+    } });
+  const first = (await collect({ store, competitions: ['PL'], season: 2026, apiKey: 'test', now })).feeds[0];
+  const planHash = 'a'.repeat(64);
+  const feed = { contentSha256: first.snapshot.contentSha256, acquiredAt: first.snapshot.acquiredAt,
+    attemptedAt: first.latestAttempt.requestedAt, payloadSha256: first.snapshot.payloadSha256, planHash,
+    result: { planHash }, fixtures: [{ localMatchId: 'm1', action: 'NO_CHANGE' }, { localMatchId: 'm2', action: 'NO_CHANGE' }] };
+  const manifest = { season: 2026, collection: { fdo: { networkRequests: 1 } }, competitions: [{ competition: 'PL', feed }] };
+  const calendar = createAdmissionCalendar(manifest, store, 'test', now, collect);
+  ms += SOURCE_FEED_COOLDOWN_MS - 1;
+  assert.equal((await calendar('m1', now().toISOString())).manifest, manifest);
+  ms++;
+  const beforeRefresh = now().toISOString();
+  const [a, b] = await Promise.all(['m1', 'm2'].map(id => calendar(id, beforeRefresh)));
+  const fresh = a.manifest.competitions[0].feed;
+  assert.equal(requests, 2);
+  assert.deepEqual(a, b);
+  assert.equal(fresh.acquiredAt, now().toISOString());
+  assert.equal(a.checkedAt, fresh.acquiredAt);
+  assert.ok(a.checkedAt > beforeRefresh);
+  assert.notEqual(fresh.payloadSha256, feed.payloadSha256);
+  assert.equal(fresh.contentSha256, feed.contentSha256);
+  assert.equal(feed.acquiredAt, first.snapshot.acquiredAt);
+  await calendar('m1', now().toISOString());
+  assert.equal(requests, 2);
+  changeFixture = true;
+  ms += SOURCE_FEED_COOLDOWN_MS;
+  const changed = await calendar('m2', now().toISOString());
+  assert.equal(requests, 3);
+  assert.equal(changed.manifest.competitions[0].feed.acquiredAt, fresh.acquiredAt);
+  const latest = await store.read('PL', 2026, changed.checkedAt);
+  assert.notEqual(latest.snapshot.contentSha256, changed.contentSha256);
+  assert.notEqual(latest.snapshot.acquiredAt, fresh.acquiredAt);
+  await calendar('m1', now().toISOString());
+  assert.equal(requests, 3, 'the collector honors cooldown even when the new content cannot be admitted');
+});
 
 test('full source calendars retain provider namespaces, genuine zeros, unknown publication and unsupported fields', () => {
   for (const competition of Object.keys(FOOTBALL_DATA_COMPETITIONS)) {
