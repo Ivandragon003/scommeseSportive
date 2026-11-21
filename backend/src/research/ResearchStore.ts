@@ -1,5 +1,5 @@
 import { challengerHistoryCutoff, predatesChallengerReset } from './ChallengerHistoryReset';
-import type { Client, Transaction } from '@libsql/client';
+import type { Client, InStatement, Transaction } from '@libsql/client';
 import { createHash, randomUUID } from 'node:crypto';
 import { settleGoalQuote } from './GoalSettlement';
 import { prospectiveBucket, prospectivePartition, FrozenProspectiveObservation, buildFrozenProspectiveObservations } from './ResearchProspectiveEvidence';
@@ -964,7 +964,7 @@ export class ResearchStore {
         if (portfolioId !== 'main' && portfolioId !== `shadow_${decision.family}`) throw new Error('Research portfolio family mismatch');
         const portfolio = await first(tx, `${this.portfolioSql} WHERE p.id=? GROUP BY p.id`, [portfolioId]);
         if (!portfolio) throw new Error('Research portfolio is not initialized');
-        const model = await first(tx, 'SELECT * FROM research_models WHERE family=? AND version=?', [decision.family, decision.modelVersion]);
+        const model = await first(tx, 'SELECT created_at FROM research_models WHERE family=? AND version=?', [decision.family, decision.modelVersion]);
         const market = await first(tx, 'SELECT * FROM research_markets WHERE family=? AND model_version=? AND market=?',
           [decision.family, decision.modelVersion, decision.market ?? '']);
         let reason = decision.reason ?? null;
@@ -1075,12 +1075,14 @@ export class ResearchStore {
       allowedByFamily.set(modelFamily, new Set(markets.map((market) => market.market)));
     }
     const selected: any[] = [], identities = new Set<string>();
+    const inserts: InStatement[] = [];
+    const inputHash = researchHash(input.inputSnapshot);
     for (const observation of input.observations ?? []) {
       const decision = input.decisions.find((entry) => entry.family === observation.family);
       const configuration = decision?.probabilityConfiguration;
       const modelKey = `${observation.family}:${observation.modelVersion}`;
       if (!models.has(modelKey)) models.set(modelKey,
-        await first(tx, 'SELECT * FROM research_models WHERE family=? AND version=?', [observation.family, observation.modelVersion]));
+        await first(tx, 'SELECT created_at,artifact_hash FROM research_models WHERE family=? AND version=?', [observation.family, observation.modelVersion]));
       const model = models.get(modelKey);
       const calibrationAt = decision?.calibrationAvailableAt;
       if (!decision || decision.validated !== true || decision.modelVersion !== observation.modelVersion
@@ -1118,9 +1120,9 @@ export class ResearchStore {
       const id = researchHash({ protocol: observation.protocol, matchId: job.matchId, family: observation.family,
         modelVersion: observation.modelVersion, configurationHash: observation.probabilityConfigurationHash,
         market: observation.market, bucket: observation.bucket });
-      const snapshot = { ...observation, matchId: job.matchId, inputId, inputHash: researchHash(input.inputSnapshot),
+      const snapshot = { ...observation, matchId: job.matchId, inputId, inputHash,
         modelArtifactHash: model.artifactHash, observedAt, frozenAt: iso(at()), kickoffAt: job.kickoffAt };
-      await tx.execute({ sql: `INSERT INTO research_prospective_observations
+      inserts.push({ sql: `INSERT INTO research_prospective_observations
         (id,job_id,input_id,match_id,family,model_version,model_artifact_hash,configuration_hash,market,bucket,partition,protocol,
         probability,expected_value,odds,observed_at,frozen_at,kickoff_at,snapshot_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       args: [id, job.id, inputId, job.matchId, observation.family, observation.modelVersion, model.artifactHash,
@@ -1128,6 +1130,7 @@ export class ResearchStore {
         observation.probability, observation.expectedValue, quote.odds, observedAt, snapshot.frozenAt, job.kickoffAt, researchJson(snapshot)] });
       selected.push({ id, ...snapshot });
     }
+    if (inserts.length) await tx.batch(inserts);
     return selected;
   }
 

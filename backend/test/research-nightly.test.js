@@ -305,6 +305,43 @@ test('quotes that age while another match is prepared are excluded without an au
   } finally { f.close(); }
 });
 
+test('diagnostics commit each fixture atomically and a retry resumes after a failed transaction', async () => {
+  const f = await fixture({ matches: 3 });
+  const commit = f.store.commitBatch.bind(f.store), sizes = [];
+  let interrupt = true;
+  f.store.commitBatch = async (items, ...rest) => {
+    sizes.push(items.length);
+    assert.ok(items.every(item => item.decisions.length === 2 && item.decisions.every(decision =>
+      decision.action === 'ABSTAIN' && decision.reason === 'diagnostic_only')));
+    if (interrupt && sizes.length === 2) throw Object.assign(new Error('private SQL details'), { code: 'TRANSACTION_CLOSED' });
+    return commit(items, ...rest);
+  };
+  const options = { policy: policy(), clock: f.clock, preparer: f.preparer, diagnosticOnly: true, runId: 'diagnostic-retry' };
+  const inputs = async () => (await f.client.execute('SELECT id,job_id,input_hash FROM research_inputs ORDER BY job_id')).rows;
+  try {
+    const failed = await runResearchNightly(f.db, options);
+    assert.equal(failed.errors, 1);
+    assert.equal(failed.diagnosticFailureStage, 'commit');
+    assert.equal(failed.diagnosticFailureCode, 'TRANSACTION_CLOSED');
+    assert.doesNotMatch(JSON.stringify(failed), /private SQL/);
+    const first = await inputs();
+    assert.equal(first.length, 1);
+    assert.equal((await f.store.listDecisions()).length, 2);
+    assert.deepEqual((await f.store.listJobs()).map(job => job.status).sort(), ['COMPLETED','PENDING','PENDING']);
+    interrupt = false;
+    const recovered = await runResearchNightly(f.db, options);
+    assert.equal(recovered.errors, 0);
+    assert.equal(recovered.registeredBets, 0);
+    assert.equal(recovered.analyzedMatches, 3);
+    assert.deepEqual(sizes, [1,1,1,1]);
+    const completed = await inputs();
+    assert.equal(completed.length, 3);
+    assert.deepEqual(completed.find(row => row.job_id === first[0].job_id), first[0]);
+    assert.equal((await f.store.listDecisions()).length, 6);
+    assert.equal((await f.store.listBets()).length, 0);
+  } finally { f.close(); }
+});
+
 test('nightly drains an in-flight lease renewal before finalizing the run or closing its database', async () => {
   const f = await fixture({ matches: 1 });
   let entered;

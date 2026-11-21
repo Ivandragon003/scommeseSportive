@@ -167,6 +167,8 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     summary.quota = diagnostic.quota;
     summary.apiErrors = diagnostic.apiErrors;
     summary.diagnosticPreparationErrors = diagnostic.diagnosticPreparationErrors ?? 0;
+    if (diagnostic.diagnosticFailureStage) summary.diagnosticFailureStage = diagnostic.diagnosticFailureStage;
+    if (diagnostic.diagnosticFailureCode) summary.diagnosticFailureCode = diagnostic.diagnosticFailureCode;
     summary.errors += diagnostic.errors;
     if (summary.diagnosticPreparationErrors) summary.reasonCounts.diagnostic_preparation_failed = summary.diagnosticPreparationErrors;
     // Failed research inference must not veto A. Only failures with safely stored

@@ -815,6 +815,14 @@ usa il batch contabile. Nella stessa transazione ricontrolla le astensioni
 di origine, le puntate presenti e i recuperi concorrenti prima di impegnare
 il saldo. I recuperi legacy mantengono il percorso originale.
 
+La fase diagnostica salva separatamente le evidenze di ogni partita dopo aver
+convertito entrambe le decisioni in astensioni diagnostiche. Se il salvataggio
+si interrompe, il tentativo successivo riusa le evidenze completate e riprende
+le partite mancanti. Le raccomandazioni a stake dinamico mantengono un unico
+gruppo di allocazione per i due portafogli.
+
+Gli errori della fase diagnostica riportano `diagnosticFailureStage` e, se
+riconosciuto, `diagnosticFailureCode` anche nel riepilogo A/C.
 Gli errori globali riportano `failedStage` e, quando riconosciuto da una
 whitelist, `failureCode`. Il riepilogo conserva l'esito negativo e il cleanup;
 messaggi grezzi, query e credenziali non vengono inclusi nella diagnostica.

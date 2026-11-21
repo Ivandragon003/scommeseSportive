@@ -335,38 +335,59 @@ export class ResearchRecommendationStore {
       const recovery = await this.recoveryContext(tx, policy);
       const jobs: RecommendationJob[] = [], skipped: any[] = [];
       const cutoff = await challengerHistoryCutoff(tx);
+      const legacy = !isPaperPolicy(policy.descriptor) && !isFundedPolicy(policy.descriptor) && !isDynamicFundedPolicy(policy.descriptor);
+      // Read every candidate under the same write lock. JSON keeps the number
+      // of SQL bind parameters constant even for a large paper cohort.
+      const matchIds = JSON.stringify(identities);
+      const candidates = await rows(tx, `SELECT requested.value AS match_id,
+        e.id AS previous_id,e.status,e.created_at AS previous_created_at,e.lease_expires_at,ei.id AS execution_input,
+        i.id AS origin_input,j.created_at AS origin_created_at,
+        MAX(CASE WHEN d.family='A' THEN d.id END) AS decision_a,
+        MAX(CASE WHEN d.family='C' THEN d.id END) AS decision_c,COUNT(d.id) AS decision_count
+        FROM json_each(?) requested
+        LEFT JOIN research_execution_jobs e ON e.match_id=requested.value AND e.policy_hash=?
+        LEFT JOIN research_execution_inputs ei ON ei.job_id=e.id
+        LEFT JOIN research_jobs j ON j.match_id=requested.value
+        LEFT JOIN research_inputs i ON i.job_id=j.id
+        LEFT JOIN research_decisions d ON d.input_id=i.id AND d.portfolio_id IN ('shadow_A','shadow_C')
+        GROUP BY requested.value`, [matchIds,input.policyHash]);
+      const byMatch = new Map(candidates.map(row => [row.matchId,row]));
+      const fullyBet = new Set(legacy ? (await rows(tx, `SELECT match_id FROM research_bets
+        WHERE match_id IN (SELECT value FROM json_each(?)) AND portfolio_id IN ('shadow_A','shadow_C')
+        GROUP BY match_id HAVING COUNT(DISTINCT portfolio_id)=2`, [matchIds])).map(row => row.matchId) : []);
+      const writes: { sql: string; args: any[] }[] = [];
+      const origins: Array<Pick<RecommendationJob,'originInputId'|'originDecisionIds'>> = [];
       let active = false;
       for (const fixture of input.fixtures) {
         const kickoff = iso(fixture.kickoffAt), at = iso(this.clock());
         const skip = (reason: string) => { skipped.push({ matchId: fixture.matchId, reason }); };
         if (Date.parse(kickoff) <= Date.parse(at) || Date.parse(kickoff) > Date.parse(end)) { skip('outside_execution_window'); continue; }
-        const previous = await first(tx, 'SELECT * FROM research_execution_jobs WHERE match_id=? AND policy_hash=?', [fixture.matchId, input.policyHash]);
-        if (previous && predatesChallengerReset(previous.createdAt, cutoff)) { skip('challenger_history_reset'); continue; }
-        if (previous && (['COMPLETED', 'SKIPPED'].includes(previous.status)
-          || await first(tx, 'SELECT id FROM research_execution_inputs WHERE job_id=?', [previous.id]))) { skip('policy_decision_already_recorded'); continue; }
-        if (previous?.status === 'CLAIMED' && Date.parse(previous.leaseExpiresAt) > Date.parse(at)) { active = true; skip('execution_lease_active'); continue; }
+        const row = byMatch.get(fixture.matchId);
+        if (row.previousId && predatesChallengerReset(row.previousCreatedAt, cutoff)) { skip('challenger_history_reset'); continue; }
+        if (['COMPLETED', 'SKIPPED'].includes(row.status) || row.executionInput) { skip('policy_decision_already_recorded'); continue; }
+        if (row.status === 'CLAIMED' && Date.parse(row.leaseExpiresAt) > Date.parse(at)) { active = true; skip('execution_lease_active'); continue; }
         const recoveryReason = await this.recoveryAdmissionReason(tx, recovery,
-          { ...fixture, windowEndAt: end }, previous?.id ?? '', Date.parse(at));
+          { ...fixture, windowEndAt: end }, row.previousId ?? '', Date.parse(at));
         if (recoveryReason) { if (recoveryReason === 'prior_recovery_in_progress') active = true; skip(recoveryReason); continue; }
-        const origin = await first(tx, `SELECT i.id,j.created_at FROM research_inputs i JOIN research_jobs j ON j.id=i.job_id WHERE j.match_id=?`, [fixture.matchId]);
-        if (!origin) { skip('origin_input_missing'); continue; }
-        if (predatesChallengerReset(origin.createdAt, cutoff)) { skip('challenger_history_reset'); continue; }
-        const origins = await rows(tx, "SELECT id,family FROM research_decisions WHERE input_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [origin.id]);
-        const originIds = Object.fromEntries(origins.map((decision) => [decision.family, decision.id]));
-        if (!originIds.A || !originIds.C || origins.length !== 2) { skip('paired_origin_decisions_required'); continue; }
-        if (!isPaperPolicy(policy.descriptor) && !isFundedPolicy(policy.descriptor) && !isDynamicFundedPolicy(policy.descriptor)) {
-          const existingBets = await first(tx, "SELECT COUNT(DISTINCT portfolio_id) AS count FROM research_bets WHERE match_id=? AND portfolio_id IN ('shadow_A','shadow_C')", [fixture.matchId]);
-          if (Number(existingBets.count) === 2) { skip('both_portfolios_already_bet'); continue; }
-        }
-        const id = previous?.id ?? randomUUID(), token = randomUUID();
+        if (!row.originInput) { skip('origin_input_missing'); continue; }
+        if (predatesChallengerReset(row.originCreatedAt, cutoff)) { skip('challenger_history_reset'); continue; }
+        if (!row.decisionA || !row.decisionC || Number(row.decisionCount) !== 2) { skip('paired_origin_decisions_required'); continue; }
+        if (fullyBet.has(fixture.matchId)) { skip('both_portfolios_already_bet'); continue; }
+        const id = row.previousId ?? randomUUID(), token = randomUUID();
         const expires = iso(Math.min(Date.parse(at) + Math.max(1000, Math.min(input.leaseMs ?? 180000, 900000)), Date.parse(end), Date.parse(kickoff)));
-        if (previous) await tx.execute({ sql: `UPDATE research_execution_jobs SET run_id=?,kickoff_at=?,window_start_at=?,window_end_at=?,status='CLAIMED',
-          lease_token=?,lease_expires_at=?,reason=NULL,claimed_at=?,updated_at=? WHERE id=?`, args: [input.runId, kickoff, start, end, token, expires, at, at, id] });
-        else await tx.execute({ sql: `INSERT INTO research_execution_jobs(id,match_id,policy_hash,run_id,kickoff_at,window_start_at,window_end_at,status,
-          lease_token,lease_expires_at,claimed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'CLAIMED',?,?,?,?,?)`,
+        if (row.previousId) writes.push({ sql: `UPDATE research_execution_jobs SET run_id=?,kickoff_at=?,window_start_at=?,window_end_at=?,status='CLAIMED',
+          lease_token=?,lease_expires_at=?,reason=NULL,claimed_at=?,updated_at=? WHERE id=? RETURNING *`, args: [input.runId, kickoff, start, end, token, expires, at, at, id] });
+        else writes.push({ sql: `INSERT INTO research_execution_jobs(id,match_id,policy_hash,run_id,kickoff_at,window_start_at,window_end_at,status,
+          lease_token,lease_expires_at,claimed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'CLAIMED',?,?,?,?,?) RETURNING *`,
         args: [id, fixture.matchId, input.policyHash, input.runId, kickoff, start, end, token, expires, at, at, at] });
-        jobs.push({ ...await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [id]), originInputId: origin.id,
-          originDecisionIds: originIds as { A: string; C: string } });
+        origins.push({ originInputId: row.originInput, originDecisionIds: { A: row.decisionA, C: row.decisionC } });
+      }
+      for (let offset = 0; offset < writes.length; offset += 200) {
+        const results = await tx.batch(writes.slice(offset,offset + 200));
+        results.forEach((result,index) => {
+          if (result.rows.length !== 1) throw new Error('Execution job claim lost');
+          jobs.push({ ...object(result.rows[0]), ...origins[offset + index] });
+        });
       }
       return { jobs, skipped, busy: jobs.length === 0 && active };
     });
@@ -393,12 +414,21 @@ export class ResearchRecommendationStore {
     await this.ensureGuards();
     return this.research.runResearchTransaction(async (tx) => {
       let allOwned = true;
+      const stored = await rows(tx, 'SELECT * FROM research_execution_jobs WHERE id IN (SELECT value FROM json_each(?))',
+        [JSON.stringify(jobs.map(job => job.id))]);
+      const byId = new Map(stored.map(row => [row.id,row]));
+      const updates: { sql: string; args: any[] }[] = [];
       for (const requested of jobs) {
-        const job = await first(tx, 'SELECT * FROM research_execution_jobs WHERE id=?', [requested.id]), now = this.clock().getTime();
+        const job = byId.get(requested.id), now = this.clock().getTime();
         try { this.assertLease(job, requested.leaseToken, now); } catch { allOwned = false; continue; }
         const expires = iso(Math.min(now + Math.max(1000, Math.min(leaseMs, 900000)), Date.parse(job.windowEndAt), Date.parse(job.kickoffAt)));
-        await tx.execute({ sql: 'UPDATE research_execution_jobs SET lease_expires_at=?,updated_at=? WHERE id=? AND lease_token=?',
+        updates.push({ sql: 'UPDATE research_execution_jobs SET lease_expires_at=?,updated_at=? WHERE id=? AND lease_token=?',
           args: [expires, iso(now), job.id, requested.leaseToken] });
+        job.leaseExpiresAt = expires;
+      }
+      for (let offset = 0; offset < updates.length; offset += 200) {
+        const results = await tx.batch(updates.slice(offset,offset + 200));
+        if (results.some(result => result.rowsAffected !== 1)) allOwned = false;
       }
       return allOwned;
     });

@@ -103,6 +103,31 @@ const walletAmounts = async research => (await research.listPortfolios())
   .map(wallet => [wallet.id, wallet.availableCents, wallet.committedCents, wallet.equityCents]);
 const count = async (client, table) => Number((await client.execute(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n);
 
+test('26 recommendations claim and renew in bounded transaction round trips', async () => {
+  const f = await setup({ matches: 26 });
+  try {
+    let roundTrips = 0;
+    const transact = f.research.runResearchTransaction.bind(f.research);
+    f.research.runResearchTransaction = (work, beforeCommit) => transact(tx => work({
+      execute: statement => { roundTrips++; return tx.execute(statement); },
+      batch: statements => { roundTrips++; return tx.batch(statements); },
+    }), beforeCommit);
+    const claimed = await claim(f);
+    assert.equal(claimed.jobs.length, 26);
+    assert.deepEqual(claimed.jobs.map(job => job.matchId), f.fixtures.map(fixture => fixture.matchId));
+    assert.ok(roundTrips <= 7, `claim used ${roundTrips} round trips`);
+    roundTrips = 0;
+    f.setTime(new Date(Date.parse(START) + 1000).toISOString());
+    const stale = { ...claimed.jobs[0], leaseToken: 'different-owner' };
+    assert.equal(await f.execution.renewLeases([stale, ...claimed.jobs.slice(1)], 30000), false);
+    assert.equal(roundTrips, 2);
+    const renewed = await f.execution.listJobs({ runId: RUN });
+    assert.equal(renewed.find(job => job.id === stale.id).updatedAt, START);
+    assert.ok(renewed.filter(job => job.id !== stale.id).every(job => job.updatedAt === f.clock().toISOString()));
+    assert.equal((await claim(f)).busy, true);
+  } finally { await f.close(); }
+});
+
 async function recoveryPolicies(f, reasons = { A: 'odds_cache_only', C: 'odds_cache_only' }) {
   const { recoveryAllowedReasons } = require('../dist/research/ResearchRecommendationRecovery');
   const jobs = (await claim(f)).jobs;

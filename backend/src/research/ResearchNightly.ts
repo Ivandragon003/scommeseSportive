@@ -76,6 +76,8 @@ export type NightlySummary = {
   prospectiveEvidence?: { checked: number; settled: number; unresolved: number; frozen: number };
   diagnosticOnly?: boolean;
   diagnosticPreparationErrors?: number;
+  diagnosticFailureStage?: 'settlement' | 'preparation' | 'commit' | 'metrics';
+  diagnosticFailureCode?: 'TRANSACTION_CLOSED' | 'SQLITE_BUSY' | 'SQLITE_CONSTRAINT' | 'SERVER_ERROR';
 };
 
 const isDiagnosticInfrastructureFailure = (error: unknown): boolean => {
@@ -161,6 +163,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   }, Math.min(45000, Math.max(250, (options.leaseMs ?? 180000) / 3)));
   // The finite CLI job owns this handle until finally clears it. Unref would
   // allow Node to exit while preparation still awaits asynchronous work.
+  let stage: NonNullable<NightlySummary['diagnosticFailureStage']> = 'settlement';
   try {
     summary.settlement = await settleResearchBets(db);
     if (options.paperMode) {
@@ -171,6 +174,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
     }
     if (options.dataGatesPassed === false) { reason('required_data_gates_failed'); throw new Error('required_data_gates_failed'); }
     summary.prospectiveEvidence = { ...await settleProspectiveEvidence(db, clock), frozen: 0 };
+    stage = 'preparation';
     for (const skipped of claim.skipped ?? []) {
       if (!['decision_already_recorded', 'bet_already_recorded'].includes(skipped.reason)) summary.skippedMatches++;
       reason(skipped.reason);
@@ -255,15 +259,29 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
       admissible.push(item);
     }
     if (leaseLost) throw new Error('nightly_lease_lost');
-    const committed = await db.research.commitBatch(admissible.map((item) => ({ jobId: item.job.id,
-      leaseToken: item.job.leaseToken, inputSnapshot: item.inputSnapshot as Record<string, any>,
-      observations: Array.isArray(item.prospectiveObservations) ? item.prospectiveObservations : [],
-      decisions: item.decisions.map((decision) => ({ ...decision, market: String(decision.market ?? '') })) })), clock());
-    summary.registeredBets = committed.bets.length;
-    for (const item of admissible) {
-      if (!committed.bets.some((bet: any) => bet.matchId === item.job.matchId)) summary.skippedMatches++;
+    stage = 'commit';
+    // Diagnostic decisions are paired abstentions; different fixtures never compete for capital.
+    // Each fixture, its prospective evidence and both decisions remain one atomic transaction.
+    const groups = options.diagnosticOnly ? admissible.map(item => [item]) : [admissible];
+    for (const group of groups) {
+      if (leaseLost) throw new Error('nightly_lease_lost');
+      if (options.diagnosticOnly && clock().getTime() >= Date.parse(group[0].kickoffAt)) {
+        const { job } = group[0];
+        summary.missedMatches++; reason('match_started');
+        await db.research.finishJob(job.id, job.leaseToken, { status: 'MISSED', reason: 'match_started' });
+        continue;
+      }
+      const committed = await db.research.commitBatch(group.map((item) => ({ jobId: item.job.id,
+        leaseToken: item.job.leaseToken, inputSnapshot: item.inputSnapshot as Record<string, any>,
+        observations: Array.isArray(item.prospectiveObservations) ? item.prospectiveObservations : [],
+        decisions: item.decisions.map((decision) => ({ ...decision, market: String(decision.market ?? '') })) })), clock());
+      summary.registeredBets += committed.bets.length;
+      for (const item of group) {
+        if (!committed.bets.some((bet: any) => bet.matchId === item.job.matchId)) summary.skippedMatches++;
+      }
+      for (const decision of committed.decisions) if (decision.action === 'ABSTAIN') reason(decision.reason ?? 'model_abstained');
     }
-    for (const decision of committed.decisions) if (decision.action === 'ABSTAIN') reason(decision.reason ?? 'model_abstained');
+    stage = 'metrics';
     const totals = await db.research.getNightlyRunMetrics(run.id);
     summary.registeredBets = totals.registeredBets;
     summary.prospectiveEvidence.frozen = await db.research.countNightlyProspectiveObservations(run.id);
@@ -271,7 +289,13 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
     summary.skippedMatches = Math.max(summary.skippedMatches, totals.abstainedMatches);
     Object.assign(summary.reasonCounts, totals.reasonCounts);
     summary.quota = preparer?.getQuotaStatus() ?? null;
-  } catch {
+  } catch (error: any) {
+    if (options.diagnosticOnly) {
+      summary.diagnosticFailureStage = stage;
+      if (['TRANSACTION_CLOSED', 'SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'SERVER_ERROR'].includes(error?.code)) {
+        summary.diagnosticFailureCode = error.code;
+      }
+    }
     summary.errors++; reason('nightly_execution_failed');
   } finally {
     clearInterval(renew); await renewal;

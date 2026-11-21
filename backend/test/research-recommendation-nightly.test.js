@@ -523,9 +523,16 @@ test('invalid diagnostic job identity and changed fixture do not become fallback
       const prepared = await originalPrepare(job);
       return fault === 'job_identity' ? { ...prepared, job: { ...job, matchId: 'another-match' } } : prepared;
     };
-    if (fault === 'origin_commit') f.research.commitBatch = async () => { throw new Error('Origin store unavailable'); };
+    if (fault === 'origin_commit') f.research.commitBatch = async () => {
+      throw Object.assign(new Error('Private store details'), { code: 'TRANSACTION_CLOSED' });
+    };
     const result = await execute(f);
     assert.ok(result.errors > 0); assert.equal(result.diagnosticPreparationErrors, 0);
+    if (fault === 'origin_commit') {
+      assert.equal(result.diagnosticFailureCode, 'TRANSACTION_CLOSED');
+      assert.ok(result.diagnosticFailureStage);
+      assert.doesNotMatch(JSON.stringify(result), /Private store details/);
+    }
     assert.equal(f.counters.claims, 0); assert.equal(f.counters.executionPreparations, 0);
     assert.equal((await f.research.listDecisions()).length, 0);
     assert.equal((await f.research.listBets()).length, 0);
