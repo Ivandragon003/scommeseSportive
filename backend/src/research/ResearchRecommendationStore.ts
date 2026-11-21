@@ -285,14 +285,21 @@ export class ResearchRecommendationStore {
       });
       const stale = group.filter((source: any) => staleCalendarPair(source.reasons));
       if (stale.length) {
-        const snapshots = stale.flatMap((source: any) => [
-          evidence.get(source.matchId)!.original?.snapshot, byMatch.get(source.matchId)!.currentSnapshot,
-        ]);
+        const checkedAt = this.clock().toISOString();
+        const snapshots = stale.flatMap((source: any) => {
+          const current = byMatch.get(source.matchId)!.currentSnapshot;
+          const atCommit = current && { match: current.match, metadata: { sourceAdmission: { asOf: checkedAt } } };
+          return [evidence.get(source.matchId)!.original?.snapshot, current, atCommit];
+        });
         const receipts = await recoveryCalendarReceipts(tx, snapshots);
         stale.forEach((source: any, index: number) => {
           const row = evidence.get(source.matchId)!;
-          row.originalReceipt = receipts[2 * index];
-          row.currentReceipt = receipts[2 * index + 1];
+          row.originalReceipt = receipts[3 * index];
+          const admissionReceipt = receipts[3 * index + 1], latestReceipt = receipts[3 * index + 2];
+          // A failed, pending or superseding acquisition since the gate invalidates it.
+          if (admissionReceipt && latestReceipt && researchHash(admissionReceipt) === researchHash(latestReceipt)) {
+            row.currentReceipt = latestReceipt;
+          }
         });
       }
     }

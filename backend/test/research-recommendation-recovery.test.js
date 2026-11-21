@@ -262,3 +262,27 @@ test('funded recovery requires the exact calibration pair, adopted descriptor an
   assert.throws(() => buildRecoveryPlan([], { ...parent, unexpectedOverride: true }, NOW), /parent_execution_configuration_changed/);
   assert.throws(() => buildRecoveryPlan([], dynamicFundedExecutionPolicy(fallbackChallengerState()), NOW), /parent_execution_configuration_changed/);
 });
+
+
+test('stale-source recovery requires both families blocked solely by the same calendar that expired during the run', () => {
+  const { calendarExpiredDuringRun, calendarRecovered, staleCalendarPair } = require('../dist/research/CalendarRecoveryEvidence');
+  const start = '2026-10-31T09:00:00.000Z', checked = '2026-10-31T09:15:03.000Z';
+  const denied = { eligible: false, reasons: ['source_feed_stale','calendar_stale_or_unavailable'] };
+  const receipt = { requestedAt: start, acquiredAt: start, finishedAt: start, contentSha256: 'a'.repeat(64), payloadSha256: 'b'.repeat(64) };
+  const snapshot = { match: { matchId: 'one' }, observedAt: checked, metadata: { sourceAdmission: {
+    matchId: 'one', asOf: checked, common: denied, families: { A: denied, C: denied }, markets: { goal: { A: denied, C: denied } } } } };
+  assert.equal(calendarExpiredDuringRun(snapshot,start,receipt),true);
+  const unrelated = structuredClone(snapshot);
+  unrelated.metadata.sourceAdmission.families.A = { eligible: false, reasons: ['source_feed_stale', 'a_calibration_miss'] };
+  assert.equal(calendarExpiredDuringRun(unrelated,start,receipt),false);
+  assert.equal(calendarExpiredDuringRun(snapshot,start,null),false);
+  assert.equal(calendarExpiredDuringRun(snapshot,'2026-10-31T09:15:00.000Z',receipt),false);
+  assert.equal(calendarExpiredDuringRun(snapshot,start,{ ...receipt, finishedAt: checked }),false);
+  assert.equal(staleCalendarPair({ A: 'real_fresh_quote_required', C: 'source_feed_stale' }),false);
+  const fresh = { ...snapshot, observedAt: start, metadata: { sourceAdmission: { matchId: 'one', asOf: start,
+    common: { eligible: true, reasons: [] }, calendarEvidence: { attempt: start, acquisition: start, action: 'NO_CHANGE',
+      contentSha256: receipt.contentSha256, payloadSha256: receipt.payloadSha256, mappingSha256: 'c'.repeat(64), importManifestSha256: 'd'.repeat(64) } } } };
+  assert.equal(calendarRecovered(fresh,start,Date.parse(start)+899999,receipt),true);
+  assert.equal(calendarRecovered(fresh,start,Date.parse(start)+900000,receipt),false);
+  assert.equal(calendarRecovered(fresh,start,Date.parse(start),{ ...receipt, contentSha256: 'e'.repeat(64) }),false);
+});

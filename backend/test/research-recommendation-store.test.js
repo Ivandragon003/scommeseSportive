@@ -260,7 +260,16 @@ test('calendar recovery commits exactly six requested fixtures out of 26 with in
     invalid[5].inputSnapshot.metadata.sourceAdmission.calendarEvidence = { ...fresh, payloadSha256: 'a'.repeat(64) };
     await assert.rejects(f.execution.commitBatch(invalid), /fresh verified calendar/);
     assert.equal(await count(f.client,'dynamic_model_bets'),0);
-    const result = await f.execution.commitBatch(childJobs.map(job => mkInput(job,true,fresh)));
+    const preparedBeforeFailure = childJobs.map(job => mkInput(job,true,fresh));
+    f.setTime(date(3.5));
+    const pending = await f.client.execute({ sql: `INSERT INTO source_feed_attempts(provider,competition,season,requested_at,status)
+      VALUES ('football-data.org','PL',2026,?,'pending')`, args: [date(3.5)] });
+    await assert.rejects(f.execution.commitBatch(preparedBeforeFailure), /calendar/);
+    assert.equal(await count(f.client,'dynamic_model_bets'),0);
+    await f.client.execute({ sql: `UPDATE source_feed_attempts SET status='success',snapshot_hash=?,acquired_at=?,
+      finished_at=?,payload_sha256=? WHERE id=?`, args: [fresh.contentSha256,date(3.5),date(3.5),fresh.payloadSha256,pending.lastInsertRowid] });
+    const renewed = { ...fresh, attempt: date(3.5), acquisition: date(3.5) };
+    const result = await f.execution.commitBatch(childJobs.map(job => mkInput(job,true,renewed)));
     assert.equal(result.decisions.length,12);
     assert.equal(result.bets.length,12);
     assert.equal(await count(f.client,'research_execution_decisions'),originals+12);
