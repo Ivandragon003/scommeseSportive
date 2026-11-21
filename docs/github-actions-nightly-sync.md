@@ -675,6 +675,10 @@ Un tentativo della giornata precedente non recupera una diversa giornata.
   abilitate, fonti verificate e kickoff futuro; crea una policy figlia e
   preserva giocate esistenti e decisioni non tecniche. Controlla i recuperi
   già conclusi anche al commit.
+  Dopo un successo A/C nella stessa giornata impostare anche
+  `recover_missing_fixtures=true`: il primo controllo del workflow usa
+  questo flag per ammettere un secondo avvio. Il piano tecnico limita comunque
+  le nuove decisioni alle fixture verificate.
   Con un budget quote limitato, `recovery_match_ids` permette di indicare
   gli ID come array JSON. Il runner verifica la lista e genera il piano
   soltanto per le partite richieste e ancora ammissibili.
