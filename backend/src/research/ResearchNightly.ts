@@ -77,8 +77,20 @@ export type NightlySummary = {
   diagnosticOnly?: boolean;
   diagnosticPreparationErrors?: number;
   diagnosticFailureStage?: 'settlement' | 'preparation' | 'commit' | 'metrics';
-  diagnosticFailureCode?: 'TRANSACTION_CLOSED' | 'SQLITE_BUSY' | 'SQLITE_CONSTRAINT' | 'SERVER_ERROR';
+  diagnosticFailureCode?: 'TRANSACTION_CLOSED' | 'SQLITE_BUSY' | 'SQLITE_CONSTRAINT' | 'SERVER_ERROR'
+    | 'prospective_configuration_ineligible' | 'prospective_selection_mismatch' | 'invalid_prospective_observation'
+    | 'nightly_lease_lost' | 'fixture_changed' | 'input_identity_mismatch';
 };
+
+const diagnosticStoreErrors = new Map<string, NonNullable<NightlySummary['diagnosticFailureCode']>>([
+  ['Prospective model configuration is not technically eligible', 'prospective_configuration_ineligible'],
+  ['Prospective selection must match the frozen probability pipeline', 'prospective_selection_mismatch'],
+  ['Invalid frozen prospective observation', 'invalid_prospective_observation'],
+  ['Research job lease lost', 'nightly_lease_lost'],
+  ['Research nightly lease lost', 'nightly_lease_lost'],
+  ['Research fixture changed before commit', 'fixture_changed'],
+  ['Shared nightly input identity mismatch', 'input_identity_mismatch'],
+]);
 
 const isDiagnosticInfrastructureFailure = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return false;
@@ -294,6 +306,9 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
       summary.diagnosticFailureStage = stage;
       if (['TRANSACTION_CLOSED', 'SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'SERVER_ERROR'].includes(error?.code)) {
         summary.diagnosticFailureCode = error.code;
+      } else {
+        const code = diagnosticStoreErrors.get(error?.message);
+        if (code) summary.diagnosticFailureCode = code;
       }
     }
     summary.errors++; reason('nightly_execution_failed');

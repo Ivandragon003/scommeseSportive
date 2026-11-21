@@ -820,6 +820,9 @@ convertito entrambe le decisioni in astensioni diagnostiche. Se il salvataggio
 si interrompe, il tentativo successivo riusa le evidenze completate e riprende
 le partite mancanti. Le raccomandazioni a stake dinamico mantengono un unico
 gruppo di allocazione per i due portafogli.
+Per le osservazioni della release C con `joint_head_v1`, il registro verifica
+il descrittore del classificatore e della calibrazione confrontandolo con
+quello ricostruito dall'artefatto C registrato.
 
 Gli errori della fase diagnostica riportano `diagnosticFailureStage` e, se
 riconosciuto, `diagnosticFailureCode` anche nel riepilogo A/C.

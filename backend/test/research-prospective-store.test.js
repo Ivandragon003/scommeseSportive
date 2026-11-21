@@ -69,6 +69,39 @@ test('ABSTAIN forecasts freeze independent prospective evidence atomically witho
   } finally { f.close(); }
 });
 
+test('joint-head C freezes only the configuration authenticated by the registered artifact', async () => {
+  const f = await setup();
+  try {
+    const artifact = require('./fixtures/joint-head-artifact').jointHeadArtifact();
+    const { descriptor, hash } = require('../dist/research/ChallengerAdoption').registeredChallengerConfiguration(artifact);
+    await f.store.saveModel({ family: 'C', version: artifact.version, artifact });
+    await f.store.setMarketState({ family: 'C', modelVersion: artifact.version, market: '1x2', state: 'EXPERIMENTAL' });
+    const base = await prepared(f);
+    const decision = base.decisions.find(d => d.family === 'C');
+    Object.assign(decision, { modelVersion: artifact.version, probabilityConfiguration: descriptor,
+      probabilityConfigurationHash: hash, calibrationPipelineHash: artifact.pipelineHashV2 });
+    const observation = base.observations.find(o => o.family === 'C');
+    Object.assign(observation, { modelVersion: artifact.version, probabilityConfigurationHash: hash });
+    for (const [family, changes] of [['C', { classifierHash: '0'.repeat(64) }], ['C', { implementationHash: '1'.repeat(64) }],
+      ['C', { version: 'probability-configuration-v1' }], ['A', { ...descriptor, family: 'A' }]]) {
+      const input = structuredClone(base);
+      const changed = input.decisions.find(d => d.family === family);
+      Object.assign(changed.probabilityConfiguration, changes);
+      changed.probabilityConfigurationHash = researchHash(changed.probabilityConfiguration);
+      input.observations.find(o => o.family === family).probabilityConfigurationHash = changed.probabilityConfigurationHash;
+      input.inputSnapshot.prospectiveObservations = input.observations;
+      await assert.rejects(f.store.commitDecisions(input), /configuration is not technically eligible/);
+      assert.equal((await f.store.listPendingProspectiveObservations()).length, 0);
+    }
+    const committed = await f.store.commitDecisions(base);
+    assert.equal(committed.bets.length, 0);
+    assert.equal(committed.decisions.length, 2);
+    assert.equal(committed.observations.length, 2);
+    assert.equal(committed.observations.find(o => o.family === 'C').probabilityConfigurationHash, hash);
+    assert.equal(committed.observations.find(o => o.family === 'A').probabilityConfigurationHash, researchHash(config('A')));
+  } finally { f.close(); }
+});
+
 test('official results append payouts at the effective availability clock and repeat settlement never rewrites it', async () => {
   const f = await setup();
   try {

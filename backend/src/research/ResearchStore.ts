@@ -47,6 +47,14 @@ const family = (value: string): ResearchFamily => {
   if (value !== 'A' && value !== 'C') throw new Error('Invalid research family');
   return value;
 };
+function registeredConfigurationMatches(model: any, configuration: Record<string, any>, nightly: boolean): boolean {
+  if (model?.candidateKind === 'joint_head_v1' && nightly) {
+    return configuration.family === 'C' && configuration.version === 'c-joint-head-probability-configuration-v1'
+      && researchHash(configuration) === model.jointConfigurationHash;
+  }
+  return configuration.version === 'probability-configuration-v1';
+}
+
 const rowObject = (row: any): any => {
   if (!row) return null;
   const output: any = {};
@@ -81,6 +89,7 @@ function challengerProspectiveTimingReason(observation: { kickoffAt: unknown; ob
 /** Research uses separate tables and integer cents; legacy balances are never read or written. */
 export class ResearchStore {
   private readonly previewModelsC = new Map<string, any>();
+  private jointConfigurationCache?: { version: string; artifactHash: string; configurationHash: string };
   private readonly previewModelLoadsC = new Map<string, Promise<any>>();
   private guards: Promise<void> | undefined;
   private writeQueue: Promise<unknown> = Promise.resolve();
@@ -884,6 +893,27 @@ export class ResearchStore {
     if (!this.inWindow(job, now)) throw new Error(`Research ${job.mode === 'NIGHTLY' ? 'nightly' : 'T15'} commit window closed`);
   }
 
+  private async commitModel(tx: Transaction, family: ResearchFamily, version: string): Promise<any> {
+    const model = await first(tx, `SELECT created_at,artifact_hash,
+      CASE WHEN family='C' THEN json_extract(artifact_json,'$.candidateKind') END AS candidate_kind
+      FROM research_models WHERE family=? AND version=?`, [family, version]);
+    if (model?.candidateKind !== 'joint_head_v1') return model;
+    const cached = this.jointConfigurationCache;
+    if (cached?.version === version && cached.artifactHash === model.artifactHash) {
+      return { ...model, jointConfigurationHash: cached.configurationHash };
+    }
+    const registered = await first(tx, 'SELECT artifact_json FROM research_models WHERE family=? AND version=?', [family, version]);
+    const artifact = registered?.artifact;
+    if (artifact?.family !== family || artifact?.version !== version || researchHash(artifact) !== model.artifactHash) {
+      throw new Error('Registered joint-head artifact identity mismatch');
+    }
+    // Use the same classifier, implementation and calibration checks used at adoption.
+    const { registeredChallengerConfiguration } = require('./ChallengerAdoption') as typeof import('./ChallengerAdoption');
+    const configurationHash = registeredChallengerConfiguration(artifact).hash;
+    this.jointConfigurationCache = { version, artifactHash: model.artifactHash, configurationHash };
+    return { ...model, jointConfigurationHash: configurationHash };
+  }
+
   async commitDecisions(input: ResearchCommit): Promise<any> {
     const result = await this.commitBatch([input], input.now ?? this.clock());
     return { ...result, job: result.jobs[0] ?? null };
@@ -964,7 +994,7 @@ export class ResearchStore {
         if (portfolioId !== 'main' && portfolioId !== `shadow_${decision.family}`) throw new Error('Research portfolio family mismatch');
         const portfolio = await first(tx, `${this.portfolioSql} WHERE p.id=? GROUP BY p.id`, [portfolioId]);
         if (!portfolio) throw new Error('Research portfolio is not initialized');
-        const model = await first(tx, 'SELECT created_at FROM research_models WHERE family=? AND version=?', [decision.family, decision.modelVersion]);
+        const model = await this.commitModel(tx, decision.family, decision.modelVersion);
         const market = await first(tx, 'SELECT * FROM research_markets WHERE family=? AND model_version=? AND market=?',
           [decision.family, decision.modelVersion, decision.market ?? '']);
         let reason = decision.reason ?? null;
@@ -974,7 +1004,7 @@ export class ResearchStore {
         if (!market || !(nightly ? ['EXPERIMENTAL', 'SHADOW', 'ACTIVE'] : ['SHADOW', 'ACTIVE']).includes(market.state)) abstain('market_not_validated');
         const configuration = decision.probabilityConfiguration;
         if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)
-          || configuration.family !== decision.family || configuration.version !== 'probability-configuration-v1'
+          || configuration.family !== decision.family || !registeredConfigurationMatches(model, configuration, nightly)
           || configuration.probabilityProtocol !== 'joint-goal-coherent-v2'
           || !/^[a-f0-9]{64}$/.test(decision.probabilityConfigurationHash ?? '')
           || researchHash(configuration) !== decision.probabilityConfigurationHash
@@ -1082,12 +1112,12 @@ export class ResearchStore {
       const configuration = decision?.probabilityConfiguration;
       const modelKey = `${observation.family}:${observation.modelVersion}`;
       if (!models.has(modelKey)) models.set(modelKey,
-        await first(tx, 'SELECT created_at,artifact_hash FROM research_models WHERE family=? AND version=?', [observation.family, observation.modelVersion]));
+        await this.commitModel(tx, observation.family, observation.modelVersion));
       const model = models.get(modelKey);
       const calibrationAt = decision?.calibrationAvailableAt;
       if (!decision || decision.validated !== true || decision.modelVersion !== observation.modelVersion
         || decision.probabilityConfigurationHash !== observation.probabilityConfigurationHash
-        || !configuration || configuration.family !== observation.family || configuration.version !== 'probability-configuration-v1'
+        || !configuration || configuration.family !== observation.family || !registeredConfigurationMatches(model, configuration, true)
         || configuration.probabilityProtocol !== 'joint-goal-coherent-v2'
         || !configuration.baselineVersion || !/^[a-f0-9]{64}$/.test(configuration.pipelineHashV2 ?? '')
         || !/^[a-f0-9]{64}$/.test(configuration.calibratorHash ?? '')

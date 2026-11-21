@@ -22,22 +22,8 @@ test('conditional spread preserves calibrated result masses and zero support', (
 
 test('joint classifier and frozen profiles are authenticated', () => {
   const { validateArtifact } = require('../dist/research/CatBoostModel');
-  const { FEATURE_NAMES, FEATURE_SCHEMA_VERSION } = require('../dist/research/ForecastCore');
-  const { researchHash } = require('../dist/research/ResearchStore');
-  const { opportunityGuardImplementationHash } = require('../dist/research/COpportunityGuardRecommendation');
-  const { jointHeadImplementationHash } = require('../dist/research/JointHeadConfiguration');
-  const calibration = { example: 1 };
-  const guard = { protocol: 'c-opportunity-value-guard-v1', planSha256: 'a'.repeat(64), profilesSha256: 'b'.repeat(64),
-    profile: { protocol: 'c-opportunity-gap-guard-v1', frozenPlanSha256: 'a'.repeat(64), modelVersion: 'original' },
-    reliabilityProfile: { protocol: 'c-prequential-payout-reliability-v1', modelVersion: 'original' } };
-  const artifact = { family: 'C', version: '', baselineVersion: 'A-test', pipelineHashV2: 'f'.repeat(64), featureNames: FEATURE_NAMES, featureSchema: FEATURE_SCHEMA_VERSION,
-    candidateKind: 'joint_head_v1', productionValidated: false, independentEvidence: false, weight: .75, temperature: .8, trainedThrough: '2025-01-01T00:00:00Z',
-    validationThrough: '2025-02-01T00:00:00Z', createdAt: '2025-03-01T00:00:00Z', models: { jointHead: model },
-    calibrationProfilesV2: { C: calibration }, opportunityGuard: guard,
-    jointHeadIdentity: { protocol: 'c-joint-head-v1', classifierHash: researchHash(model), guardHash: researchHash(guard),
-      calibrationHash: researchHash(calibration), originalModelVersion: 'original', selectorImplementationHash: opportunityGuardImplementationHash(),
-      implementationHash: jointHeadImplementationHash(), baselineVersion: 'A-test', pipelineHashV2: 'f'.repeat(64) } };
-  artifact.version = `C-${researchHash(artifact.jointHeadIdentity).slice(0, 16)}`;
+  const artifact = require('./fixtures/joint-head-artifact').jointHeadArtifact(model);
+  const guard = artifact.opportunityGuard;
   validateArtifact(artifact);
   assert.throws(() => validateArtifact({ ...artifact, opportunityGuard: { ...guard, planSha256: 'c'.repeat(64) } }), /invalid_joint_head/);
   assert.throws(() => validateArtifact({ ...artifact, models: { jointHead: { ...model, scale_and_bias: [1, [1, 0, 0, 0, 0, 0]] } } }), /invalid_joint_head/);

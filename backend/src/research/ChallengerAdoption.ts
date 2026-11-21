@@ -44,7 +44,7 @@ const ciPasses = (value: unknown): boolean => Array.isArray(value) && value.leng
 async function rows(db: Executor, sql: string, args: any[] = []): Promise<any[]> { return (await db.execute({ sql, args })).rows as any[]; }
 async function first(db: Executor, sql: string, args: any[] = []): Promise<any> { return (await rows(db, sql, args))[0] ?? null; }
 
-function configuration(artifact: HybridArtifact) {
+export function registeredChallengerConfiguration(artifact: HybridArtifact) {
   validateArtifact(artifact);
   if (artifact.probabilityProtocol !== COHERENT_PROBABILITY_PROTOCOL || artifact.pipelineHashV2 !== coherentProbabilityPipelineHash()
     || !artifact.baselineVersion || artifact.diagnosticOnly === true || artifact.runtimeCompatible === false
@@ -61,7 +61,7 @@ function configuration(artifact: HybridArtifact) {
 function deployment(artifact: HybridArtifact, selectorPolicy: ChallengerSelectorPolicy): ChallengerDeployment {
   if (!selectors.includes(selectorPolicy)) throw new Error('explicit_challenger_selector_policy_required');
   return { modelVersion: artifact.version, baselineVersion: artifact.baselineVersion!, selectorPolicy,
-    probabilityConfigurationHash: configuration(artifact).hash, artifactHash: researchHash(artifact) };
+    probabilityConfigurationHash: registeredChallengerConfiguration(artifact).hash, artifactHash: researchHash(artifact) };
 }
 function forecast(artifact: HybridArtifact, input: ForecastInput, quotes: ResearchQuote[], history?: ResearchMatch[]) {
   let modelInput = input;
@@ -190,7 +190,7 @@ export class ChallengerAdoptionStore {
     const row = await first(tx, "SELECT artifact_json,artifact_hash FROM research_models WHERE family='C' AND version=?", [version]);
     if (!row || researchHash(parse(row.artifact_json)) !== row.artifact_hash) throw new Error('challenger_artifact_unavailable_or_corrupt');
     const artifact = parse(row.artifact_json) as HybridArtifact;
-    configuration(artifact); return artifact;
+    registeredChallengerConfiguration(artifact); return artifact;
   }
   private async currentDeployment(tx: Executor, state: ChallengerAdoptionState): Promise<ChallengerDeployment> {
     const artifact = await this.model(tx, state.deployment.modelVersion);
