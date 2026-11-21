@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createClient } = require('@libsql/client');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const { DatabaseService } = require('../dist/db/DatabaseService');
 const { ResearchRecommendationStore } = require('../dist/research/ResearchRecommendationStore');
 const { PAPER_RECOMMENDATION_POLICY, VIRTUAL_RECOMMENDATION_POLICY } = require('../dist/research/ResearchRecommendationPolicy');
-const { researchHash } = require('../dist/research/ResearchStore');
 
 test('paper fixture intake has no implicit 380/1000 cap while existing UI pagination is preserved', async () => {
   const rows = Array.from({ length: 1205 }, (_, index) => ({ match_id: `fixture-${index}`,
@@ -16,24 +18,22 @@ test('paper fixture intake has no implicit 380/1000 cap while existing UI pagina
   assert.match(queries[1].sql, /LIMIT \?/);
 });
 
-test('paper claims inspect every fixture beyond the old 10000 validation cap without bypassing origin checks', async () => {
+test('paper claims inspect every fixture beyond the old 10000 validation cap without bypassing origin checks', async t => {
   const fixtures = Array.from({ length: 10001 }, (_, index) => ({ matchId: `fixture-${index}`, kickoffAt: '2026-11-07T18:00:00.000Z' }));
-  let descriptor = PAPER_RECOMMENDATION_POLICY, originChecks = 0;
-  const tx = { execute: async (statement) => {
-    const sql = typeof statement === 'string' ? statement : statement.sql;
-    assert.match(sql, /^SELECT\b/); // No schema, provider or application writes in this guard test.
-    if (sql.includes('FROM research_execution_policies')) return { rows: [{ descriptor_json: JSON.stringify(descriptor) }] };
-    if (sql.includes('FROM research_inputs')) originChecks++;
-    return { rows: [] };
-  } };
-  const research = { runResearchTransaction: async (work) => work(tx) };
-  const store = new ResearchRecommendationStore({}, async () => {}, { research, now: () => new Date('2026-11-07T12:00:00.000Z') });
-  store.ensureGuards = async () => {};
-  const claim = () => store.claimBatch({ fixtures, runId: 'large-paper-fixture', policyHash: researchHash(descriptor),
+  const client = createClient({ url: 'file::memory:?cache=shared' });
+  t.after(() => client.close());
+  for (const name of ['015_research_platform.sql', '020_research_nightly.sql', '023_research_recommendation_execution.sql', '028_paper_model_bets.sql']) {
+    await client.executeMultiple(readFileSync(join(__dirname, '../migrations', name), 'utf8'));
+  }
+  const store = new ResearchRecommendationStore(client, async () => {}, { now: () => new Date('2026-11-07T12:00:00.000Z') });
+  const claim = policyHash => store.claimBatch({ fixtures, runId: 'large-paper-fixture', policyHash,
     windowStartAt: '2026-11-07T12:00:00.000Z', windowEndAt: '2026-11-08T12:00:00.000Z' });
-  const result = await claim();
-  assert.equal(originChecks, 10001); assert.equal(result.skipped.length, 10001);
+  const paper = await store.registerPolicy(PAPER_RECOMMENDATION_POLICY);
+  const result = await claim(paper.hash);
+  assert.deepEqual(result.skipped.map(row => row.matchId), fixtures.map(row => row.matchId));
   assert.ok(result.skipped.every(row => row.reason === 'origin_input_missing'));
-  descriptor = VIRTUAL_RECOMMENDATION_POLICY;
-  await assert.rejects(claim(), /Invalid execution claim/);
+  assert.deepEqual(result.jobs, []);
+  assert.equal((await client.execute('SELECT COUNT(*) AS n FROM research_execution_jobs')).rows[0].n, 0);
+  const legacy = await store.registerPolicy(VIRTUAL_RECOMMENDATION_POLICY);
+  await assert.rejects(claim(legacy.hash), /Invalid execution claim/);
 });

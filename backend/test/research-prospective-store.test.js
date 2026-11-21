@@ -151,17 +151,27 @@ test('expired leases and crossing kickoff during freeze cannot leave orphan evid
   const g = await setup();
   try {
     const input = await prepared(g), originalTransaction = g.client.transaction.bind(g.client);
+    let frozenBeforeKickoff = 0;
     g.client.transaction = async (...args) => {
       const transaction = await originalTransaction(...args);
-      const originalExecute = transaction.execute.bind(transaction);
-      transaction.execute = async (statement) => {
-        const result = await originalExecute(statement);
-        if (/INSERT INTO research_prospective_observations/.test(statement.sql ?? statement)) g.setTime(KICKOFF);
-        return result;
-      };
+      const read = transaction.execute.bind(transaction);
+      for (const method of ['execute', 'batch']) {
+        const write = transaction[method].bind(transaction);
+        transaction[method] = async (...params) => {
+          const result = await write(...params);
+          const statements = method === 'batch' ? params[0] : [params[0]];
+          if (statements.some(statement => /INSERT INTO research_prospective_observations/.test(statement.sql ?? statement))) {
+            frozenBeforeKickoff = Number((await read('SELECT COUNT(*) AS n FROM research_prospective_observations')).rows[0].n);
+            g.setTime(KICKOFF);
+          }
+          return result;
+        };
+      }
       return transaction;
     };
     await assert.rejects(g.store.commitDecisions(input), /lease lost|window closed/);
+    assert.ok(frozenBeforeKickoff > 0, 'advance to kickoff only after evidence has actually been inserted');
+    assert.equal((await g.client.execute('SELECT COUNT(*) AS n FROM research_inputs')).rows[0].n, 0);
     assert.equal((await g.store.listPendingProspectiveObservations()).length, 0);
     assert.equal((await g.store.listDecisions()).length, 0); assert.equal((await g.store.listLedger()).length, 2);
   } finally { g.close(); }
