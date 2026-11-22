@@ -5,6 +5,7 @@ import { AppPredictionOddsService } from '../services/AppPredictionOddsService';
 import { CanonicalRecommendationPacket,
   SharedPredictionOdds, CANONICAL_RECOMMENDATION_POLICY, isVisibleCanonicalTeamBet } from '../services/CanonicalBetRecommendation';
 import { ResearchRuntime } from './ResearchRuntime';
+import { loadResearchFixtureOdds } from './ResearchFixtureOdds';
 import { RecommendationQuote } from './AppRecommendationQuotes';
 import type { ResearchQuote } from './ResearchEvaluation';
 import { buildChallengerRecommendation, challengerTechnicalReason } from './ChallengerRecommendation';
@@ -119,7 +120,7 @@ export class ResearchRecommendationRuntime {
     const preparedC = prepared?.decisions.find(decision => decision.family === 'C');
     const cNeedsQuotes = teamMarketsC && !deniedC && !!preparedC
       && !challengerTechnicalReason(preparedC, at, this.deploymentC.deployment);
-    try { if (!deniedA || cNeedsQuotes) appInput = await this.appOdds.load(row); }
+    try { if (!deniedA || cNeedsQuotes) appInput = await loadResearchFixtureOdds(this.appOdds, row, metadata); }
     catch (error) { appFailure = safeOddsFailureCode(error) ?? 'app_odds_unavailable'; }
     const observedAt = this.clock().toISOString();
     if (Date.parse(observedAt) >= Date.parse(job.kickoffAt) || Date.parse(observedAt) >= Date.parse(job.windowEndAt)) {

@@ -7,6 +7,7 @@ import { CHALLENGER_TEAM_MARKET_POLICY, challengerAllowedMarkets, isChallengerSt
 import { buildChallengerTeamRecommendation, buildChallengerTeamConfiguration, selectChallengerTeamRecommendation } from './ChallengerTeamRecommendation';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
 import { previewInterruptedReadCode, ResearchRuntime } from './ResearchRuntime';
+import { loadResearchFixtureOdds } from './ResearchFixtureOdds';
 import { TOP5_COMPETITIONS } from './ForecastCore';
 import { buildChallengerRecommendation, challengerTechnicalReason } from './ChallengerRecommendation';
 import { readEffectiveResearchDecisions } from './ResearchRecommendationView';
@@ -235,7 +236,8 @@ export class ChallengerPreviewService {
     let packet: ReturnType<typeof buildChallengerRecommendation> | ReturnType<typeof buildChallengerTeamRecommendation>;
     if (teamMarkets) {
       let appInput: Awaited<ReturnType<AppPredictionOddsService['load']>> | undefined;
-      try { appInput = await this.appOdds.load(row as Parameters<AppPredictionOddsService['load']>[0]); }
+      try { appInput = await loadResearchFixtureOdds(this.appOdds, row as Parameters<AppPredictionOddsService['load']>[0],
+        prepared.inputSnapshot as Record<string, unknown>); }
       catch { /* Cached app prices may be absent; C goal prices remain independently usable. */ }
       const sheets = appInput?.sheets ?? (appInput ? [{ quotes: appInput.quotes, sharedOdds: appInput.sharedOdds }] : []);
       const validSheets = sheets.map(sheet => ({ ...sheet, quotes: sheet.quotes.filter(quote =>

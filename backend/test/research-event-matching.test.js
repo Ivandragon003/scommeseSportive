@@ -2,6 +2,29 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { matchingResearchEvent } = require('../dist/research/ResearchRuntime');
 const { scoreFixtureCandidate } = require('../dist/services/odds-provider/oddsProviderUtils');
+const { AppPredictionOddsService } = require('../dist/services/AppPredictionOddsService');
+const { loadResearchFixtureOdds } = require('../dist/research/ResearchFixtureOdds');
+
+test('A and C identify the verified Racing Santander event and reject duplicate or inverted listings', async () => {
+  const row = { competition: 'La Liga', home_team_name: 'Racing Santander', away_team_name: 'Real Sociedad',
+    date: '2026-11-22T15:15:00Z' };
+  const event = { matchId: 'odds_9718f9ea901236855faf57f77a0bd5b3', homeTeam: 'Real Racing Club de Santander',
+    awayTeam: 'Real Sociedad', commenceTime: row.date, provider: 'odds_api', bookmakers: [] };
+  const duplicate = { ...event, matchId: 'synthetic-duplicate', homeTeam: row.home_team_name };
+  const inverted = { ...event, homeTeam: event.awayTeam, awayTeam: event.homeTeam };
+  for (const [events, expected] of [[[event], event], [[event, duplicate], null], [[inverted], null]]) {
+    const primary = matchingResearchEvent(row, events);
+    assert.equal(primary, expected);
+    if (!primary) continue;
+    const snapshot = { providerEventId: primary.matchId, providerKickoffAt: primary.commenceTime,
+      providerTeamNames: { home: primary.homeTeam, away: primary.awayTeam } };
+    const provider = { getOddsForFixtures: async () => ({ matches: events, warnings: [] }) };
+    const service = new AppPredictionOddsService({}, { provider, clock: () => new Date('2026-11-22T10:00:00Z') });
+    assert.equal((await loadResearchFixtureOdds(service, row, snapshot)).metadata.providerEventId, primary.matchId);
+    await assert.rejects(loadResearchFixtureOdds(service, row, { ...snapshot, providerEventId: 'different' }), /event_mismatch/);
+    assert.equal(row.home_team_name, 'Racing Santander');
+  }
+});
 
 // Team names and kickoff times from saved provider responses; the November fixture reproduces the reported UI failure.
 const fixtures = [

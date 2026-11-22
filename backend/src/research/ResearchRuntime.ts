@@ -100,7 +100,7 @@ export function researchQuotesFromEvent(event: OddsMatch, capturedAt: string, op
   return options.allSheets ? allSheets : [...groups.values()].flatMap((sheet) => sheet.quotes);
 }
 
-// Verified Understat/provider names from the 2026-10-31 and 2026-11-02 cached responses.
+// Verified Understat/provider names from cached responses.
 // Keep these aliases local: the app's quote matching and prediction engine remain unchanged.
 const researchTeamAliases = new Map([
   ['Atalanta', 'Atalanta BC'],
@@ -111,6 +111,7 @@ const researchTeamAliases = new Map([
   ['Ipswich', 'Ipswich Town'],
   ['Schalke 04', 'FC Schalke 04'],
   ['RasenBallsport Leipzig', 'RB Leipzig'],
+  ['Racing Santander', 'Real Racing Club de Santander'],
 ].flatMap(group => group.map(name => [normalizeTeamForOdds(name), normalizeTeamForOdds(group[0])] as const)));
 const researchTeamForOdds = (name: string): string => researchTeamAliases.get(normalizeTeamForOdds(name)) ?? name;
 
@@ -678,6 +679,8 @@ export class ResearchRuntime {
     return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions, ...(paperQuotes ? { paperQuotes } : {}),
       ...(this.nightly && !inferenceOnlyC ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
+        ...([row.home_team_name, row.away_team_name].includes('Racing Santander')
+          ? { providerTeamNames: { home: event.homeTeam, away: event.awayTeam } } : {}),
         ...(challengerInput ? { challengerForecast: challengerInput } : {}),
         ...(challengerDataQuality ? { challengerDataQuality } : {}),
         ...(challengerCollection ? { challengerCollection } : {}),
