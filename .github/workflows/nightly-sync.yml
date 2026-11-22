@@ -42,6 +42,16 @@ on:
         type: string
         required: false
         default: ''
+      ordinary_match_ids:
+        description: Lista JSON di partite per riprendere una Nightly ordinaria incompleta sotto la policy originale
+        type: string
+        required: false
+        default: ''
+      ordinary_base_odds_only:
+        description: Per gli ordinary_match_ids richiedi in rete solo 1X2, handicap e totali; gli extra restano in cache
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -84,7 +94,7 @@ jobs:
       RUN_ODDS_SYNC: 'false'
       ODDS_INFORMATIONAL_NETWORK_ENABLED: 'false'
       # A keeps the app's event markets; all requests still share the persistent credit budget.
-      ODDS_EXTRA_EVENT_NETWORK_ENABLED: 'true'
+      ODDS_EXTRA_EVENT_NETWORK_ENABLED: ${{ inputs.ordinary_match_ids != '' && inputs.ordinary_base_odds_only && 'false' || 'true' }}
       RUN_TRANSITION_REFERENCE_SYNC: 'false'
       ODDS_SYNC_COMPETITIONS: "Serie A|Premier League|La Liga|Bundesliga|Ligue 1"
       UNDERSTAT_SYNC_TIMEOUT_SECONDS: '3600'
@@ -101,7 +111,8 @@ jobs:
       RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED: ${{ vars.RESEARCH_NIGHTLY_CALIBRATION_CACHE_ENABLED || 'false' }}
       RESEARCH_NIGHTLY_MINUTE: '7'
       RESEARCH_NIGHTLY_WINDOW_HOURS: ${{ vars.RESEARCH_NIGHTLY_WINDOW_HOURS || '' }}
-      RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '1200'
+      RESEARCH_NIGHTLY_TIMEOUT_SECONDS: '5400'
+      RESEARCH_NIGHTLY_ORDINARY_MATCH_IDS: ${{ inputs.ordinary_match_ids || '' }}
       RESEARCH_NIGHTLY_QUOTE_MAX_AGE_SECONDS: '300'
       RESEARCH_NIGHTLY_RECOVER_TECHNICAL: ${{ inputs.recover_technical_failures || 'false' }}
       RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY: ${{ inputs.recovery_source_policy || '' }}
@@ -148,7 +159,7 @@ jobs:
         run: bash scripts/ci/nightly-sync.sh
 
       - name: Confirm enabled A/C completion
-        if: success() && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true' && vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED == 'true'
+        if: success() && steps.nightly_guard.outputs.run == 'true' && vars.RESEARCH_NIGHTLY_ENABLED == 'true' && vars.RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED == 'true' && !inputs.ordinary_match_ids
         run: echo "Enabled A/C nightly completed after all required data gates."
 
       - name: Upload backend sync log

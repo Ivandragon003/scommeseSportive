@@ -120,7 +120,7 @@ async function unavailableDiagnostic(db: RuntimeDb, job: T15Job, clock: () => Da
 
 /** A finite job on the CI runner. No timer-driven betting and no legacy HTTP placement route. */
 export async function runResearchNightly(db: RuntimeDb, options: { policy?: NightlyPolicy; clock?: () => Date;
-  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean;
+  preparer?: NightlyPreparer; runId?: string; leaseMs?: number; dataGatesPassed?: boolean; diagnosticOnly?: boolean; ordinaryMatchIds?: string[];
   fixtureAdmission?: import('./ResearchRecommendationRuntime').FixtureAdmissionCheck; paperMode?: boolean; fundedMode?: boolean; dynamicMode?: boolean;
   allowChampionRollback?: boolean; collectChallengerForecasts?: boolean } = {}): Promise<NightlySummary> {
   if ([options.paperMode, options.fundedMode, options.dynamicMode].filter(Boolean).length > 1) throw new Error('Conflicting recommendation accounting modes');
@@ -148,7 +148,7 @@ export async function runResearchNightly(db: RuntimeDb, options: { policy?: Nigh
   await db.research.saveModel({ family: 'A', version: baseline.version, artifact: baseline });
   const fixtures = (options.dataGatesPassed === false ? [] : await db.getUpcomingMatches({ nowIso: startedAt, untilIso: summary.windowEndAt,
     ...(selectionMode ? { unbounded: true } : { limit: 10000 }) }))
-    .filter((row) => TOP5_COMPETITIONS.includes(row.competition));
+    .filter((row) => TOP5_COMPETITIONS.includes(row.competition) && (!options.ordinaryMatchIds || options.ordinaryMatchIds.includes(row.match_id)));
   const claim = await db.research.claimNightlyBatch({ startedAt: summary.startedAt, windowEndAt: summary.windowEndAt,
     runId, leaseMs: options.leaseMs, paperDiagnosticOnly: selectionMode && options.diagnosticOnly === true,
     quoteMaxAgeMs: admissionPolicy.quoteMaxAgeMs, minEv: admissionPolicy.minEv, minPrudentialEv: admissionPolicy.minPrudentialEv,

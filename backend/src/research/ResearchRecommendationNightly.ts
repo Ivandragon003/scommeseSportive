@@ -30,7 +30,7 @@ const technicalQuotePair = (decisions: RecommendationCommit['decisions']): boole
 type Options = {
   policy?: NightlyPolicy; clock?: () => Date; runId?: string; leaseMs?: number; dataGatesPassed?: boolean;
   diagnosticPreparer?: DiagnosticOptions['preparer']; researchRuntime?: ResearchRuntime; runtime?: RecommendationPreparer;
-  technicalRecovery?: TechnicalRecoveryPlan;
+  technicalRecovery?: TechnicalRecoveryPlan; ordinaryMatchIds?: string[];
   fixtureAdmission?: FixtureAdmissionCheck; requireExistingCalibration?: boolean; paperMode?: boolean; fundedMode?: boolean; dynamicMode?: boolean;
   reviewChallengerAdoption?: boolean; allowChampionRollback?: boolean; collectChallengerForecasts?: boolean;
 };
@@ -153,7 +153,8 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
     if (deploymentC.source !== 'fallback') summary.deploymentC = deploymentC;
     sharedRuntime?.pinChallengerDeployment(deploymentC.deployment);
     const diagnostic = await runResearchNightly(db, { policy, clock, runId, leaseMs: options.leaseMs,
-      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, paperMode: options.paperMode, fundedMode: options.fundedMode, dynamicMode: options.dynamicMode,
+      dataGatesPassed: options.dataGatesPassed, preparer: diagnosticPreparer, diagnosticOnly: true, ordinaryMatchIds: options.ordinaryMatchIds,
+      paperMode: options.paperMode, fundedMode: options.fundedMode, dynamicMode: options.dynamicMode,
       fixtureAdmission: options.fixtureAdmission ? (matchId, at) => options.fixtureAdmission!(matchId, at, deploymentC) : undefined });
     summary.diagnosticRunId = diagnostic.runId;
     summary.windowEndAt = diagnostic.windowEndAt;
@@ -186,6 +187,10 @@ export async function runRecommendationNightly(db: RecommendationDb, options: Op
       ...(selectionMode ? { unbounded: true } : { limit: 10000 }) }))
       .filter((row) => TOP5_COMPETITIONS.includes(row.competition) && row.home_goals == null && row.away_goals == null
         && Date.parse(row.date) > Date.parse(now) && Date.parse(row.date) <= Date.parse(summary.windowEndAt));
+    if (options.ordinaryMatchIds) {
+      fixtures = fixtures.filter(row => options.ordinaryMatchIds!.includes(row.match_id));
+      if (fixtures.length !== options.ordinaryMatchIds.length) throw new Error('ordinary_target_outside_eligible_window');
+    }
     if (options.technicalRecovery) {
       const allowed = new Map(options.technicalRecovery.fixtures.map((fixture) => [fixture.matchId, fixture]));
       fixtures = fixtures.filter((row) => allowed.has(row.match_id) && Date.parse(row.date) === Date.parse(allowed.get(row.match_id)!.kickoffAt));

@@ -178,6 +178,9 @@ test('i timeout distinti restano entro il budget totale del job', () => {
   assert.match(workflow, /timeout-minutes: 180/);
 
   const envTimeout = (name) => Number(workflow.match(new RegExp(`${name}: '(\\d+)'`))?.[1]);
+  assert.equal(envTimeout('RESEARCH_NIGHTLY_TIMEOUT_SECONDS'), 5400);
+  assert.match(nightly, /CALIBRATION_TIMEOUT_SECONDS="\$\{CALIBRATION_TIMEOUT_SECONDS:-1200\}"/);
+  assert.match(workflow, /name: Confirm enabled A\/C completion\r?\n[^\n]*!inputs\.ordinary_match_ids/);
   const totalSeconds = envTimeout('UNDERSTAT_SYNC_TIMEOUT_SECONDS')
     + envTimeout('FOOTBALL_DATA_TIMEOUT_SECONDS')
     + envTimeout('TRANSITION_REFERENCE_TIMEOUT_SECONDS')

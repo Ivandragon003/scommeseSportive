@@ -91,6 +91,20 @@ async function fixture(t, options = {}) {
 const execute = (f, extra = {}) => runRecommendationNightly(f.db, { policy: policy(), clock: f.clock,
   runId: 'github-actions:fixture', diagnosticPreparer: f.diagnosticPreparer, runtime: f.runtime, ...extra });
 
+test('ordinary targeted retries scope both claims and leave the same policy available to other fixtures', async t => {
+  const f = await fixture(t);
+  const first = await execute(f, { ordinaryMatchIds: ['fixture-1'] });
+  assert.equal(first.errors, 0);
+  for (const table of ['research_jobs', 'research_execution_jobs']) {
+    assert.deepEqual((await f.client.execute(`SELECT match_id FROM ${table}`)).rows.map(row => row.match_id), ['fixture-1']);
+  }
+  const second = await execute(f, { runId: 'github-actions:full-retry' });
+  assert.equal(second.errors, 0);
+  assert.equal(second.policyHash, first.policyHash);
+  assert.equal(f.counters.executionPreparations, 2);
+  assert.equal(f.counters.diagnosticPreparations, 2);
+});
+
 for (const code of ['TRANSACTION_CLOSED', 'private-token']) test(`commit failure classification preserves only allowed codes: ${code}`, async (t) => {
   const f = await fixture(t);
   f.recommendations.commitBatch = async () => { throw Object.assign(new Error('private URL and SQL'), { code }); };

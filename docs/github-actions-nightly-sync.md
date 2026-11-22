@@ -639,7 +639,24 @@ dopo il gate del job. Il profilo Compose opzionale è descritto nella
 | `RUN_ODDS_SYNC`, `ODDS_INFORMATIONAL_NETWORK_ENABLED` | `false`: niente raccolta informativa generale; il feed essenziale A/C resta distinto |
 | `ODDS_EXTRA_EVENT_NETWORK_ENABLED` | `true` nel workflow: mercati per evento di A soggetti a cache, costo e disponibilità |
 | `RESEARCH_T15_SCHEDULER_ENABLED` | `false`; il worker continuo è ritirato |
-| `RESEARCH_NIGHTLY_TIMEOUT_SECONDS` | `1200` per il processo A/C; job complessivo massimo 180 minuti |
+| `RESEARCH_NIGHTLY_TIMEOUT_SECONDS` | `5400` per il processo A/C, inclusa la diagnostica; la preparazione della calibrazione ha un limite separato di 1200 secondi. Il job complessivo ha un limite di 180 minuti |
+
+Per riprendere un'esecuzione ordinaria interrotta, un dispatch manuale può
+indicare in `ordinary_match_ids` un array JSON di ID partita. La diagnostica e
+la registrazione A/C considerano solo quegli incontri, entro la finestra
+ordinaria e con la policy originale. Le decisioni già completate sono
+immutabili. Scegliere incontri prossimi fra loro in gruppi piccoli: quote e
+calendario devono essere ancora validi quando il gruppo viene confermato.
+Se il capitale disponibile è scarso, la priorità di finanziamento si applica
+alle selezioni del singolo gruppo. Un gruppo mirato non attesta il completamento
+dell'intera giornata e non sostituisce il recupero tecnico delle astensioni
+archiviate. Restano attive le regole ordinarie della guardia giornaliera.
+Se i crediti residui sono limitati, `ordinary_base_odds_only=true` insieme
+agli ID evita le chiamate aggiuntive per mercato/evento. Restano le richieste
+base (1X2, handicap e totali) e le eventuali quote extra già in cache che
+superano i controlli di freschezza. Questo può ridurre i mercati valutabili
+da A. Il valore predefinito è `false`; le esecuzioni programmate mantengono
+la ricerca dei mercati extra.
 
 I default locali sono in [.env.example](../.env.example); i valori remoti
 non derivano automaticamente dal file locale. I flag Hostless dichiarano

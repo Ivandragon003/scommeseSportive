@@ -27,7 +27,8 @@ LEARNING_SYNC_TIMEOUT_SECONDS="${LEARNING_SYNC_TIMEOUT_SECONDS:-600}"
 FINAL_STATUS_TIMEOUT_SECONDS="${FINAL_STATUS_TIMEOUT_SECONDS:-120}"
 RUN_TRANSITION_REFERENCE_SYNC="${RUN_TRANSITION_REFERENCE_SYNC:-false}"
 RESEARCH_NIGHTLY_ENABLED="${RESEARCH_NIGHTLY_ENABLED:-false}"
-RESEARCH_NIGHTLY_TIMEOUT_SECONDS="${RESEARCH_NIGHTLY_TIMEOUT_SECONDS:-1200}"
+RESEARCH_NIGHTLY_TIMEOUT_SECONDS="${RESEARCH_NIGHTLY_TIMEOUT_SECONDS:-5400}"
+CALIBRATION_TIMEOUT_SECONDS="${CALIBRATION_TIMEOUT_SECONDS:-1200}"
 UPCOMING_KICKOFFS_TIMEOUT_SECONDS="${UPCOMING_KICKOFFS_TIMEOUT_SECONDS:-180}"
 NIGHTLY_SOURCE_MODE="${NIGHTLY_SOURCE_MODE:-primary}"
 NIGHTLY_SOURCE_MANIFEST_FILE="${NIGHTLY_SOURCE_MANIFEST_FILE:-${RUNNER_TEMP:-$ROOT_DIR/artifacts}/nightly-source-manifest.json}"
@@ -282,7 +283,7 @@ if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
         "${RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED:-false}" == "true" &&
         "$VERIFIED_IMPORT_COMPLETED" == "true" && "$RESEARCH_NIGHTLY_DATA_GATES_PASSED" == "true" ]]; then
     echo "Checking Model A live calibration after verified source maintenance..."
-    if ! OPERATIONAL_CALIBRATION_ENABLED=true timeout "$RESEARCH_NIGHTLY_TIMEOUT_SECONDS" \
+    if ! OPERATIONAL_CALIBRATION_ENABLED=true timeout "$CALIBRATION_TIMEOUT_SECONDS" \
       node scripts/calibration-operational.js --execute --authorize-calibration-writes --prepare-missing-live \
         --target-sha256 "$NIGHTLY_SOURCE_TARGET_SHA256" \
         --backup-file "${RUNNER_TEMP:-$(dirname "$NIGHTLY_SOURCE_MANIFEST_FILE")}/calibration-before-${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-1}.json"; then
@@ -291,11 +292,13 @@ if [[ "$RESEARCH_NIGHTLY_ENABLED" == "true" ]]; then
     fi
   fi
   echo "Running explicit Nightly Pre-Match Virtual Betting A/C..."
-  if ! RESEARCH_NIGHTLY_ENABLED=true RESEARCH_T15_SCHEDULER_ENABLED=false \
+  RESEARCH_NIGHTLY_ENABLED=true RESEARCH_T15_SCHEDULER_ENABLED=false \
     RESEARCH_NIGHTLY_DATA_GATES_PASSED="$RESEARCH_NIGHTLY_DATA_GATES_PASSED" \
-    timeout "$RESEARCH_NIGHTLY_TIMEOUT_SECONDS" node scripts/research-nightly.js; then
+    timeout "$RESEARCH_NIGHTLY_TIMEOUT_SECONDS" node scripts/research-nightly.js || {
+    nightly_exit=$?
+    if [[ "$nightly_exit" == "124" ]]; then echo "Virtual Nightly exceeded its ${RESEARCH_NIGHTLY_TIMEOUT_SECONDS}s limit."; fi
     REQUIRED_SYNC_FAILURES+=("virtual-nightly")
-  fi
+  }
 else
   echo "New virtual A/C registrations disabled. RESEARCH_NIGHTLY_ENABLED=false."
 fi

@@ -18,6 +18,16 @@ function injectedPlan() {
   return { parentPolicyHash: sourcePolicyHash, policy, policyHash: researchHash(policy),
     fixtures: [{ matchId: 'synthetic-fixture', kickoffAt: '2026-10-31T17:00:00.000Z' }] };
 }
+
+test('ordinary fixture targeting fails before DB access for malformed or conflicting inputs', async () => {
+  for (const raw of ['[]', '["foo","foo"]', 'bad']) {
+    await assert.rejects(runNightly(guardedOptions({ RESEARCH_NIGHTLY_ORDINARY_MATCH_IDS: raw })), /ordinary_match_ids_invalid/);
+  }
+  for (const env of [recoveryEnv(), { RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED: 'false' }]) {
+    await assert.rejects(runNightly(guardedOptions({ ...env, RESEARCH_NIGHTLY_ORDINARY_MATCH_IDS: '["fixture-1"]' })),
+      /ordinary_targets_require_enabled_ordinary_recommendations/);
+  }
+});
 function emptyReadOnlyClient() {
   const calls = [];
   return { calls, closed: false, async execute(statement) {

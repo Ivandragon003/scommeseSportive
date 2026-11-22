@@ -4,18 +4,21 @@ function recommendationEnabled(env = process.env) {
   if (value !== undefined && !['true', 'false'].includes(value)) throw new Error('Invalid RESEARCH_NIGHTLY_RECOMMENDATION_ENABLED');
   return value === 'true';
 }
+function parseMatchIds(rawIds, errorCode) {
+  if (rawIds === undefined || rawIds === '') return undefined;
+  let ids;
+  try { if (typeof rawIds === 'string') ids = JSON.parse(rawIds); } catch { /* validated below */ }
+  if (!Array.isArray(ids) || !ids.length || ids.length > 100
+    || ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id))
+    || new Set(ids).size !== ids.length) throw new Error(errorCode);
+  return ids;
+}
 function recoveryConfiguration(env, now) {
   const flag = env.RESEARCH_NIGHTLY_RECOVER_TECHNICAL;
   if (flag !== undefined && !['true', 'false'].includes(flag)) throw new Error('Invalid RESEARCH_NIGHTLY_RECOVER_TECHNICAL');
   const rawIds = env.RESEARCH_NIGHTLY_RECOVERY_MATCH_IDS;
-  let matchIds;
-  if (rawIds !== undefined && rawIds !== '') {
-    if (flag !== 'true') throw new Error('technical_recovery_flag_required');
-    try { if (typeof rawIds === 'string') matchIds = JSON.parse(rawIds); } catch { /* validated below */ }
-    if (!Array.isArray(matchIds) || !matchIds.length || matchIds.length > 100
-      || matchIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id))
-      || new Set(matchIds).size !== matchIds.length) throw new Error('technical_recovery_match_ids_invalid');
-  }
+  if (rawIds !== undefined && rawIds !== '' && flag !== 'true') throw new Error('technical_recovery_flag_required');
+  const matchIds = parseMatchIds(rawIds, 'technical_recovery_match_ids_invalid');
   if (flag !== 'true') return { enabled: false };
   const sourcePolicyHash = env.RESEARCH_NIGHTLY_RECOVERY_SOURCE_POLICY;
   if (typeof sourcePolicyHash !== 'string' || !/^[a-f0-9]{64}$/.test(sourcePolicyHash)) {
@@ -74,6 +77,10 @@ async function runNightly(options = {}) {
   const useRecommendations = recommendationEnabled(env);
   const now = env.RESEARCH_NIGHTLY_RECOVER_TECHNICAL === 'true' ? (options.clock ?? (() => new Date()))() : undefined;
   const recovery = recoveryConfiguration(env, now);
+  const ordinaryMatchIds = parseMatchIds(env.RESEARCH_NIGHTLY_ORDINARY_MATCH_IDS, 'ordinary_match_ids_invalid');
+  if (ordinaryMatchIds && (recovery.enabled || !policy.enabled || !useRecommendations)) {
+    throw new Error('ordinary_targets_require_enabled_ordinary_recommendations');
+  }
   if (recovery.enabled && (!policy.enabled || !useRecommendations)) throw new Error('technical_recovery_requires_enabled_recommendations');
   if (!recovery.enabled && options.technicalRecovery !== undefined) throw new Error('technical_recovery_flag_required');
   const log = options.log ?? ((record) => console.log(JSON.stringify(record)));
@@ -98,6 +105,7 @@ async function runNightly(options = {}) {
     const execute = useRecommendations
       ? require('../dist/research/ResearchRecommendationNightly').runRecommendationNightly : runResearchNightly;
     const result = await execute(db, { ...options, policy, runId, dynamicMode: useRecommendations,
+      ordinaryMatchIds,
       requireExistingCalibration: true,
       ...(alternativeSources ? { fixtureAdmission, requireExistingCalibration: true, reviewChallengerAdoption: false,
         allowChampionRollback: false, collectChallengerForecasts: false } : {}),
