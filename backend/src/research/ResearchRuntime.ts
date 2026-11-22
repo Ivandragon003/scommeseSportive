@@ -2,6 +2,7 @@ import { DatabaseService } from '../db/DatabaseService';
 import { OddsApiService, OddsMatch } from '../services/OddsApiService';
 import { getConfiguredOddsApiKey } from '../services/odds-provider/providerRuntimeConfig';
 import { normalizeTeamForOdds, scoreFixtureCandidate } from '../services/odds-provider/oddsProviderUtils';
+import { researchProviderTeamNames, verifiedBookmakerNames } from './ResearchFixtureOdds';
 import { baselineManifest, buildForecastInput, ForecastInput, ResearchMatch, TOP5_COMPETITIONS } from './ForecastCore';
 import { HybridArtifact, predictHybrid, validateArtifact } from './CatBoostModel';
 import { CalibrationSample, explainResearchDecision, ResearchQuote } from './ResearchEvaluation';
@@ -107,11 +108,10 @@ const researchTeamAliases = new Map([
   ['Parma Calcio 1913', 'Parma'],
   ['Borussia M.Gladbach', 'Borussia Monchengladbach'],
   ['Paderborn', 'SC Paderborn'],
-  ['Hull', 'Hull City'],
   ['Ipswich', 'Ipswich Town'],
   ['Schalke 04', 'FC Schalke 04'],
   ['RasenBallsport Leipzig', 'RB Leipzig'],
-  ['Racing Santander', 'Real Racing Club de Santander'],
+  ...verifiedBookmakerNames.entries(),
 ].flatMap(group => group.map(name => [normalizeTeamForOdds(name), normalizeTeamForOdds(group[0])] as const)));
 const researchTeamForOdds = (name: string): string => researchTeamAliases.get(normalizeTeamForOdds(name)) ?? name;
 
@@ -676,11 +676,11 @@ export class ResearchRuntime {
       if (Date.parse(current.date) !== Date.parse(row.date)) return { ...base, kickoffAt: current.date, status: 'upcoming' };
       if (Date.parse(row.date) <= this.clock().getTime()) return { ...base, status: 'started' };
     }
+    const providerTeamNames = researchProviderTeamNames(row.home_team_name, row.away_team_name, event.homeTeam, event.awayTeam);
     return { job, kickoffAt: row.date, status: 'upcoming', quotes, decisions, ...(paperQuotes ? { paperQuotes } : {}),
       ...(this.nightly && !inferenceOnlyC ? { prospectiveObservations } : {}),
       inputSnapshot: { observedAt: snapshotAt, forecast: input, quotes, providerEventId: event.matchId, providerKickoffAt: event.commenceTime,
-        ...([row.home_team_name, row.away_team_name].includes('Racing Santander')
-          ? { providerTeamNames: { home: event.homeTeam, away: event.awayTeam } } : {}),
+        ...(providerTeamNames ? { providerTeamNames } : {}),
         ...(challengerInput ? { challengerForecast: challengerInput } : {}),
         ...(challengerDataQuality ? { challengerDataQuality } : {}),
         ...(challengerCollection ? { challengerCollection } : {}),

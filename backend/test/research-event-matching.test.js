@@ -3,27 +3,41 @@ const assert = require('node:assert/strict');
 const { matchingResearchEvent } = require('../dist/research/ResearchRuntime');
 const { scoreFixtureCandidate } = require('../dist/services/odds-provider/oddsProviderUtils');
 const { AppPredictionOddsService } = require('../dist/services/AppPredictionOddsService');
-const { loadResearchFixtureOdds } = require('../dist/research/ResearchFixtureOdds');
+const { loadResearchFixtureOdds, researchProviderTeamNames } = require('../dist/research/ResearchFixtureOdds');
+const { OddsApiService } = require('../dist/services/OddsApiService');
 
-test('A and C identify the verified Racing Santander event and reject duplicate or inverted listings', async () => {
-  const row = { competition: 'La Liga', home_team_name: 'Racing Santander', away_team_name: 'Real Sociedad',
-    date: '2026-11-22T15:15:00Z' };
-  const event = { matchId: 'odds_9718f9ea901236855faf57f77a0bd5b3', homeTeam: 'Real Racing Club de Santander',
-    awayTeam: 'Real Sociedad', commenceTime: row.date, provider: 'odds_api', bookmakers: [] };
-  const duplicate = { ...event, matchId: 'synthetic-duplicate', homeTeam: row.home_team_name };
+const sharedAliases = [
+  { competition: 'La Liga', home: 'Racing Santander', away: 'Real Sociedad', providerHome: 'Real Racing Club de Santander',
+    providerAway: 'Real Sociedad', kickoff: '2026-11-22T15:15:00Z', eventId: 'odds_9718f9ea901236855faf57f77a0bd5b3' },
+  { competition: 'Premier League', home: 'Hull', away: 'Brighton', providerHome: 'Hull City',
+    providerAway: 'Brighton and Hove Albion', kickoff: '2026-11-22T14:00:00Z', eventId: 'odds_230a356290e1a358e9dd2f7fa23de3b9' },
+];
+
+for (const entry of sharedAliases) test(`A and C identify the same verified event for ${entry.home}–${entry.away}`, async () => {
+  const row = Object.freeze({ competition: entry.competition, home_team_name: entry.home, away_team_name: entry.away, date: entry.kickoff });
+  const now = '2026-11-22T10:00:00Z';
+  const event = { matchId: entry.eventId, homeTeam: entry.providerHome, awayTeam: entry.providerAway,
+    commenceTime: row.date, provider: 'odds_api', capturedAt: now, bookmakers: [{
+      bookmakerKey: 'test', bookmakerName: 'Test Book', markets: [{ marketKey: 'h2h', updatedAt: now,
+        outcomes: [{ name: entry.providerHome, price: 2.2 }, { name: 'Draw', price: 3 }, { name: entry.providerAway, price: 3.5 }] }]
+    }] };
+  const duplicate = { ...event, matchId: 'synthetic-duplicate', homeTeam: row.home_team_name, awayTeam: row.away_team_name };
   const inverted = { ...event, homeTeam: event.awayTeam, awayTeam: event.homeTeam };
-  for (const [events, expected] of [[[event], event], [[event, duplicate], null], [[inverted], null]]) {
-    const primary = matchingResearchEvent(row, events);
-    assert.equal(primary, expected);
-    if (!primary) continue;
-    const snapshot = { providerEventId: primary.matchId, providerKickoffAt: primary.commenceTime,
-      providerTeamNames: { home: primary.homeTeam, away: primary.awayTeam } };
-    const provider = { getOddsForFixtures: async () => ({ matches: events, warnings: [] }) };
-    const service = new AppPredictionOddsService({}, { provider, clock: () => new Date('2026-11-22T10:00:00Z') });
-    assert.equal((await loadResearchFixtureOdds(service, row, snapshot)).metadata.providerEventId, primary.matchId);
-    await assert.rejects(loadResearchFixtureOdds(service, row, { ...snapshot, providerEventId: 'different' }), /event_mismatch/);
-    assert.equal(row.home_team_name, 'Racing Santander');
-  }
+  assert.equal(matchingResearchEvent(row, [event, duplicate]), null);
+  assert.equal(matchingResearchEvent(row, [inverted]), null);
+  const primary = matchingResearchEvent(row, [event]);
+  assert.equal(primary, event);
+  const mapper = new OddsApiService('unit-test-no-network');
+  const provider = { getOddsForFixtures: async () => ({ matches: [primary], warnings: [] }),
+    compareBookmakers: match => mapper.compareBookmakers(match) };
+  const service = new AppPredictionOddsService({}, { provider, clock: () => new Date(now) });
+  const snapshot = { providerEventId: primary.matchId, providerKickoffAt: primary.commenceTime,
+    providerTeamNames: researchProviderTeamNames(entry.home, entry.away, primary.homeTeam, primary.awayTeam) };
+  const selected = await loadResearchFixtureOdds(service, row, snapshot);
+  assert.equal(selected.metadata.providerEventId, primary.matchId);
+  assert.ok(selected.quotes.some(q => q.bookmaker === 'Test Book' && q.odds === 3.5));
+  await assert.rejects(loadResearchFixtureOdds(service, row, { ...snapshot, providerEventId: 'different' }), /event_mismatch/);
+  assert.equal(researchProviderTeamNames(entry.home, entry.away, 'Unknown Home', 'Unknown Away'), undefined);
 });
 
 // Team names and kickoff times from saved provider responses; the November fixture reproduces the reported UI failure.
